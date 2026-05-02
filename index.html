@@ -23,13 +23,14 @@
   --mono:'JetBrains Mono',monospace;
 }
 html,body,#root{height:100%;overflow:hidden}
+@supports(height:100dvh){html,body,#root{height:100dvh}}
 body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:16px;letter-spacing:.02em}
 button{font-family:var(--font);cursor:pointer;border:none;outline:none}
 input,select,textarea{font-family:var(--font);outline:none}
 ::-webkit-scrollbar{width:4px;height:4px}
 ::-webkit-scrollbar-track{background:var(--bg2)}
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
-.app{height:100vh;display:flex;flex-direction:column;overflow:hidden}
+.app{height:100vh;height:100dvh;display:flex;flex-direction:column;overflow:hidden}
 .app::before{content:'';position:fixed;inset:0;background:radial-gradient(ellipse 80% 50% at 50% -20%,rgba(14,165,233,.12),transparent);pointer-events:none;z-index:0}
 /* NAV */
 .nav{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:rgba(6,13,24,.95);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);z-index:10;flex-shrink:0;position:relative}
@@ -178,9 +179,10 @@ input,select,textarea{font-family:var(--font);outline:none}
 .toast{position:fixed;bottom:68px;left:50%;transform:translateX(-50%);background:var(--green2);color:#fff;padding:9px 20px;border-radius:20px;font-size:12px;font-weight:700;z-index:200;animation:toastIn .25s ease;letter-spacing:.04em;box-shadow:0 4px 20px rgba(0,0,0,.4);white-space:nowrap}
 @keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(8px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
 /* BOTTOM NAV */
-.bnav{display:flex;background:rgba(6,13,24,.97);backdrop-filter:blur(12px);border-top:1px solid var(--border);flex-shrink:0;z-index:10}
-.bnav-btn{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:9px 4px;background:none;color:var(--text3);font-size:10px;font-family:var(--font);letter-spacing:.03em;transition:all .15s;gap:3px}
+.bnav{display:flex;background:rgba(6,13,24,.97);backdrop-filter:blur(12px);border-top:1px solid var(--border);flex-shrink:0;z-index:100;position:sticky;bottom:0;width:100%}
+.bnav-btn{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:10px 4px;background:none;color:var(--text3);font-size:10px;font-family:var(--font);letter-spacing:.03em;transition:all .15s;gap:3px;min-height:56px}
 .bnav-btn.on,.bnav-btn:active{color:var(--blue)}
+.bnav{padding-bottom:env(safe-area-inset-bottom,0)}
 .bnav-icon{font-size:18px;line-height:1}
 /* UTILS */
 .flex{display:flex}.aic{align-items:center}.jb{justify-content:space-between}.g8{gap:8px}.g6{gap:6px}.g4{gap:4px}
