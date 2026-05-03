@@ -321,22 +321,83 @@ function Dashboard({saves,ganttTasks}){
   const floors=Object.keys(_D.fl);
 
   return h('div',{className:'page gap10'},
+    // ── Project dates banner ──
+    h('div',{style:{background:'var(--card)',border:'1px solid var(--border)',
+      borderRadius:12,padding:'12px 16px',marginBottom:2}},
+      h('div',{className:'flex aic',style:{gap:12,flexWrap:'wrap'}},
+        // Inicio
+        h('div',{style:{display:'flex',alignItems:'center',gap:6}},
+          h('span',{style:{fontSize:10,color:'var(--text3)',letterSpacing:'.06em'}},'INICIO'),
+          h('span',{className:'mono',style:{fontSize:13,fontWeight:700,color:'var(--blue)'}},
+            '23 Feb 2026')
+        ),
+        h('span',{style:{color:'var(--border)'}},'→'),
+        // Fin estimado
+        h('div',{style:{display:'flex',alignItems:'center',gap:6}},
+          h('span',{style:{fontSize:10,color:'var(--text3)',letterSpacing:'.06em'}},'FIN EST.'),
+          h('span',{className:'mono',style:{fontSize:13,fontWeight:700,color:'var(--amber)'}},
+            '30 Oct 2026')
+        ),
+        h('span',{style:{color:'var(--border)'}},'·'),
+        // Hoy
+        h('div',{style:{display:'flex',alignItems:'center',gap:6,
+          background:'rgba(245,158,11,.1)',border:'1px solid rgba(245,158,11,.25)',
+          borderRadius:6,padding:'3px 9px'}},
+          h('span',{style:{fontSize:10,color:'var(--amber)',letterSpacing:'.04em',fontWeight:700}},'HOY'),
+          h('span',{className:'mono',style:{fontSize:12,fontWeight:700,color:'var(--amber)'}},
+            new Date().toLocaleDateString('es-CL',{day:'2-digit',month:'short',year:'numeric'}))
+        ),
+        // Days remaining
+        h('div',{style:{marginLeft:'auto',display:'flex',alignItems:'center',gap:8}},
+          (()=>{
+            const rem=Math.ceil((new Date('2026-10-30')-new Date())/(864e5));
+            const elapsed=Math.ceil((new Date()-new Date('2026-02-23'))/(864e5));
+            const total=Math.ceil((new Date('2026-10-30')-new Date('2026-02-23'))/(864e5));
+            const pct=Math.min(100,Math.round(elapsed/total*100));
+            return h('div',{style:{display:'flex',alignItems:'center',gap:8}},
+              h('div',{style:{width:80,height:6,background:'var(--bg2)',borderRadius:3,overflow:'hidden'}},
+                h('div',{style:{height:'100%',width:`${pct}%`,
+                  background:'linear-gradient(90deg,var(--blue),var(--amber))',borderRadius:3}})
+              ),
+              h('span',{className:'mono',style:{fontSize:11,color:'var(--text3)'}},
+                rem>0?rem+'d restantes':'Vencido')
+            );
+          })()
+        )
+      )
+    ),
+
+    // ── KPI Cards ──
     h('div',{className:'grid3'},
+      // Avance global
       h('div',{className:'card',style:{background:'linear-gradient(135deg,var(--card),rgba(14,165,233,.07))'}},
         h('div',{className:'card-title'},'Avance Global'),
         h('div',{className:'card-val',style:{color:'var(--blue)',fontSize:32}},overall2+'%'),
         h('div',{className:'mt8'},h(Bar,{val:overall2}))
       ),
+      // Deptos card - left: total, right: completados
       h('div',{className:'card'},
         h('div',{className:'card-title'},'Deptos'),
-        h('div',{className:'card-val',style:{fontSize:24}},tot),
-        h('div',{style:{marginTop:3,fontSize:10,color:'var(--text3)'}},complete+' completos')
+        h('div',{style:{display:'flex',alignItems:'flex-end',justifyContent:'space-between',gap:8}},
+          h('div',null,
+            h('div',{className:'card-val',style:{fontSize:32}},tot)
+          ),
+          h('div',{style:{textAlign:'right'}},
+            h('div',{className:'card-val',style:{fontSize:32,color:'var(--green)'}},complete),
+            h('div',{style:{fontSize:10,color:'var(--green)',letterSpacing:'.06em',marginTop:2}},
+              'COMPLETADOS')
+          )
+        )
       ),
+      // En proceso card
       h('div',{className:'card'},
-        h('div',{className:'card-title'},'En Proceso'),
-        h('div',{className:'card-val',style:{fontSize:24,color:'var(--amber)'}},inprog),
-        h('div',{style:{marginTop:3,fontSize:10,color:'var(--text3)'}},
-          (tot-inprog-complete)+' sin iniciar'
+        h('div',{className:'card-title'},'Deptos en Proceso'),
+        h('div',{className:'card-val',style:{fontSize:32,color:'var(--amber)'}},inprog),
+        h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:6}},
+          h('div',{style:{fontSize:14,fontWeight:700,color:'var(--text3)'}},
+            (tot-inprog-complete)),
+          h('div',{style:{fontSize:10,color:'var(--text3)',letterSpacing:'.05em',textAlign:'right'}},
+            'POR INICIAR')
         )
       )
     ),
