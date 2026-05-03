@@ -728,6 +728,74 @@ function planName(ni){return PLAN.pn[ni]||'';}
 // ── GANTT VIEW ──────────────────────────────────────────────
 function GanttView({ganttData,onGanttSave,auth,saves,toast}){
   const isAdmin=auth&&auth.role==='Admin';
+  const LW=240;
+  const ROW_H=36;
+  const faseColor=f=>f==='1'?'var(--blue)':f==='2'?'var(--purple)':'var(--green)';
+
+  // ── Edit state ──
+  const[editPanel,sep]=useState(null);
+  // editPanel: {type:'piso'|'dep'|'fase', idx, label, s, e}
+
+  // Get effective start/end (override or base from PLAN)
+  const getS=(type,idx)=>{
+    const ov=overrides[type+'_'+idx];
+    if(ov?.s!=null)return ov.s;
+    if(type==='piso')return PLAN.pi[idx]?.s;
+    if(type==='dep')return PLAN.de[idx]?.s;
+    if(type==='fase')return PLAN.fa[idx]?.s;
+    return 0;
+  };
+  const getE=(type,idx)=>{
+    const ov=overrides[type+'_'+idx];
+    if(ov?.e!=null)return ov.e;
+    if(type==='piso')return PLAN.pi[idx]?.e;
+    if(type==='dep')return PLAN.de[idx]?.e;
+    if(type==='fase')return PLAN.fa[idx]?.e;
+    return 0;
+  };
+
+  // Open edit panel for a row
+  const openEdit=(type,idx,label)=>{
+    if(!isAdmin)return;
+    sep({type,idx,label,
+      sVal:n2d(getS(type,idx)),
+      eVal:n2d(getE(type,idx))});
+  };
+
+  // Apply date change with optional cascade
+  const applyDates=(type,idx,newS,newE,cascade)=>{
+    const ns=d2n(newS), ne=d2n(newE);
+    const origS=getS(type,idx);
+    const delta=ns-origS; // shift in days
+    const nov={...overrides,[type+'_'+idx]:{s:ns,e:ne}};
+
+    if(cascade&&delta!==0){
+      // Shift all children by same delta
+      if(type==='piso'){
+        PLAN.de.filter(d=>d.pi===idx).forEach((d,_)=>{
+          const di=PLAN.de.indexOf(d);
+          nov['dep_'+di]={s:getS('dep',di)+delta,e:getE('dep',di)+delta};
+          PLAN.fa.filter(f=>f.di===di).forEach(f=>{
+            const fi=PLAN.fa.indexOf(f);
+            nov['fase_'+fi]={s:getS('fase',fi)+delta,e:getE('fase',fi)+delta};
+          });
+        });
+      } else if(type==='dep'){
+        PLAN.fa.filter(f=>f.di===idx).forEach(f=>{
+          const fi=PLAN.fa.indexOf(f);
+          nov['fase_'+fi]={s:getS('fase',fi)+delta,e:getE('fase',fi)+delta};
+        });
+      }
+    }
+    sov(nov);
+    onGanttSave({...ganttData,overrides:nov});
+    sep(null);
+    toast('✓ Fechas actualizadas'+(cascade?' (cascada)':''));
+  };
+
+  // Effective date getters returning ISO strings
+  const effS=(type,idx)=>n2d(getS(type,idx));
+  const effE=(type,idx)=>n2d(getE(type,idx));
   // Navigation: null=pisos, piso=deptos, dep+null fase=fases, dep+fase=partidas
   const[navPiso,snp]=useState(null);   // piso index
   const[navDep,snd]=useState(null);    // depto index
@@ -786,31 +854,56 @@ function GanttView({ganttData,onGanttSave,auth,saves,toast}){
   );
 
   // Gantt bar component
-  const GBar=({s,e,pct,color})=>{
+  const GBar=({s,e,pct,color,thick=false})=>{
     const x1=dateX(s),x2=dateX(e);
     const p=Math.min(parseInt(pct)||0,100);
     const isDone=p>=100;
     const isLate=e&&new Date(e)<TODAY&&p<100;
     const bc=isDone?'var(--green)':isLate?'var(--red)':color||'var(--blue)';
-    if(x1===null||x2===null||(!x1&&!x2))
-      return h('div',{style:{height:12,background:'var(--bg3)',borderRadius:2,opacity:.2}});
-    const w=Math.max(x2-x1,0.3);
-    return h('div',{style:{position:'relative',height:12,borderRadius:2,overflow:'visible'}},
-      h('div',{style:{position:'absolute',left:`${todayX}%`,top:-2,bottom:-2,
-        width:1,background:'rgba(245,158,11,.5)',zIndex:3,pointerEvents:'none'}}),
+    const h_px=thick?18:12;
+    // If no dates at all, show empty placeholder
+    if(!s&&!e)
+      return h('div',{style:{height:h_px,background:'rgba(30,58,95,.2)',
+        borderRadius:3,opacity:.4,width:'100%'}});
+    // If dates exist but x1/x2 calculation fails
+    if(x1===null||x2===null)
+      return h('div',{style:{height:h_px,background:'rgba(30,58,95,.2)',borderRadius:3}});
+    const w=Math.max(x2-x1,0.5);
+    const progW=w*p/100;
+    return h('div',{style:{position:'relative',width:'100%',height:h_px,
+      background:'rgba(30,58,95,.3)',borderRadius:3,overflow:'hidden'}},
+      // Today marker
+      h('div',{style:{position:'absolute',left:`${todayX}%`,top:0,bottom:0,
+        width:1,background:'rgba(245,158,11,.8)',zIndex:4,pointerEvents:'none'}}),
+      // Planned bar (gray background) - shows full planned duration
       h('div',{style:{position:'absolute',left:`${x1}%`,width:`${w}%`,
-        height:'100%',background:bc+'25',borderRadius:2,border:`1px solid ${bc}44`}}),
-      h('div',{style:{position:'absolute',left:`${x1}%`,width:`${w*p/100}%`,
-        height:'100%',background:bc,borderRadius:2,minWidth:p>0?1:0}}),
-      p>=15&&h('span',{style:{position:'absolute',left:`${x1+0.5}%`,top:0,
-        lineHeight:'12px',fontSize:9,color:'#fff',fontWeight:700,
-        textShadow:'0 0 3px rgba(0,0,0,.7)',pointerEvents:'none'}},p+'%')
+        top:0,bottom:0,
+        background:'rgba(148,163,184,.18)',
+        borderLeft:'2px solid rgba(148,163,184,.5)',
+        borderRight:'1px solid rgba(148,163,184,.25)',
+        borderRadius:3}}),
+      // Progress fill - shows actual % completed within planned bar
+      h('div',{style:{position:'absolute',left:`${x1}%`,
+        width:`${progW}%`,top:0,bottom:0,
+        background:bc,borderRadius:'3px 0 0 3px',
+        opacity:.9,transition:'width .4s ease'}}),
+      // Pct label inside bar
+      p>=8&&progW>3&&h('span',{style:{position:'absolute',
+        left:`${x1+0.3}%`,top:0,bottom:0,
+        display:'flex',alignItems:'center',
+        fontSize:thick?10:8,color:'#fff',fontWeight:700,
+        textShadow:'0 0 4px rgba(0,0,0,.8)',
+        pointerEvents:'none',paddingLeft:3,
+        lineHeight:'1'}},p+'%'),
+      // Start/end date labels on thick bars
+      thick&&h('span',{style:{position:'absolute',right:`${100-x2+0.5}%`,
+        top:0,bottom:0,display:'flex',alignItems:'center',
+        fontSize:9,color:bc,fontWeight:600,paddingRight:3,
+        opacity:.8,whiteSpace:'nowrap'}},'fin '+e?.slice(5)||'')
     );
   };
 
-  const LW=220; // left panel width px
-  const ROW_H=34;
-  const faseColor=f=>f==='1'?'var(--blue)':f==='2'?'var(--purple)':'var(--green)';
+
 
   // Breadcrumb
   const Crumb=()=>{
@@ -855,12 +948,12 @@ function GanttView({ganttData,onGanttSave,auth,saves,toast}){
   );
 
   // Single row renderer
-  const Row=({label,sublabel,color,bold,pct,s,e,resp,indent=0,onClick,badge,isDone,isLate})=>{
+  const Row=({label,sublabel,color,bold,pct,s,e,resp,indent=0,onNav,onEdit,badge,isDone,isLate,thick=false})=>{
     const bg=isDone?'rgba(34,197,94,.04)':isLate?'rgba(239,68,68,.03)':'transparent';
     const tc=isDone?'var(--green)':isLate?'var(--red)':bold?'var(--text)':'var(--text2)';
-    return h('div',{onClick,style:{display:'flex',alignItems:'stretch',
+    return h('div',{onClick:onNav,style:{display:'flex',alignItems:'stretch',
       borderBottom:'1px solid rgba(30,58,95,.22)',minHeight:ROW_H,
-      background:bg,cursor:onClick?'pointer':'default',transition:'background .1s'}},
+      background:bg,cursor:onNav?'pointer':'default',transition:'background .1s'}},
       h('div',{style:{width:LW,minWidth:LW,flexShrink:0,
         borderRight:'1px solid var(--border)',
         display:'flex',alignItems:'center',
@@ -883,10 +976,18 @@ function GanttView({ganttData,onGanttSave,auth,saves,toast}){
         ),
         h('span',{className:'mono',style:{width:28,textAlign:'right',fontSize:11,
           fontWeight:700,color:isDone?'var(--green)':isLate?'var(--red)':pc(parseInt(pct)||0),
-          flexShrink:0}},(parseInt(pct)||0)+'%')
+          flexShrink:0}},(parseInt(pct)||0)+'%'),
+        onEdit&&h('button',{
+          onClick:e=>{e.stopPropagation();onEdit();},
+          style:{background:'none',border:'1px solid var(--border)',borderRadius:5,
+            padding:'2px 6px',color:'var(--text3)',fontSize:10,cursor:'pointer',
+            marginLeft:4,flexShrink:0,transition:'all .15s'},
+          onMouseOver:ev=>{ev.target.style.borderColor='var(--blue)';ev.target.style.color='var(--blue)';},
+          onMouseOut:ev=>{ev.target.style.borderColor='var(--border)';ev.target.style.color='var(--text3)';}
+        },'✎')
       ),
       h('div',{style:{flex:1,padding:'5px 8px',display:'flex',alignItems:'center'}},
-        h(GBar,{s,e,pct:parseInt(pct)||0,color})
+        h(GBar,{s,e,pct:parseInt(pct)||0,color,thick})
       )
     );
   };
@@ -894,24 +995,19 @@ function GanttView({ganttData,onGanttSave,auth,saves,toast}){
   // ── LEVEL 1: PISOS ──
   const renderPisos=()=>{
     return PLAN.pi.map((pi,i)=>{
-      // Avg pct of all deptos in this piso
       const deps=PLAN.de.filter(d=>d.pi===i);
       const avgPct=deps.length?Math.round(deps.reduce((s,d)=>{
-        // avg of 3 fases
-        const fi_list=PLAN.fa.filter(f=>f.di===PLAN.de.indexOf(d));
-        // use avance data
         const dpct=Math.round((_D.ds[d.d]?.overall)||0);
         return s+dpct;
       },0)/deps.length):0;
-      const s=n2d(pi.s), e=n2d(pi.e);
-      return h(Row,{key:i,
-        label:pi.n,sublabel:deps.length+' departamentos',
-        color:'var(--blue2)',bold:true,pct:avgPct,s,e,
-        resp:'',indent:0,
+      const s=effS('piso',i), e=effE('piso',i);
+      return h(Row,{key:i,thick:true,
+        label:pi.n,sublabel:deps.length+' deptos · toca para ver',
+        color:'var(--blue2)',bold:true,pct:avgPct,s,e,resp:'',
         badge:{cls:pcl(avgPct),l:avgPct+'%'},
-        isDone:avgPct>=99,
-        isLate:e&&new Date(e)<TODAY&&avgPct<99,
-        onClick:()=>{snp(i);snd(null);snf(null);}
+        isDone:avgPct>=99,isLate:e&&new Date(e)<TODAY&&avgPct<99,
+        onNav:()=>{snp(i);snd(null);snf(null);},
+        onEdit:isAdmin?()=>openEdit('piso',i,pi.n):null
       });
     });
   };
@@ -923,13 +1019,14 @@ function GanttView({ganttData,onGanttSave,auth,saves,toast}){
       const di=PLAN.de.indexOf(dep);
       const ds=_D.ds[dep.d]||{overall:0,f1:0,f2:0,f3:0};
       const pct=Math.round(ds.overall);
-      const s=n2d(dep.s),e=n2d(dep.e);
+      const s=effS('dep',di),e=effE('dep',di);
       const isLate=e&&new Date(e)<TODAY&&pct<99;
       return h(Row,{key:di,
-        label:'Depto '+dep.d,sublabel:dep.n,
+        label:'Depto '+dep.d,sublabel:dep.n+' · '+pct+'%',
         color:'var(--blue)',bold:true,pct,s,e,resp:'',
         isDone:pct>=99,isLate,
-        onClick:()=>{snd(di);snf(null);}
+        onNav:()=>{snd(di);snf(null);},
+        onEdit:isAdmin?()=>openEdit('dep',di,'Depto '+dep.d):null
       });
     });
   };
@@ -942,16 +1039,15 @@ function GanttView({ganttData,onGanttSave,auth,saves,toast}){
       const fi=PLAN.fa.indexOf(fase);
       const ds=_D.ds[dep.d]||{};
       const pct=Math.round(ds['f'+fase.f]||0);
-      const s=n2d(fase.s),e=n2d(fase.e);
+      const s=effS('fase',fi),e=effE('fase',fi);
       const color=faseColor(fase.f);
       const isLate=e&&new Date(e)<TODAY&&pct<99;
       return h(Row,{key:fi,
-        label:'Fase '+fase.f,sublabel:{1:'F1 · '+PLAN.pa.filter(p=>p[5]===fi).length+' partidas',
-          2:'F2 · '+PLAN.pa.filter(p=>p[5]===fi).length+' partidas',
-          3:'F3 · '+PLAN.pa.filter(p=>p[5]===fi).length+' partidas'}[fase.f],
+        label:'Fase '+fase.f,sublabel:'F'+fase.f+' · '+PLAN.pa.filter(p=>p[5]===fi).length+' partidas',
         color,bold:true,pct,s,e,resp:'',
         isDone:pct>=99,isLate,
-        onClick:()=>snf(fi)
+        onNav:()=>snf(fi),
+        onEdit:isAdmin?()=>openEdit('fase',fi,'Fase '+fase.f+' · Depto '+(dep?.d||'')):null
       });
     });
   };
@@ -973,8 +1069,11 @@ function GanttView({ganttData,onGanttSave,auth,saves,toast}){
       const resp=planResp(ri);
       const s=abs(fi,sd), e=abs(fi,ed);
       // Get actual pct from saves or excel
-      const pid_obj=ps_list[ni%40]||ps_list[ni%34]||ps_list[idx];
-      const pid=pid_obj?.id||String(idx+1);
+      // ni is global name index (0-95), offset by fase
+      const faseOffset=fase.f==='1'?0:fase.f==='2'?40:74;
+      const localIdx=ni-faseOffset;
+      const pid_obj=ps_list[localIdx]||ps_list[idx];
+      const pid=pid_obj?.id||String(localIdx+1);
       const excelPct=lk[dep.d]?lk[dep.d][pid]||0:0;
       const savedPct=sv[fk]&&sv[fk][pid]!=null?sv[fk][pid]:null;
       const pct=savedPct!=null?savedPct:excelPct;
@@ -1010,7 +1109,119 @@ function GanttView({ganttData,onGanttSave,auth,saves,toast}){
     return 'PISO';
   };
 
+  // ── Edit Panel Modal ──
+  const EditPanel=()=>{
+    if(!editPanel)return null;
+    const{type,idx,label,sVal,eVal}=editPanel;
+    const[newS,sns]=useState(sVal);
+    const[newE,sne]=useState(eVal);
+    const[cascade,sca]=useState(true);
+
+    // Auto-calc end when start changes (keep same duration)
+    const origDur=d2n(eVal)-d2n(sVal);
+    const onStartChange=(v)=>{
+      sns(v);
+      if(v){
+        const ns=d2n(v);
+        const ne=ns+origDur;
+        sne(n2d(ne));
+      }
+    };
+
+    const typeLabel=type==='piso'?'Piso':type==='dep'?'Departamento':'Fase';
+    const hasChildren=type==='piso'||type==='dep'||type==='fase';
+
+    return h('div',{className:'modal-overlay',onClick:e=>e.target===e.currentTarget&&sep(null)},
+      h('div',{className:'modal'},
+        h('div',{className:'modal-title'},
+          h('div',null,
+            h('div',{style:{fontSize:10,color:'var(--text3)',letterSpacing:'.08em',marginBottom:2}},
+              'EDITAR FECHAS · '+typeLabel.toUpperCase()),
+            h('div',{style:{fontSize:14,fontWeight:700,color:'var(--text)'}},label)
+          ),
+          h('button',{className:'modal-close',onClick:()=>sep(null)},'×')
+        ),
+
+        // Current dates info
+        h('div',{style:{background:'var(--bg)',borderRadius:8,padding:'10px 12px',
+          marginBottom:14,display:'flex',gap:12}},
+          h('div',null,
+            h('div',{style:{fontSize:10,color:'var(--text3)',marginBottom:3}},'ACTUAL INICIO'),
+            h('div',{className:'mono',style:{fontSize:13,color:'var(--text2)'}},sVal||'—')
+          ),
+          h('span',{style:{color:'var(--border)',alignSelf:'center'}}),'→',
+          h('div',null,
+            h('div',{style:{fontSize:10,color:'var(--text3)',marginBottom:3}},'ACTUAL FIN'),
+            h('div',{className:'mono',style:{fontSize:13,color:'var(--text2)'}},eVal||'—')
+          ),
+          h('div',{style:{marginLeft:'auto',textAlign:'right'}},
+            h('div',{style:{fontSize:10,color:'var(--text3)',marginBottom:3}},'DURACIÓN'),
+            h('div',{className:'mono',style:{fontSize:13,color:'var(--amber)'}},
+              origDur+' días')
+          )
+        ),
+
+        // New dates
+        h('div',{className:'ie-row'},
+          h('label',{className:'ie-label'},'Nuevo Inicio'),
+          h('input',{type:'date',className:'date-input',value:newS,
+            onChange:e=>onStartChange(e.target.value)})
+        ),
+        h('div',{className:'ie-row',style:{marginBottom:4}},
+          h('label',{className:'ie-label'},'Nuevo Fin'),
+          h('input',{type:'date',className:'date-input',value:newE,
+            onChange:e=>sne(e.target.value)})
+        ),
+
+        // Duration preview
+        newS&&newE&&h('div',{style:{fontSize:11,color:'var(--text3)',
+          marginBottom:12,paddingLeft:80}},
+          '→ Nueva duración: ',
+          h('span',{className:'mono',style:{color:'var(--blue)'}},
+            (d2n(newE)-d2n(newS))+'d')
+        ),
+
+        // Cascade option
+        hasChildren&&h('label',{className:'sw',style:{marginBottom:14}},
+          h('div',{className:`sw-track${cascade?' on':''}`,
+            onClick:()=>sca(!cascade)},
+            h('div',{className:'sw-thumb'})
+          ),
+          h('span',{style:{fontSize:12,color:'var(--text2)',marginLeft:8}},
+            cascade
+              ?'Propagar cambio a pisos/deptos/fases hijos'
+              :'Solo modificar este nivel'
+          )
+        ),
+
+        // Info text
+        h('div',{style:{fontSize:11,color:'var(--text3)',marginBottom:14,
+          background:'rgba(14,165,233,.08)',borderRadius:6,padding:'8px 10px',
+          lineHeight:1.5}},
+          cascade
+            ?'⚡ El desplazamiento de '+(d2n(newS||sVal)-d2n(sVal))+' días se aplicará en cascada a todos los elementos hijos.'
+            :'📌 Solo se modificarán las fechas de este '+typeLabel.toLowerCase()+'.'
+        ),
+
+        // Buttons
+        h('div',{className:'flex g8'},
+          h('button',{
+            onClick:()=>applyDates(type,idx,newS,newE,cascade),
+            style:{flex:1,background:'var(--blue)',color:'#fff',borderRadius:8,
+              padding:'11px',fontSize:13,fontWeight:700,cursor:'pointer',border:'none'}
+          },'Aplicar cambio'),
+          h('button',{
+            onClick:()=>sep(null),
+            style:{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:8,
+              padding:'11px 14px',fontSize:13,color:'var(--text2)',cursor:'pointer'}
+          },'Cancelar')
+        )
+      )
+    );
+  };
+
   return h('div',{style:{display:'flex',flexDirection:'column',height:'100%',overflow:'hidden'}},
+    editPanel&&h(EditPanel),
     // Top bar
     h('div',{style:{padding:'8px 14px',borderBottom:'1px solid var(--border)',
       flexShrink:0,background:'var(--bg)',display:'flex',alignItems:'center',gap:8,
