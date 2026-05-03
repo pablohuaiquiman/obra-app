@@ -1073,19 +1073,21 @@ function GanttView({ganttData,onGanttSave,auth,saves,toast}){
 
     // Export to CSV
     const exportCSV=()=>{
-      const lines=['Depto,Piso,Fase,Inicio Plan,Fin Plan,Responsable,% Avance'];
+      const lines=['Depto,Piso,Fase,Duración (días),Fecha Inicio,Fecha Fin,Responsable,% Avance'];
       rows.forEach(t=>{
         const ov=overrides[t.id]||{};
         const start=ov.start||t.start;
         const end=ov.end||t.end;
         const resp=ov.resp||t.resp||'';
         const pct=ov.pct!=null?ov.pct:t.pct;
-        lines.push(`${t.dep},${t.floor},Fase ${t.fase},${start},${end},${resp},${pct}`);
+        // Calculate duration in days
+        const dur=start&&end?Math.round((new Date(end)-new Date(start))/(864e5)):0;
+        lines.push(`${t.dep},${t.floor},Fase ${t.fase},${dur},${start},${end},${resp},${pct}`);
       });
       const blob=new Blob([lines.join('\n')],{type:'text/csv;charset=utf-8;'});
       const url=URL.createObjectURL(blob);
       const a=document.createElement('a');
-      a.href=url;a.download='plan_maestro.csv';a.click();
+      a.href=url;a.download='plan_maestro_'+new Date().toISOString().slice(0,10)+'.csv';a.click();
       URL.revokeObjectURL(url);
       toast('✓ Plan Maestro exportado');
     };
@@ -1114,7 +1116,7 @@ function GanttView({ganttData,onGanttSave,auth,saves,toast}){
       showImport&&h('div',{style:{padding:'10px 14px',background:'var(--bg2)',
         borderBottom:'1px solid var(--border)',flexShrink:0}},
         h('div',{style:{fontSize:10,color:'var(--text3)',marginBottom:6,lineHeight:1.6}},
-          'Formato CSV: Depto, Piso, Fase, Inicio(AAAA-MM-DD), Fin(AAAA-MM-DD), Responsable, % Avance'),
+          'Formato: Depto, Piso, Fase, Duración(días), Inicio(AAAA-MM-DD), Fin(AAAA-MM-DD), Responsable, % Avance'),
         h('textarea',{className:'import-area',style:{minHeight:80},
           value:importText,onChange:e=>sit(e.target.value),
           placeholder:'Pega aquí el CSV exportado con fechas modificadas...'}),
@@ -1124,7 +1126,7 @@ function GanttView({ganttData,onGanttSave,auth,saves,toast}){
             const patches={};
             lines.forEach(line=>{
               const c=line.split(',').map(s=>s.trim());
-              const[dep,,fase,start,end,resp,pct]=c;
+              const[dep,,fase,dur,start,end,resp,pct]=c;
               const fnum=fase.replace(/\D/g,'');
               const id=`d_${dep}_f${fnum}`;
               patches[id]={start:start||'',end:end||'',resp:resp||'',pct:parseInt(pct)||0};
@@ -1308,7 +1310,7 @@ function GanttView({ganttData,onGanttSave,auth,saves,toast}){
 }
 
 
-// ── PROGRAMA VIEW (schedule con filtros y rango fechas) ────
+// ── PLAN MAESTRO VIEW ────────────────────────────────────
 function ProgramaView({ganttData,saves,onWeekSave,weekData,auth,toast}){
   const fases=ganttData.fases||[
     {id:'1',name:'Fase 1',color:'var(--blue)'},
@@ -1553,7 +1555,7 @@ function App(){
     {id:'partidas',icon:'🔍',label:'Partidas'},
     {id:'pisos',icon:'⬢',label:'Pisos'},
     {id:'gantt',icon:'▤',label:'Gantt'},
-    {id:'programa',icon:'📅',label:'Programa'},
+    {id:'programa',icon:'📅',label:'Plan Maestro'},
   ];
 
   let content;
