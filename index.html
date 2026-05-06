@@ -347,9 +347,7 @@ function Login({onLogin}){
       ),
       h('button',{className:'btn-primary',onClick:go},'Ingresar'),
       err&&h('div',{className:'err-msg'},err),
-      h('div',{style:{marginTop:14,fontSize:10,color:'var(--text3)',textAlign:'center',letterSpacing:'.04em'}},
-        'admin/obra2024 · jefe/jefe123 · supervisor/sup456'
-      )
+
     )
   );
 }
@@ -573,11 +571,13 @@ function Dashboard({saves,ganttTasks}){
   );
 }
 // ── PARTIDAS VIEW (search + per-floor summary + hideDone switch) ─────────────
-function PartidasView({saves,onSave,toast}){
+function PartidasView({saves,onSave,auth,toast}){
   const[q,sq]=useState('');
   const[sel,ssel]=useState(null);
   const[floorDet,sfld]=useState(null);
   const[hideDone,shd]=useState(false);
+  // Admin y Supervisor pueden editar avances; otros solo ven
+  var canEdit=auth&&(auth.role==='Admin'||auth.role==='Jefe Obra'||auth.role==='Supervisor');
   const allPs=[
     ..._D.ps.map(p=>({...p,fase:1})),
     ..._D.ps2.map(p=>({...p,fase:2})),
@@ -626,7 +626,7 @@ function PartidasView({saves,onSave,toast}){
               h('div',{style:{flex:1}},h(Bar,{val:v,color:color})),
               h('span',{className:'mono',style:{fontSize:12,fontWeight:700,color:color,minWidth:38,textAlign:'right'}},v+'%')
             ),
-            h('div',{style:{display:'flex',gap:4,flexWrap:'wrap'}},
+            canEdit&&h('div',{style:{display:'flex',gap:4,flexWrap:'wrap'}},
               [0,25,50,75,100].map(function(pct){
                 return h('button',{key:pct,
                   style:{padding:'3px 9px',borderRadius:12,border:'1px solid '+(v===pct?color:'var(--border)'),
@@ -750,13 +750,14 @@ function PartidasView({saves,onSave,toast}){
   );
 }
 // ── PISOS VIEW ─────────────────────────────────────────────
-function PisosView({saves,onSave,toast}){
+function PisosView({saves,onSave,auth,toast}){
   const[floor,sf]=useState(null);
   const[dep,sd]=useState(null);
   const[hideDone,shd]=useState(false);
   const[fase,sfase]=useState('all');
   const[filt,sfilt]=useState('all');
   const floors=Object.keys(_D.fl);
+  var isAdmin=auth&&(auth.role==='Admin'||auth.role==='Jefe Obra');
   // ── Depto partidas view ──
   if(dep){
     const sv=saves[dep]||{f1:{},f2:{},f3:{}};
@@ -830,7 +831,7 @@ function PisosView({saves,onSave,toast}){
                 ),
                 h('div',{className:'p-badge',style:{color}},v+'%')
               ),
-              h('div',{className:'pct-btns'},
+              isAdmin&&h('div',{className:'pct-btns'},
                 [0,25,50,75,100].map(pct=>
                   h('button',{key:pct,className:`pct-btn${v===pct?' sel':''}`,
                     style:v===pct?{background:color,borderColor:color}:{},
@@ -2046,10 +2047,11 @@ function RendimientoView({saves,rendData,onRendSave,auth,toast}){
 
 
 // ── CUBIC VIEW v2 ────────────────────────────────────────────
-function CubicView({saves,cubicData,onCubicSave,toast}){
+function CubicView({saves,cubicData,onCubicSave,auth,toast}){
   var[fase,setFase]=useState('1');
   var[selPartida,setSel]=useState(null);
   var[searchQ,setSearchQ]=useState('');
+  var isAdmin=auth&&(auth.role==='Admin'||auth.role==='Jefe Obra');
   var mat=cubicData.mat||{};
   var allDeps=Object.keys(_D.ds);
   var total=allDeps.length;
@@ -2171,14 +2173,14 @@ function CubicView({saves,cubicData,onCubicSave,toast}){
                         onChange:function(e){updCol(ci,e.target.value);},
                         style:{background:'transparent',border:'none',fontSize:9,color:'var(--blue)',fontFamily:'var(--mono)',outline:'none',width:95,cursor:'pointer'}
                       }),
-                      h('button',{onClick:function(){delCol(ci);},
+                      isAdmin&&h('button',{onClick:function(){delCol(ci);},
                         style:{background:'transparent',border:'none',color:'var(--text3)',cursor:'pointer',fontSize:11,padding:0,lineHeight:1,flexShrink:0}
                       },'✕')
                     )
                   );
                 }),
                 h('th',{style:{padding:'7px 8px',background:'var(--bg2)',borderBottom:'1px solid var(--border)',whiteSpace:'nowrap'}},
-                  h('button',{onClick:addCol,
+                  isAdmin&&h('button',{onClick:addCol,
                     style:{padding:'4px 9px',borderRadius:6,border:'1px solid var(--green)',background:'transparent',
                       color:'var(--green)',cursor:'pointer',fontSize:11,fontWeight:700,whiteSpace:'nowrap'}
                   },'+ Despacho')
@@ -2190,15 +2192,14 @@ function CubicView({saves,cubicData,onCubicSave,toast}){
               rows.map(function(row,ri){
                 var totalLleg=(row.qtys||[]).reduce(function(s,q){return s+(parseFloat(q)||0);},0);
                 var cantD=parseFloat(row.cantDepto)||0;
-                var necesario=cantD>0?Math.ceil(cantD*total):0;
-                var faltante=Math.max(0,necesario-totalLleg);
-                var pctStock=necesario>0?Math.min(100,Math.round(totalLleg/necesario*100)):0;
-                var fc2=faltante===0?'var(--green)':pctStock>=60?'var(--blue)':pctStock>=30?'var(--amber)':'var(--red)';
+                var faltante=cantD>0?Math.ceil(cantD*st.sinInic):0;
+                var fc2=faltante===0?'var(--green)':'var(--text3)';
                 return h('tr',{key:ri,style:{borderBottom:'1px solid rgba(30,58,95,.35)'}},
                   h('td',{style:{padding:'6px 8px',minWidth:150}},
                     h('input',{type:'text',placeholder:'Nombre del material',value:row.name||'',
-                      onChange:function(e){updRow(ri,'name',e.target.value);},
-                      style:{background:'transparent',border:'none',color:'var(--text)',fontSize:12,outline:'none',width:'100%',fontWeight:500}
+                      onChange:isAdmin?function(e){updRow(ri,'name',e.target.value);}:undefined,
+                      readOnly:!isAdmin,
+                      style:{background:'transparent',border:'none',color:'var(--text)',fontSize:12,outline:'none',width:'100%',fontWeight:500,cursor:isAdmin?'text':'default'}
                     })
                   ),
                   h('td',{style:{padding:'5px 4px',textAlign:'center'}},
@@ -2210,25 +2211,27 @@ function CubicView({saves,cubicData,onCubicSave,toast}){
                   ),
                   h('td',{style:{padding:'5px 4px',textAlign:'center'}},
                     h('input',{type:'number',min:0,step:'any',placeholder:'0',value:row.cantDepto||'',
-                      onChange:function(e){updRow(ri,'cantDepto',e.target.value);},
+                      onChange:isAdmin?function(e){updRow(ri,'cantDepto',e.target.value);}:undefined,
+                      readOnly:!isAdmin,
                       style:{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:5,
                         padding:'3px 6px',color:'var(--blue)',fontSize:12,fontFamily:'var(--mono)',fontWeight:700,
-                        outline:'none',width:'100%',textAlign:'center',boxSizing:'border-box'}
+                        outline:'none',width:'100%',textAlign:'center',boxSizing:'border-box',opacity:isAdmin?1:.7}
                     })
                   ),
                   cols.map(function(_,ci){
                     return h('td',{key:ci,style:{padding:'5px 4px',textAlign:'center',background:'rgba(14,165,233,.03)'}},
                       h('input',{type:'number',min:0,step:'any',placeholder:'0',
                         value:(row.qtys&&row.qtys[ci]!=null)?row.qtys[ci]:'',
-                        onChange:function(e){updCell(ri,ci,e.target.value);},
+                        onChange:isAdmin?function(e){updCell(ri,ci,e.target.value);}:undefined,
+                        readOnly:!isAdmin,
                         style:{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:5,
                           padding:'3px 6px',color:'var(--text)',fontSize:12,fontFamily:'var(--mono)',fontWeight:700,
-                          outline:'none',width:'100%',textAlign:'center',boxSizing:'border-box',minWidth:70}
+                          outline:'none',width:'100%',textAlign:'center',boxSizing:'border-box',minWidth:70,opacity:isAdmin?1:.7}
                       })
                     );
                   }),
                   h('td',{style:{padding:'5px 8px',textAlign:'center'}},
-                    h('button',{onClick:function(){delRow(ri);},
+                    isAdmin&&h('button',{onClick:function(){delRow(ri);},
                       style:{background:'transparent',border:'none',color:'var(--text3)',cursor:'pointer',fontSize:13,lineHeight:1}
                     },'✕')
                   )
@@ -2246,7 +2249,7 @@ function CubicView({saves,cubicData,onCubicSave,toast}){
           )
         ),
         h('div',{style:{padding:'10px 14px',borderTop:'1px solid var(--border)'}},
-          h('button',{onClick:addRow,
+          isAdmin&&h('button',{onClick:addRow,
             style:{padding:'8px 0',borderRadius:8,border:'1px dashed var(--border)',background:'transparent',
               color:'var(--text3)',cursor:'pointer',fontSize:12,width:'100%',letterSpacing:'.03em'}
           },'+ Agregar material')
@@ -2260,26 +2263,22 @@ function CubicView({saves,cubicData,onCubicSave,toast}){
           if(!row.name&&!(parseFloat(row.cantDepto)>0))return null;
           var totalLleg=(row.qtys||[]).reduce(function(s,q){return s+(parseFloat(q)||0);},0);
           var cantD=parseFloat(row.cantDepto)||0;
-          var necesario=cantD>0?Math.ceil(cantD*total):0;
-          var faltante=Math.max(0,necesario-totalLleg);
-          var pctStock=necesario>0?Math.min(100,Math.round(totalLleg/necesario*100)):0;
-          var fc2=faltante===0?'var(--green)':pctStock>=60?'var(--blue)':pctStock>=30?'var(--amber)':'var(--red)';
+          // faltante = cant/depto × deptos sin iniciar
+          var faltante=cantD>0?Math.ceil(cantD*st.sinInic):0;
+          var fc2=faltante===0?'var(--green)':'var(--red)';
           return h('div',{key:ri,style:{background:'var(--card)',border:'1px solid var(--border)',
             borderLeft:'3px solid '+fc2,borderRadius:10,padding:'9px 12px',marginBottom:6,
-            display:'flex',alignItems:'center',gap:10}},
-            h('div',{style:{flex:1,minWidth:0}},
-              h('div',{style:{fontSize:12,fontWeight:700,color:'var(--text)',marginBottom:5,
-                overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},row.name||'Sin nombre'),
-              h('div',{style:{height:4,background:'var(--bg2)',borderRadius:2,overflow:'hidden'}},
-                h('div',{style:{width:pctStock+'%',background:fc2,borderRadius:2,transition:'width .3s'}})
-              )
+            display:'flex',alignItems:'center',justifyContent:'space-between',gap:10}},
+            h('div',{style:{fontSize:12,fontWeight:700,color:'var(--text)',
+              overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flex:1,minWidth:0}},
+              row.name||'Sin nombre'
             ),
             h('div',{style:{textAlign:'right',flexShrink:0}},
-              h('div',{style:{fontFamily:'var(--mono)',fontSize:13,fontWeight:800,color:fc2}},
-                faltante>0?(faltante.toFixed(1)+' '+row.ud+' faltan'):'✅ Stock OK'
-              ),
-              necesario>0&&h('div',{style:{fontSize:9,color:'var(--text3)',marginTop:2,fontFamily:'var(--mono)'}},
-                totalLleg.toFixed(1)+' llegado / '+necesario+' necesario'
+              faltante>0
+                ?h('div',{style:{fontFamily:'var(--mono)',fontSize:13,fontWeight:800,color:fc2}},faltante+' '+row.ud+' faltan')
+                :h('div',{style:{fontFamily:'var(--mono)',fontSize:13,fontWeight:800,color:'var(--green)'}},'✅ Stock OK'),
+              cantD>0&&h('div',{style:{fontSize:9,color:'var(--text3)',marginTop:2,fontFamily:'var(--mono)'}},
+                cantD+' '+row.ud+'/depto × '+st.sinInic+' pend = '+faltante
               )
             )
           );
@@ -2410,12 +2409,12 @@ function App(){
   ];
   let content;
   if(tab==='dash')content=h(Dashboard,{saves,ganttTasks:ganttData.tasks||[]});
-  else if(tab==='partidas')content=h(PartidasView,{saves,onSave,toast:showToast});
-  else if(tab==='pisos')content=h(PisosView,{saves,onSave,toast:showToast});
+  else if(tab==='partidas')content=h(PartidasView,{saves,onSave,auth,toast:showToast});
+  else if(tab==='pisos')content=h(PisosView,{saves,onSave,auth,toast:showToast});
   else if(tab==='gantt')content=h(GanttView,{ganttData,onGanttSave,auth,saves,toast:showToast});
   else if(tab==='programa')content=h(ProgramaView,{ganttData,saves,onWeekSave,weekData,auth,toast:showToast});
   else if(tab==='rendimiento')content=h(RendimientoView,{saves,rendData,onRendSave,auth,toast:showToast});
-  else if(tab==='cubic')content=h(CubicView,{saves,cubicData,onCubicSave,toast:showToast});
+  else if(tab==='cubic')content=h(CubicView,{saves,cubicData,onCubicSave,auth,toast:showToast});
   else content=h(Dashboard,{saves});
   return h('div',{className:'app'},
     h('div',{className:'nav'},
@@ -2423,7 +2422,7 @@ function App(){
         '✦ OBRA'
       ),
       h('div',{className:'flex aic g8'},
-        h('span',{style:{fontSize:11,color:'var(--text3)'}},auth.role),
+        h('span',{style:{fontSize:11,fontWeight:600,color:auth.role==='Admin'?'var(--blue)':auth.role==='Supervisor'?'var(--amber)':'var(--green)'}},auth.role),
         h('button',{onClick:()=>save({auth:null}),
           style:{background:'none',border:'1px solid var(--border)',borderRadius:6,padding:'4px 10px',color:'var(--text2)',fontSize:11,cursor:'pointer',letterSpacing:'.04em',transition:'all .15s'},
           onMouseOver:e=>{e.target.style.borderColor='var(--red)';e.target.style.color='var(--red)';},
