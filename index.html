@@ -96,7 +96,7 @@ input,select,textarea{font-family:var(--font);outline:none}
 .bc-btn:hover{color:var(--blue)}
 .bc-sep{color:var(--border);margin:0 2px}
 /* MAIN */
-.main{flex:1;overflow-y:auto;overflow-x:hidden;position:relative;z-index:1}
+.main{flex:1;overflow-y:auto;overflow-x:hidden;position:relative;z-index:1;min-height:0}.main-gantt{overflow:hidden!important}
 .page{padding:14px;animation:fadeIn .18s ease}
 @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
 /* LOGIN */
@@ -1006,6 +1006,7 @@ function GanttView({ganttData,onGanttSave,auth,saves,toast}){
   const faseColor=f=>f==='1'?'var(--blue)':f==='2'?'var(--purple)':'var(--green)';
   // ── Edit state ──
   const[editPanel,sep]=useState(null);
+  const[showReprogram,setShowReprogram]=useState(false);
   // editPanel: {type:'piso'|'dep'|'fase', idx, label, s, e}
   // Get effective start/end (override or base from PLAN)
   const getS=(type,idx)=>{
@@ -1060,9 +1061,20 @@ function GanttView({ganttData,onGanttSave,auth,saves,toast}){
     sep(null);
     toast('✓ Fechas actualizadas'+(cascade?' (cascada)':''));
   };
+  // Global date shift (days) — applied to all base PLAN dates when no override exists
+  const dateShift=ganttData.dateShift||0;
   // Effective date getters returning ISO strings
-  const effS=(type,idx)=>n2d(getS(type,idx));
-  const effE=(type,idx)=>n2d(getE(type,idx));
+  // If override exists → use it directly. If not → apply dateShift to base PLAN date.
+  const effS=(type,idx)=>{
+    const ov=overrides[type+'_'+idx];
+    if(ov&&ov.s!=null)return n2d(ov.s);
+    return n2d((getS(type,idx)||0)+dateShift);
+  };
+  const effE=(type,idx)=>{
+    const ov=overrides[type+'_'+idx];
+    if(ov&&ov.e!=null)return n2d(ov.e);
+    return n2d((getE(type,idx)||0)+dateShift);
+  };
   // Navigation: null=pisos, piso=deptos, dep+null fase=fases, dep+fase=partidas
   const[navPiso,snp]=useState(null);   // piso index
   const[navDep,snd]=useState(null);    // depto index
@@ -1075,15 +1087,16 @@ function GanttView({ganttData,onGanttSave,auth,saves,toast}){
     onGanttSave({...ganttData,overrides:nov});
     toast('✓ Guardado');
   };
-  const PROJECT_START=new Date('2026-02-23');
-  const PROJECT_END=new Date('2026-10-30');
+  // Project timeline anchors — shifted by dateShift
+  const PROJECT_START=new Date(n2d(53+dateShift));  // EP + 53 days = original 2026-02-23
+  const PROJECT_END=new Date(n2d(303+dateShift));   // EP + 303 days = original 2026-10-30
   const TODAY=new Date();
   const SPAN=PROJECT_END-PROJECT_START;
   const todayX=Math.max(0,Math.min(100,(TODAY-PROJECT_START)/SPAN*100));
   const abs=(fi,delta)=>{
     if(!fi&&fi!==0)return'';
     const fs=PLAN.fa[fi]?.s||0;
-    return n2d(fs+(delta||0));
+    return n2d(fs+(delta||0)+dateShift);
   };
   const dateX=s=>{
     if(!s)return null;
@@ -1576,8 +1589,99 @@ function GanttView({ganttData,onGanttSave,auth,saves,toast}){
       )
     );
   };
-  return h('div',{style:{display:'flex',flexDirection:'column',height:'100%',overflow:'hidden'}},
+  // ── Reprogram Modal ──
+  const ReprogramModal=()=>{
+    var curStart=n2d(53+dateShift);
+    var curEnd=n2d(303+dateShift);
+    var[newStart,setNewStart]=useState(curStart);
+    var delta=d2n(newStart)-(53+dateShift);
+    var newEnd=n2d(303+dateShift+delta);
+    function applyReprogram(){
+      var newShift=dateShift+delta;
+      // Also shift all existing overrides
+      var nov={};
+      Object.keys(overrides).forEach(function(k){
+        var ov=overrides[k];
+        nov[k]={};
+        if(ov.s!=null)nov[k].s=ov.s+delta;
+        if(ov.e!=null)nov[k].e=ov.e+delta;
+        if(ov.ri!=null)nov[k].ri=ov.ri;
+      });
+      sov(nov);
+      onGanttSave({...ganttData,overrides:nov,dateShift:newShift});
+      setShowReprogram(false);
+      toast('✓ Proyecto reprogramado +'+delta+' días');
+    }
+    return h('div',{className:'modal-overlay',onClick:function(e){if(e.target===e.currentTarget)setShowReprogram(false);}},
+      h('div',{className:'modal',style:{maxWidth:400}},
+        h('div',{className:'modal-title'},
+          h('div',null,
+            h('div',{style:{fontSize:10,color:'var(--text3)',letterSpacing:'.08em',marginBottom:2}},'REPROGRAMAR PROYECTO'),
+            h('div',{style:{fontSize:14,fontWeight:700}},'Desplazamiento masivo de fechas')
+          ),
+          h('button',{className:'modal-close',onClick:function(){setShowReprogram(false);}},'×')
+        ),
+        h('div',{style:{background:'var(--bg)',borderRadius:8,padding:'10px 12px',marginBottom:14}},
+          h('div',{style:{display:'flex',gap:16,flexWrap:'wrap'}},
+            h('div',null,
+              h('div',{style:{fontSize:10,color:'var(--text3)',marginBottom:3,letterSpacing:'.05em'}},'INICIO ACTUAL'),
+              h('div',{className:'mono',style:{fontSize:13,color:'var(--blue)',fontWeight:700}},curStart)
+            ),
+            h('span',{style:{alignSelf:'center',color:'var(--border)'}},'→'),
+            h('div',null,
+              h('div',{style:{fontSize:10,color:'var(--text3)',marginBottom:3,letterSpacing:'.05em'}},'FIN ACTUAL'),
+              h('div',{className:'mono',style:{fontSize:13,color:'var(--amber)',fontWeight:700}},curEnd)
+            )
+          )
+        ),
+        h('div',{className:'ie-row',style:{marginBottom:12}},
+          h('label',{className:'ie-label'},'Nuevo inicio'),
+          h('input',{type:'date',className:'date-input',value:newStart,
+            onChange:function(e){setNewStart(e.target.value);}})
+        ),
+        delta!==0&&h('div',{style:{background:delta>0?'rgba(245,158,11,.1)':'rgba(14,165,233,.1)',
+          border:'1px solid '+(delta>0?'rgba(245,158,11,.3)':'rgba(14,165,233,.3)'),
+          borderRadius:8,padding:'10px 14px',marginBottom:14}},
+          h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}},
+            h('span',{style:{fontSize:11,color:'var(--text3)',letterSpacing:'.04em'}},'Desplazamiento'),
+            h('span',{className:'mono',style:{fontSize:16,fontWeight:800,color:delta>0?'var(--amber)':'var(--blue)'}},
+              (delta>0?'+':'')+delta+' días')
+          ),
+          h('div',{style:{display:'flex',gap:12,flexWrap:'wrap'}},
+            h('div',null,
+              h('div',{style:{fontSize:9,color:'var(--text3)',marginBottom:2}},'NUEVO INICIO'),
+              h('div',{className:'mono',style:{fontSize:12,fontWeight:700,color:'var(--blue)'}},newStart)
+            ),
+            h('span',{style:{alignSelf:'center',color:'var(--border)'}},'→'),
+            h('div',null,
+              h('div',{style:{fontSize:9,color:'var(--text3)',marginBottom:2}},'NUEVO FIN EST.'),
+              h('div',{className:'mono',style:{fontSize:12,fontWeight:700,color:'var(--amber)'}},newEnd)
+            )
+          ),
+          h('div',{style:{fontSize:10,color:'var(--text3)',marginTop:8}},
+            'Se desplazan: ',
+            h('strong',{style:{color:'var(--text2)'}},
+              PLAN.pi.length+' pisos, '+PLAN.de.length+' deptos, '+PLAN.fa.length+' fases, '+PLAN.pa.length+' partidas'
+            )
+          )
+        ),
+        delta===0&&h('div',{style:{color:'var(--text3)',fontSize:12,textAlign:'center',padding:'8px 0'}},'Selecciona una nueva fecha de inicio para ver el desplazamiento'),
+        h('div',{style:{display:'flex',gap:8,justifyContent:'flex-end'}},
+          h('button',{onClick:function(){setShowReprogram(false);},
+            style:{padding:'8px 16px',borderRadius:8,border:'1px solid var(--border)',
+              background:'none',color:'var(--text2)',fontSize:12,cursor:'pointer'}
+          },'Cancelar'),
+          delta!==0&&h('button',{onClick:applyReprogram,
+            style:{padding:'8px 18px',borderRadius:8,border:'none',
+              background:'var(--blue)',color:'#fff',fontSize:12,fontWeight:700,cursor:'pointer'}
+          },'Aplicar '+(delta>0?'+':'')+delta+'d a todo el proyecto')
+        )
+      )
+    );
+  };
+  return h('div',{style:{display:'flex',flexDirection:'column',height:'100%',minHeight:0,overflow:'hidden'}},
     editPanel&&h(EditPanel),
+    showReprogram&&h(ReprogramModal,null),
     // Top bar
     h('div',{style:{padding:'8px 14px',borderBottom:'1px solid var(--border)',
       flexShrink:0,background:'var(--bg)',display:'flex',alignItems:'center',gap:8,
@@ -1589,13 +1693,13 @@ function GanttView({ganttData,onGanttSave,auth,saves,toast}){
           h('div',{style:{display:'flex',alignItems:'center',gap:5}},
             h('span',{style:{fontSize:10,color:'var(--text3)',letterSpacing:'.05em'}},'INICIO:'),
             h('span',{style:{fontSize:11,fontWeight:700,color:'var(--blue)',
-              fontFamily:'var(--mono)'}},'23 Feb 2026')
+              fontFamily:'var(--mono)'}},PROJECT_START.toLocaleDateString('es-CL',{day:'2-digit',month:'short',year:'numeric'}))
           ),
           h('span',{style:{color:'var(--border)',fontSize:12}},'→'),
           h('div',{style:{display:'flex',alignItems:'center',gap:5}},
             h('span',{style:{fontSize:10,color:'var(--text3)',letterSpacing:'.05em'}},'FIN EST.:'),
             h('span',{style:{fontSize:11,fontWeight:700,color:'var(--amber)',
-              fontFamily:'var(--mono)'}},'30 Oct 2026')
+              fontFamily:'var(--mono)'}},PROJECT_END.toLocaleDateString('es-CL',{day:'2-digit',month:'short',year:'numeric'}))
           ),
           h('div',{style:{display:'flex',alignItems:'center',gap:4,
             background:'rgba(245,158,11,.1)',border:'1px solid rgba(245,158,11,.3)',
@@ -1623,7 +1727,12 @@ function GanttView({ganttData,onGanttSave,auth,saves,toast}){
           })()
         )
       ),
-      h('div',{style:{display:'flex',gap:6,alignItems:'center',flexShrink:0}},
+      h('div',{style:{display:'flex',gap:6,alignItems:'center',flexShrink:0,flexWrap:'wrap'}},
+        isAdmin&&h('button',{onClick:function(){setShowReprogram(true);},
+          style:{background:'rgba(14,165,233,.12)',border:'1px solid rgba(14,165,233,.3)',
+            borderRadius:6,padding:'4px 10px',color:'var(--blue)',fontSize:10,fontWeight:700,
+            cursor:'pointer',letterSpacing:'.04em',flexShrink:0}
+        },'📅 Reprogramar'),
         h('div',{style:{width:10,height:2,background:'var(--amber)',borderRadius:1}}),
         h('span',{style:{fontSize:9,color:'var(--text3)'}},'Hoy'),
         h('div',{style:{width:10,height:8,background:'var(--green)',borderRadius:2}}),
@@ -1637,7 +1746,7 @@ function GanttView({ganttData,onGanttSave,auth,saves,toast}){
     // Column headers
     h(ColHeader,{label:getColLabel()}),
     // Scrollable rows
-    h('div',{style:{flex:1,overflowY:'auto',overflowX:'hidden'}},
+    h('div',{style:{flex:1,overflowY:'auto',overflowX:'hidden',WebkitOverflowScrolling:'touch',minHeight:0}},
       renderRows()
     )
   );
@@ -2739,7 +2848,7 @@ function App(){
         },'Salir')
       )
     ),
-    h('div',{className:'main'},content),
+    h('div',{className:'main'+(tab==='gantt'?' main-gantt':'')},content),
     toastMsg&&h('div',{className:'toast',style:{background:toastMsg.color||'var(--green2)'}},toastMsg.m),
     h('div',{className:'bnav',ref:(el)=>{
         // Auto-scroll active tab into center view
