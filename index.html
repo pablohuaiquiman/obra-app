@@ -474,9 +474,9 @@ function Dashboard({saves,ganttTasks,weekData}){
         // Days remaining
         h('div',{style:{marginLeft:'auto',display:'flex',alignItems:'center',gap:8}},
           (()=>{
-            const rem=Math.ceil((new Date('2026-10-30')-new Date())/(864e5));
-            const elapsed=Math.ceil((new Date()-new Date('2026-02-23'))/(864e5));
-            const total=Math.ceil((new Date('2026-10-30')-new Date('2026-02-23'))/(864e5));
+            const rem=Math.ceil((PROJECT_END-new Date())/(864e5));
+            const elapsed=Math.ceil((new Date()-PROJECT_START)/(864e5));
+            const total=Math.ceil((PROJECT_END-PROJECT_START)/(864e5));
             const pct=Math.min(100,Math.round(elapsed/total*100));
             return h('div',{style:{display:'flex',alignItems:'center',gap:8}},
               h('div',{style:{width:80,height:6,background:'var(--bg2)',borderRadius:3,overflow:'hidden'}},
@@ -1091,8 +1091,25 @@ function GanttView({ganttData,onGanttSave,auth,saves,toast}){
     toast('✓ Guardado');
   };
   // Project timeline anchors — shifted by dateShift
-  const PROJECT_START=new Date(n2d(53+dateShift));  // EP + 53 days = original 2026-02-23
-  const PROJECT_END=new Date(n2d(303+dateShift));   // EP + 303 days = original 2026-10-30
+  // PROJECT_START / END: min/max real considerando todos los overrides de deptos
+  const PROJECT_START=new Date(n2d((function(){
+    var mn=Infinity;
+    PLAN.de.forEach(function(dep,di){
+      var ov=overrides['dep_'+di];
+      var s=ov&&ov.s!=null?ov.s:(dep.s+dateShift);
+      if(s<mn)mn=s;
+    });
+    return mn===Infinity?53+dateShift:mn;
+  })()));
+  const PROJECT_END=new Date(n2d((function(){
+    var mx=-Infinity;
+    PLAN.de.forEach(function(dep,di){
+      var ov=overrides['dep_'+di];
+      var e=ov&&ov.e!=null?ov.e:(dep.e+dateShift);
+      if(e>mx)mx=e;
+    });
+    return mx===-Infinity?303+dateShift:mx;
+  })()));
   const TODAY=new Date();
   const SPAN=PROJECT_END-PROJECT_START;
   const todayX=Math.max(0,Math.min(100,(TODAY-PROJECT_START)/SPAN*100));
