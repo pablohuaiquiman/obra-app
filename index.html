@@ -1845,7 +1845,7 @@ function ProgramaView({ganttData,saves,onWeekSave,weekData,auth,toast}){
     nd.tasks[day]=(nd.tasks[day]||[]).filter(t=>t.id!==id);
     onWeekSave(wk,nd);
   };
-  // Helper: abs date from fase_idx + delta
+  // Helper: abs date from fase_idx + delta (original — no modifica)
   const abs=(fi,delta)=>{
     if(fi==null||!PLAN.fa[fi])return'';
     return n2d(PLAN.fa[fi].s+(delta||0));
@@ -1864,6 +1864,12 @@ function ProgramaView({ganttData,saves,onWeekSave,weekData,auth,toast}){
     if(localIdx<0)return{};
     return (ganttData.overrides||{})['pa_'+fi+'_'+localIdx]||{};
   };
+  // setCausa: guarda causa de no cumplimiento en tarea manual
+  const setCausa=(day,id,causa)=>{
+    const nd={...manualData};
+    nd.tasks[day]=(nd.tasks[day]||[]).map(t=>t.id===id?{...t,causa}:t);
+    onWeekSave(wk,nd);
+  };
   // Plan tasks that fall within a specific day (using Gantt overrides as master)
   const planTasksForDay=(dayDate)=>{
     const dayD=pd(dayDate);
@@ -1878,9 +1884,11 @@ function ProgramaView({ganttData,saves,onWeekSave,weekData,auth,toast}){
       const resp=respIdx===255||respIdx==null?'':PLAN.rl[respIdx]||'';
       if(filtFase!=='all'&&filtFase!==fase.f)return false;
       if(filtResp!=='all'&&resp!==filtResp)return false;
-      // Dates: Gantt override > PLAN original
-      const s_date=ov.s!=null?n2d(ov.s):abs(fi,pa[1]);
-      const e_date=ov.e!=null?n2d(ov.e):abs(fi,pa[2]);
+      // Dates: partida override > fase override (delivery schedule) > base PLAN + dateShift
+      const _fov=(ganttData.overrides||{})['fase_'+fi];
+      const _fs=_fov&&_fov.s!=null?_fov.s:(PLAN.fa[fi].s+(ganttData.dateShift||0));
+      const s_date=ov.s!=null?n2d(ov.s):n2d(_fs+(pa[1]||0));
+      const e_date=ov.e!=null?n2d(ov.e):n2d(_fs+(pa[2]||0));
       const s=pd(s_date);
       const e=pd(e_date);
       if(!s)return false;
