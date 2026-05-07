@@ -403,7 +403,7 @@ function flAvgLive(fl,fase,saves){
   });
   return Math.round(tot/deps.length*10)/10;
 }
-function Dashboard({saves,ganttTasks,weekData}){
+function Dashboard({saves,ganttTasks,weekData,ganttData}){
   // ── PAC calculation (current week manual tasks) ──
   var pacData=(function(){
     var d=new Date();var day=d.getDay();
@@ -474,9 +474,21 @@ function Dashboard({saves,ganttTasks,weekData}){
         // Days remaining
         h('div',{style:{marginLeft:'auto',display:'flex',alignItems:'center',gap:8}},
           (()=>{
-            const rem=Math.ceil((PROJECT_END-new Date())/(864e5));
-            const elapsed=Math.ceil((new Date()-PROJECT_START)/(864e5));
-            const total=Math.ceil((PROJECT_END-PROJECT_START)/(864e5));
+            var _gd=ganttData||{};
+            var _ov=_gd.overrides||{};
+            var _ds=_gd.dateShift||0;
+            var _mn=Infinity,_mx=-Infinity;
+            PLAN.de.forEach(function(dep,di){
+              var o=_ov['dep_'+di];
+              var s=o&&o.s!=null?o.s:(dep.s+_ds);
+              var e=o&&o.e!=null?o.e:(dep.e+_ds);
+              if(s<_mn)_mn=s;if(e>_mx)_mx=e;
+            });
+            var PROJECT_START_D=new Date(n2d(_mn===Infinity?53+_ds:_mn));
+            var PROJECT_END_D=new Date(n2d(_mx===-Infinity?303+_ds:_mx));
+            const rem=Math.ceil((PROJECT_END_D-new Date())/(864e5));
+            const elapsed=Math.ceil((new Date()-PROJECT_START_D)/(864e5));
+            const total=Math.ceil((PROJECT_END_D-PROJECT_START_D)/(864e5));
             const pct=Math.min(100,Math.round(elapsed/total*100));
             return h('div',{style:{display:'flex',alignItems:'center',gap:8}},
               h('div',{style:{width:80,height:6,background:'var(--bg2)',borderRadius:3,overflow:'hidden'}},
@@ -2939,6 +2951,37 @@ function LogisticaView({logData,onLogSave,auth,toast}){
   );
 }
 
+
+// ── Error Boundary ──────────────────────────────────────────
+class ErrorBoundary extends React.Component{
+  constructor(p){super(p);this.state={err:null,info:null};}
+  static getDerivedStateFromError(e){return{err:e};}
+  componentDidCatch(e,info){this.setState({err:e,info:info});}
+  render(){
+    if(this.state.err){
+      var msg=this.state.err?this.state.err.message:'Error desconocido';
+      var stack=this.state.info?this.state.info.componentStack:'';
+      return React.createElement('div',{style:{
+        position:'fixed',inset:0,background:'#0a1628',display:'flex',
+        flexDirection:'column',alignItems:'center',justifyContent:'center',
+        padding:24,fontFamily:'monospace',zIndex:9999
+      }},
+        React.createElement('div',{style:{
+          background:'rgba(239,68,68,.15)',border:'1px solid rgba(239,68,68,.5)',
+          borderRadius:12,padding:'24px 28px',maxWidth:600,width:'100%'
+        }},
+          React.createElement('div',{style:{color:'#f87171',fontWeight:700,fontSize:16,marginBottom:12}},
+            '⚠ Error en la aplicación'
+          ),
+          React.createElement('div',{style:{color:'#fca5a5',fontSize:13,marginBottom:12,wordBreak:'break-word'}},msg),
+          React.createElement('pre',{style:{color:'#94a3b8',fontSize:11,overflowX:'auto',
+            maxHeight:200,background:'rgba(0,0,0,.3)',borderRadius:8,padding:12}},stack)
+        )
+      );
+    }
+    return this.props.children;
+  }
+}
 function App({initialData}){
   const[state,ss]=useState(()=>{
     if(initialData&&Object.keys(initialData).length>0)return initialData;
@@ -2980,7 +3023,7 @@ function App({initialData}){
     {id:'logistica',icon:'🚛',label:'Logíst.'},
   ];
   let content;
-  if(tab==='dash')content=h(Dashboard,{saves,ganttTasks:ganttData.tasks||[],weekData});
+  if(tab==='dash')content=h(Dashboard,{saves,ganttTasks:ganttData.tasks||[],weekData,ganttData});
   else if(tab==='partidas')content=h(PartidasView,{saves,onSave,auth,toast:showToast});
   else if(tab==='pisos')content=h(PisosView,{saves,onSave,auth,toast:showToast});
   else if(tab==='gantt')content=h(GanttView,{ganttData,onGanttSave,auth,saves,toast:showToast});
@@ -3066,6 +3109,24 @@ window.fbSave=function(data){
 
 // ── Boot: load from Firestore first, fallback to localStorage ──
 const root=ReactDOM.createRoot(document.getElementById('root'));
+// Timeout: si Firebase tarda más de 5s, cargar desde localStorage
+var _fbTimeout=setTimeout(function(){
+  if(!window._fbReady){
+    console.warn('Firebase timeout — cargando desde localStorage');
+    window._fbReady=true;
+    var localData=null;
+    try{var ls=localStorage.getItem('obra_v6');if(ls)localData=JSON.parse(ls);}catch(e){}
+    try{
+      root.render(h(ErrorBoundary,null,h(App,{initialData:localData||{}})));
+    }catch(renderErr){
+      var el=document.getElementById('boot-error');
+      if(el){el.style.display='block';el.textContent='Render error: '+renderErr.message;}
+      console.error('Render error:',renderErr);
+    }
+    var bm=document.getElementById('boot-msg');
+    if(bm)bm.style.display='none';
+  }
+},5000);
 DOC.get().then(function(snap){
   var cloudData=snap.exists?snap.data():null;
   var localData=null;
@@ -3085,7 +3146,15 @@ if(!initialData.ganttData.overrides||Object.keys(initialData.ganttData.overrides
   initialData.ganttData.overrides=DELIVERY_OVERRIDES;
 }
   window._fbReady=true;
-  root.render(h(App,{initialData}));
+  try{
+    root.render(h(ErrorBoundary,null,h(App,{initialData})));
+  }catch(renderErr){
+    var el=document.getElementById('boot-error');
+    if(el){el.style.display='block';el.textContent='Render error: '+renderErr.message;}
+    console.error('Render error:',renderErr);
+  }
+  var bm=document.getElementById('boot-msg');
+  if(bm)bm.style.display='none';
   // Real-time listener: update all connected clients when data changes
   DOC.onSnapshot(function(snap){
     if(!snap.exists||!window._fbReady)return;
@@ -3097,10 +3166,16 @@ if(!initialData.ganttData.overrides||Object.keys(initialData.ganttData.overrides
 }).catch(function(e){
   console.warn('Firebase load error, using localStorage:',e);
   window._fbReady=true;
-  root.render(h(App,null));
+  try{
+    root.render(h(ErrorBoundary,null,h(App,{})));
+  }catch(renderErr){
+    var el=document.getElementById('boot-error');
+    if(el){el.style.display='block';el.textContent='Render error: '+renderErr.message;}
+    console.error('Render error:',renderErr);
+  }
+  var bm=document.getElementById('boot-msg');
+  if(bm)bm.style.display='none';
 });
-var bm=document.getElementById('boot-msg');
-if(bm)bm.style.display='none';
 </script>
 </body>
 </html>
