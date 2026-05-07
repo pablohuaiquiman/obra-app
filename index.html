@@ -255,6 +255,9 @@ input,select,textarea{font-family:var(--font);outline:none}
 .resp-tag{background:rgba(168,85,247,.12);color:var(--purple);padding:1px 6px;border-radius:10px;font-size:10px;font-weight:600}
 .fase-tag{padding:1px 6px;border-radius:10px;font-size:10px;font-weight:600}
 </style>
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 </head>
 <body>
 <div id="root">
@@ -1774,6 +1777,31 @@ function ProgramaView({ganttData,saves,onWeekSave,weekData,auth,toast}){
   });
   const endDate=weekDays[weekDays.length-1].date;
   const wk=startDate;
+  // ── ENTREGAS: departamentos cuya fecha de entrega cae en esta semana ──
+  const depDeliveriesThisWeek=(function(){
+    var ov=ganttData.overrides||{};
+    var ds=ganttData.dateShift||0;
+    var result={};
+    PLAN.de.forEach(function(dep,di){
+      var ovDep=ov['dep_'+di];
+      var eDay=ovDep&&ovDep.e!=null?ovDep.e:(dep.e+ds);
+      var eDate=n2d(eDay);
+      if(eDate>=startDate&&eDate<=endDate){
+        if(!result[eDate])result[eDate]=[];
+        // Buscar fase 3 de este depto
+        var fa3Idx=-1;
+        PLAN.fa.forEach(function(f,fi){if(f.di===di&&f.f==='3')fa3Idx=fi;});
+        // Partidas de fase 3
+        var f3Parts=fa3Idx>=0?PLAN.pa.filter(function(pa){return pa[5]===fa3Idx;}):[]; 
+        var lastPart=f3Parts.length?f3Parts[f3Parts.length-1]:null;
+        var lastPartName=lastPart?planName(lastPart[0]):'';
+        var lastResp=lastPart?planResp(lastPart[3]):'';
+        result[eDate].push({dep:dep,di:di,fa3Idx:fa3Idx,lastPartName:lastPartName,lastResp:lastResp,pisoName:PLAN.pi[dep.pi]?PLAN.pi[dep.pi].n:''});
+      }
+    });
+    return result;
+  })();
+  var totalEntregasSemana=Object.values(depDeliveriesThisWeek).reduce(function(s,a){return s+a.length;},0);
   const manualData=weekData[wk]||{tasks:{},nota:''};
   const navWeek=dir=>{
     const d=new Date(startDate+'T12:00:00');
@@ -1900,6 +1928,10 @@ function ProgramaView({ganttData,saves,onWeekSave,weekData,auth,toast}){
         filtResp!=='all'&&h('span',{style:{marginLeft:6,background:'rgba(168,85,247,.15)',
           color:'var(--purple)',padding:'2px 8px',borderRadius:10,fontSize:11,fontWeight:600}},
           filtResp
+        ),
+        totalEntregasSemana>0&&h('span',{style:{marginLeft:6,background:'rgba(34,197,94,.15)',
+          color:'var(--green)',padding:'2px 8px',borderRadius:10,fontSize:11,fontWeight:600}},
+          '🏠 '+totalEntregasSemana+' entrega'+(totalEntregasSemana>1?'s':'')
         )
       )
     ),
@@ -1920,6 +1952,38 @@ function ProgramaView({ganttData,saves,onWeekSave,weekData,auth,toast}){
               done+'/'+manTasks.length
             )
           )
+        ),
+        // Entregas programadas este día
+        (depDeliveriesThisWeek[date]||[]).length>0&&h('div',{style:{marginBottom:8}},
+          h('div',{style:{fontSize:10,fontWeight:700,color:'var(--green)',letterSpacing:'.08em',
+            marginBottom:4,display:'flex',alignItems:'center',gap:4}},
+            '🏠 ENTREGAS PROGRAMADAS'
+          ),
+          (depDeliveriesThisWeek[date]||[]).map(function(ent,ei){
+            return h('div',{key:ei,style:{
+              background:'rgba(34,197,94,.07)',
+              border:'1px solid rgba(34,197,94,.35)',
+              borderLeft:'3px solid var(--green)',
+              borderRadius:8,padding:'8px 11px',marginBottom:4}},
+              h('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}},
+                h('span',{style:{fontSize:13,fontWeight:700,color:'var(--green)',fontFamily:'var(--mono)'}},'D'+ent.dep.d),
+                h('span',{style:{fontSize:12,color:'var(--text)',fontWeight:600}},ent.dep.n),
+                h('span',{style:{background:'rgba(34,197,94,.15)',color:'var(--green)',
+                  padding:'1px 7px',borderRadius:8,fontSize:10,fontWeight:700}},
+                  '✓ ENTREGA F3'
+                ),
+                ent.pisoName&&h('span',{style:{fontSize:10,color:'var(--text3)',
+                  background:'var(--bg2)',padding:'1px 6px',borderRadius:6}},ent.pisoName)
+              ),
+              ent.lastPartName&&h('div',{style:{marginTop:4,fontSize:10,color:'var(--text2)',
+                display:'flex',alignItems:'center',gap:6}},
+                h('span',{style:{color:'var(--text3)'}},'úLT. PARTIDA:'),
+                h('span',null,ent.lastPartName),
+                ent.lastResp&&h('span',{style:{background:'rgba(168,85,247,.12)',color:'var(--purple)',
+                  padding:'1px 6px',borderRadius:6,fontSize:10}},ent.lastResp)
+              )
+            );
+          })
         ),
         // Plan tasks for this day (from PLAN data)
         planTasks.length>0&&h('div',{style:{marginBottom:6}},
@@ -2799,11 +2863,26 @@ function LogisticaView({logData,onLogSave,auth,toast}){
   );
 }
 
-function App(){
+function App({initialData}){
   const[state,ss]=useState(()=>{
+    if(initialData&&Object.keys(initialData).length>0)return initialData;
     try{return JSON.parse(localStorage.getItem(SK))||{};}catch{return{};}
   });
-  const save=(patch)=>{const ns={...state,...patch};ss(ns);localStorage.setItem(SK,JSON.stringify(ns));};
+  // Real-time: merge Firebase updates from other users
+  React.useEffect(function(){
+    function onFbUpdate(e){
+      var remote=e.detail;if(!remote)return;
+      ss(function(cur){return Object.assign({},remote,{auth:cur.auth,tab:cur.tab});});
+    }
+    window.addEventListener('fb-update',onFbUpdate);
+    return function(){window.removeEventListener('fb-update',onFbUpdate);};
+  },[]);
+  const save=(patch)=>{
+    const ns={...state,...patch};
+    ss(ns);
+    try{localStorage.setItem(SK,JSON.stringify(ns));}catch(e){}
+    if(window.fbSave)window.fbSave(ns);
+  };
   const[toastMsg,showToast]=useToast();
   const{auth,tab='dash',saves={},ganttData={},weekData={},rendData={},cubicData={},logData={}}=state;
   if(!auth)return h(Login,{onLogin:(a)=>save({auth:a})});
@@ -2836,8 +2915,10 @@ function App(){
   else content=h(Dashboard,{saves});
   return h('div',{className:'app'},
     h('div',{className:'nav'},
-      h('div',{style:{fontSize:17,fontWeight:700,letterSpacing:'.12em',color:'var(--blue)'}},
-        '✦ OBRA'
+      h('div',{style:{display:'flex',alignItems:'center',gap:8}},
+        h('div',{style:{fontSize:17,fontWeight:700,letterSpacing:'.12em',color:'var(--blue)'}},'✦ OBRA'),
+        h('span',{style:{width:7,height:7,borderRadius:'50%',display:'inline-block',
+          background:'var(--green)',boxShadow:'0 0 6px var(--green)'},title:'Sincronizado con la nube'})
       ),
       h('div',{className:'flex aic g8'},
         h('span',{style:{fontSize:11,fontWeight:600,color:auth.role==='Admin'?'var(--blue)':auth.role==='Supervisor'?'var(--amber)':'var(--green)'}},auth.role),
@@ -2874,8 +2955,74 @@ function App(){
     )
   );
 }
+// ── Firebase init ──
+const firebaseConfig={
+  apiKey:"AIzaSyDc6_9H98bFvMb_iSU1Mtn04BlmrptncFY",
+  authDomain:"obra-app-ca298.firebaseapp.com",
+  projectId:"obra-app-ca298",
+  storageBucket:"obra-app-ca298.firebasestorage.app",
+  messagingSenderId:"382892248675",
+  appId:"1:382892248675:web:bc70a13e4cde055cd37256"
+};
+firebase.initializeApp(firebaseConfig);
+const db=firebase.firestore();
+const DOC=db.collection('obra').doc('state');
+
+// ── Global sync flag ──
+window._fbReady=false;
+window._fbSaving=false;
+
+// ── Save to Firestore (debounced 800ms) ──
+var _fbSaveTimer=null;
+window.fbSave=function(data){
+  clearTimeout(_fbSaveTimer);
+  _fbSaveTimer=setTimeout(function(){
+    if(window._fbSaving)return;
+    window._fbSaving=true;
+    DOC.set(data,{merge:false}).then(function(){
+      window._fbSaving=false;
+    }).catch(function(e){
+      console.warn('Firebase save error:',e);
+      window._fbSaving=false;
+    });
+  },800);
+};
+
+// ── Boot: load from Firestore first, fallback to localStorage ──
 const root=ReactDOM.createRoot(document.getElementById('root'));
-root.render(h(App,null));
+DOC.get().then(function(snap){
+  var cloudData=snap.exists?snap.data():null;
+  var localData=null;
+  try{var ls=localStorage.getItem('obra_v6');if(ls)localData=JSON.parse(ls);}catch(e){}
+  // Use cloud data if available, else local
+  var initialData=cloudData||localData||{};
+  if(cloudData){
+    // Also update localStorage cache
+    try{localStorage.setItem('obra_v6',JSON.stringify(cloudData));}catch(e){}
+  }
+
+// Delivery schedule overrides (programa base semanal)
+var DELIVERY_OVERRIDES={"dep_0":{"s":167,"e":232},"dep_1":{"s":167,"e":232},"dep_2":{"s":59,"e":127},"dep_3":{"s":59,"e":127},"dep_4":{"s":58,"e":127},"dep_5":{"s":61,"e":127},"dep_6":{"s":49,"e":120},"dep_7":{"s":52,"e":120},"dep_10":{"s":94,"e":162},"dep_11":{"s":94,"e":162},"dep_12":{"s":80,"e":148},"dep_13":{"s":81,"e":148},"dep_14":{"s":71,"e":141},"dep_15":{"s":72,"e":141},"dep_16":{"s":72,"e":141},"dep_17":{"s":89,"e":156},"dep_18":{"s":87,"e":156},"dep_19":{"s":86,"e":156},"dep_20":{"s":87,"e":156},"dep_21":{"s":171,"e":239},"dep_22":{"s":131,"e":197},"dep_23":{"s":131,"e":197},"dep_24":{"s":128,"e":197},"dep_25":{"s":122,"e":190},"dep_26":{"s":124,"e":190},"dep_27":{"s":124,"e":190},"dep_28":{"s":122,"e":190},"dep_29":{"s":114,"e":183},"dep_30":{"s":117,"e":183},"dep_31":{"s":152,"e":218},"dep_32":{"s":150,"e":218},"dep_33":{"s":150,"e":218},"dep_34":{"s":142,"e":211},"dep_35":{"s":146,"e":211},"dep_36":{"s":137,"e":204},"dep_37":{"s":137,"e":204},"dep_38":{"s":153,"e":218},"dep_39":{"s":159,"e":225},"dep_40":{"s":158,"e":225},"dep_41":{"s":158,"e":225},"dep_42":{"s":170,"e":239},"dep_43":{"s":75,"e":141},"dep_44":{"s":75,"e":141},"dep_45":{"s":73,"e":141},"dep_46":{"s":66,"e":134},"dep_47":{"s":64,"e":134},"dep_48":{"s":65,"e":134},"dep_49":{"s":65,"e":134},"dep_50":{"s":65,"e":134},"dep_51":{"s":93,"e":162},"dep_52":{"s":92,"e":162},"dep_53":{"s":93,"e":162},"dep_54":{"s":87,"e":156},"dep_55":{"s":79,"e":148},"dep_56":{"s":81,"e":148},"dep_57":{"s":78,"e":148},"dep_58":{"s":100,"e":169},"dep_59":{"s":103,"e":169},"dep_60":{"s":103,"e":169},"dep_61":{"s":101,"e":169},"dep_62":{"s":170,"e":239},"dep_63":{"s":115,"e":183},"dep_64":{"s":115,"e":183},"dep_65":{"s":117,"e":183},"dep_66":{"s":110,"e":176},"dep_67":{"s":107,"e":176},"dep_68":{"s":108,"e":176},"dep_69":{"s":111,"e":176},"dep_70":{"s":111,"e":176},"dep_71":{"s":123,"e":190},"dep_72":{"s":136,"e":204},"dep_73":{"s":139,"e":204},"dep_74":{"s":139,"e":204},"dep_75":{"s":130,"e":197},"dep_76":{"s":130,"e":197},"dep_77":{"s":131,"e":197},"dep_78":{"s":143,"e":211},"dep_79":{"s":144,"e":211},"dep_80":{"s":146,"e":211},"dep_81":{"s":153,"e":218},"dep_82":{"s":179,"e":246},"dep_83":{"s":172,"e":239},"dep_84":{"s":174,"e":239},"dep_86":{"s":165,"e":232},"dep_87":{"s":165,"e":232},"dep_88":{"s":167,"e":232},"dep_89":{"s":167,"e":232},"dep_90":{"s":156,"e":225},"dep_91":{"s":157,"e":225},"dep_92":{"s":187,"e":253},"dep_93":{"s":187,"e":253},"dep_94":{"s":178,"e":246},"dep_95":{"s":177,"e":246},"dep_96":{"s":180,"e":246},"dep_97":{"s":180,"e":246},"dep_98":{"s":185,"e":253},"dep_99":{"s":185,"e":253},"dep_100":{"s":191,"e":260},"dep_101":{"s":194,"e":260},"fase_0":{"s":167,"e":195},"fase_1":{"s":195,"e":219},"fase_2":{"s":219,"e":232},"fase_3":{"s":167,"e":195},"fase_4":{"s":195,"e":219},"fase_5":{"s":219,"e":232},"fase_6":{"s":59,"e":87},"fase_7":{"s":88,"e":113},"fase_8":{"s":114,"e":127},"fase_9":{"s":59,"e":88},"fase_10":{"s":88,"e":114},"fase_11":{"s":114,"e":127},"fase_12":{"s":58,"e":89},"fase_13":{"s":89,"e":113},"fase_14":{"s":113,"e":127},"fase_15":{"s":61,"e":89},"fase_16":{"s":89,"e":113},"fase_17":{"s":113,"e":127},"fase_18":{"s":49,"e":77},"fase_19":{"s":77,"e":110},"fase_20":{"s":110,"e":120},"fase_21":{"s":52,"e":80},"fase_22":{"s":84,"e":106},"fase_23":{"s":107,"e":120},"fase_30":{"s":94,"e":123},"fase_31":{"s":123,"e":149},"fase_32":{"s":149,"e":162},"fase_33":{"s":94,"e":123},"fase_34":{"s":123,"e":149},"fase_35":{"s":149,"e":162},"fase_36":{"s":80,"e":111},"fase_37":{"s":112,"e":135},"fase_38":{"s":136,"e":148},"fase_39":{"s":81,"e":111},"fase_40":{"s":111,"e":137},"fase_41":{"s":137,"e":148},"fase_42":{"s":71,"e":101},"fase_43":{"s":101,"e":127},"fase_44":{"s":127,"e":141},"fase_45":{"s":72,"e":101},"fase_46":{"s":101,"e":127},"fase_47":{"s":127,"e":141},"fase_48":{"s":72,"e":103},"fase_49":{"s":103,"e":127},"fase_50":{"s":127,"e":141},"fase_51":{"s":89,"e":118},"fase_52":{"s":119,"e":142},"fase_53":{"s":145,"e":156},"fase_54":{"s":87,"e":117},"fase_55":{"s":117,"e":143},"fase_56":{"s":143,"e":156},"fase_57":{"s":86,"e":116},"fase_58":{"s":116,"e":142},"fase_59":{"s":142,"e":156},"fase_60":{"s":87,"e":118},"fase_61":{"s":118,"e":143},"fase_62":{"s":143,"e":156},"fase_63":{"s":171,"e":202},"fase_64":{"s":202,"e":226},"fase_65":{"s":226,"e":239},"fase_66":{"s":131,"e":160},"fase_67":{"s":161,"e":184},"fase_68":{"s":187,"e":197},"fase_69":{"s":131,"e":161},"fase_70":{"s":161,"e":187},"fase_71":{"s":187,"e":197},"fase_72":{"s":128,"e":158},"fase_73":{"s":158,"e":184},"fase_74":{"s":184,"e":197},"fase_75":{"s":122,"e":153},"fase_76":{"s":153,"e":177},"fase_77":{"s":177,"e":190},"fase_78":{"s":124,"e":153},"fase_79":{"s":153,"e":177},"fase_80":{"s":177,"e":190},"fase_81":{"s":124,"e":153},"fase_82":{"s":155,"e":179},"fase_83":{"s":180,"e":190},"fase_84":{"s":122,"e":155},"fase_85":{"s":155,"e":178},"fase_86":{"s":178,"e":190},"fase_87":{"s":114,"e":147},"fase_88":{"s":147,"e":170},"fase_89":{"s":170,"e":183},"fase_90":{"s":117,"e":147},"fase_91":{"s":147,"e":170},"fase_92":{"s":170,"e":183},"fase_93":{"s":152,"e":182},"fase_94":{"s":182,"e":207},"fase_95":{"s":207,"e":218},"fase_96":{"s":150,"e":180},"fase_97":{"s":183,"e":205},"fase_98":{"s":206,"e":218},"fase_99":{"s":150,"e":183},"fase_100":{"s":183,"e":206},"fase_101":{"s":206,"e":218},"fase_102":{"s":142,"e":175},"fase_103":{"s":175,"e":198},"fase_104":{"s":198,"e":211},"fase_105":{"s":146,"e":175},"fase_106":{"s":175,"e":200},"fase_107":{"s":200,"e":211},"fase_108":{"s":137,"e":166},"fase_109":{"s":166,"e":191},"fase_110":{"s":191,"e":204},"fase_111":{"s":137,"e":168},"fase_112":{"s":169,"e":191},"fase_113":{"s":192,"e":204},"fase_114":{"s":153,"e":183},"fase_115":{"s":183,"e":206},"fase_116":{"s":206,"e":218},"fase_117":{"s":159,"e":189},"fase_118":{"s":189,"e":214},"fase_119":{"s":214,"e":225},"fase_120":{"s":158,"e":187},"fase_121":{"s":187,"e":212},"fase_122":{"s":212,"e":225},"fase_123":{"s":158,"e":189},"fase_124":{"s":189,"e":212},"fase_125":{"s":212,"e":225},"fase_126":{"s":170,"e":202},"fase_127":{"s":202,"e":225},"fase_128":{"s":225,"e":239},"fase_129":{"s":75,"e":104},"fase_130":{"s":104,"e":127},"fase_131":{"s":127,"e":141},"fase_132":{"s":75,"e":104},"fase_133":{"s":104,"e":130},"fase_134":{"s":130,"e":141},"fase_135":{"s":73,"e":102},"fase_136":{"s":103,"e":128},"fase_137":{"s":129,"e":141},"fase_138":{"s":66,"e":98},"fase_139":{"s":98,"e":122},"fase_140":{"s":122,"e":134},"fase_141":{"s":64,"e":96},"fase_142":{"s":96,"e":120},"fase_143":{"s":120,"e":134},"fase_144":{"s":65,"e":94},"fase_145":{"s":94,"e":120},"fase_146":{"s":120,"e":134},"fase_147":{"s":65,"e":94},"fase_148":{"s":94,"e":120},"fase_149":{"s":120,"e":134},"fase_150":{"s":65,"e":94},"fase_151":{"s":97,"e":120},"fase_152":{"s":121,"e":134},"fase_153":{"s":93,"e":125},"fase_154":{"s":125,"e":149},"fase_155":{"s":149,"e":162},"fase_156":{"s":92,"e":122},"fase_157":{"s":122,"e":148},"fase_158":{"s":148,"e":162},"fase_159":{"s":93,"e":122},"fase_160":{"s":122,"e":148},"fase_161":{"s":148,"e":162},"fase_162":{"s":87,"e":116},"fase_163":{"s":116,"e":142},"fase_164":{"s":142,"e":156},"fase_165":{"s":79,"e":110},"fase_166":{"s":111,"e":135},"fase_167":{"s":138,"e":148},"fase_168":{"s":81,"e":111},"fase_169":{"s":111,"e":138},"fase_170":{"s":138,"e":148},"fase_171":{"s":78,"e":108},"fase_172":{"s":108,"e":135},"fase_173":{"s":135,"e":148},"fase_174":{"s":100,"e":132},"fase_175":{"s":132,"e":156},"fase_176":{"s":156,"e":169},"fase_177":{"s":103,"e":132},"fase_178":{"s":132,"e":156},"fase_179":{"s":156,"e":169},"fase_180":{"s":103,"e":132},"fase_181":{"s":133,"e":158},"fase_182":{"s":159,"e":169},"fase_183":{"s":101,"e":131},"fase_184":{"s":131,"e":157},"fase_185":{"s":157,"e":169},"fase_186":{"s":170,"e":201},"fase_187":{"s":201,"e":226},"fase_188":{"s":226,"e":239},"fase_189":{"s":115,"e":147},"fase_190":{"s":147,"e":170},"fase_191":{"s":170,"e":183},"fase_192":{"s":115,"e":147},"fase_193":{"s":147,"e":170},"fase_194":{"s":170,"e":183},"fase_195":{"s":117,"e":147},"fase_196":{"s":148,"e":170},"fase_197":{"s":173,"e":183},"fase_198":{"s":110,"e":141},"fase_199":{"s":141,"e":166},"fase_200":{"s":166,"e":176},"fase_201":{"s":107,"e":140},"fase_202":{"s":140,"e":163},"fase_203":{"s":163,"e":176},"fase_204":{"s":108,"e":140},"fase_205":{"s":140,"e":163},"fase_206":{"s":163,"e":176},"fase_207":{"s":111,"e":140},"fase_208":{"s":140,"e":163},"fase_209":{"s":163,"e":176},"fase_210":{"s":111,"e":140},"fase_211":{"s":141,"e":165},"fase_212":{"s":166,"e":176},"fase_213":{"s":123,"e":155},"fase_214":{"s":155,"e":178},"fase_215":{"s":178,"e":190},"fase_216":{"s":136,"e":168},"fase_217":{"s":168,"e":191},"fase_218":{"s":191,"e":204},"fase_219":{"s":139,"e":168},"fase_220":{"s":168,"e":191},"fase_221":{"s":191,"e":204},"fase_222":{"s":139,"e":168},"fase_223":{"s":168,"e":193},"fase_224":{"s":193,"e":204},"fase_225":{"s":130,"e":159},"fase_226":{"s":162,"e":184},"fase_227":{"s":185,"e":197},"fase_228":{"s":130,"e":162},"fase_229":{"s":162,"e":185},"fase_230":{"s":185,"e":197},"fase_231":{"s":131,"e":161},"fase_232":{"s":161,"e":184},"fase_233":{"s":184,"e":197},"fase_234":{"s":143,"e":172},"fase_235":{"s":172,"e":197},"fase_236":{"s":197,"e":211},"fase_237":{"s":144,"e":172},"fase_238":{"s":172,"e":197},"fase_239":{"s":197,"e":211},"fase_240":{"s":146,"e":174},"fase_241":{"s":175,"e":197},"fase_242":{"s":198,"e":211},"fase_243":{"s":153,"e":182},"fase_244":{"s":182,"e":205},"fase_245":{"s":205,"e":218},"fase_246":{"s":179,"e":207},"fase_247":{"s":207,"e":232},"fase_248":{"s":232,"e":246},"fase_249":{"s":172,"e":200},"fase_250":{"s":203,"e":225},"fase_251":{"s":226,"e":239},"fase_252":{"s":174,"e":203},"fase_253":{"s":203,"e":226},"fase_254":{"s":226,"e":239},"fase_258":{"s":165,"e":193},"fase_259":{"s":193,"e":219},"fase_260":{"s":219,"e":232},"fase_261":{"s":165,"e":193},"fase_262":{"s":193,"e":219},"fase_263":{"s":219,"e":232},"fase_264":{"s":167,"e":195},"fase_265":{"s":196,"e":219},"fase_266":{"s":220,"e":232},"fase_267":{"s":167,"e":196},"fase_268":{"s":196,"e":222},"fase_269":{"s":222,"e":232},"fase_270":{"s":156,"e":185},"fase_271":{"s":185,"e":211},"fase_272":{"s":211,"e":225},"fase_273":{"s":157,"e":185},"fase_274":{"s":185,"e":211},"fase_275":{"s":211,"e":225},"fase_276":{"s":187,"e":215},"fase_277":{"s":215,"e":239},"fase_278":{"s":239,"e":253},"fase_279":{"s":187,"e":215},"fase_280":{"s":216,"e":239},"fase_281":{"s":242,"e":253},"fase_282":{"s":178,"e":207},"fase_283":{"s":207,"e":233},"fase_284":{"s":233,"e":246},"fase_285":{"s":177,"e":206},"fase_286":{"s":206,"e":232},"fase_287":{"s":232,"e":246},"fase_288":{"s":180,"e":208},"fase_289":{"s":208,"e":232},"fase_290":{"s":232,"e":246},"fase_291":{"s":180,"e":208},"fase_292":{"s":208,"e":232},"fase_293":{"s":232,"e":246},"fase_294":{"s":185,"e":213},"fase_295":{"s":214,"e":240},"fase_296":{"s":241,"e":253},"fase_297":{"s":185,"e":217},"fase_298":{"s":217,"e":241},"fase_299":{"s":241,"e":253},"fase_300":{"s":191,"e":223},"fase_301":{"s":223,"e":247},"fase_302":{"s":247,"e":260},"fase_303":{"s":194,"e":223},"fase_304":{"s":223,"e":249},"fase_305":{"s":249,"e":260},"piso_0":{"s":49,"e":232},"piso_1":{"s":114,"e":239},"piso_2":{"s":64,"e":239},"piso_3":{"s":107,"e":239},"piso_4":{"s":156,"e":274}};
+// Seed ganttData.overrides only if user hasn't set any overrides yet
+if(!initialData.ganttData){initialData.ganttData={};}
+if(!initialData.ganttData.overrides||Object.keys(initialData.ganttData.overrides).length===0){
+  initialData.ganttData.overrides=DELIVERY_OVERRIDES;
+}
+  window._fbReady=true;
+  root.render(h(App,{initialData}));
+  // Real-time listener: update all connected clients when data changes
+  DOC.onSnapshot(function(snap){
+    if(!snap.exists||!window._fbReady)return;
+    var data=snap.data();
+    try{localStorage.setItem('obra_v6',JSON.stringify(data));}catch(e){}
+    // Dispatch custom event so React app re-reads
+    window.dispatchEvent(new CustomEvent('fb-update',{detail:data}));
+  });
+}).catch(function(e){
+  console.warn('Firebase load error, using localStorage:',e);
+  window._fbReady=true;
+  root.render(h(App,null));
+});
 var bm=document.getElementById('boot-msg');
 if(bm)bm.style.display='none';
 </script>
