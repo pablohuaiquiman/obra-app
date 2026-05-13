@@ -4076,11 +4076,9 @@ function App({initialData}){
   const[showBackupMenu,setShowBackupMenu]=useState(false);
   const backupInputRef=useRef(null);
   const{auth,tab='dash',saves={},ganttData={},weekData={},rendData={},cubicData={},logData={},matData={}}=state;
-  if(!auth)return h(Login,{onLogin:(a)=>save({auth:a})});
-  // ── DERIVED STATE: calculateAllProgress se ejecuta UNA vez por cambio en saves ──
-  // Este es el único cálculo de avances de toda la app.
-  // Todas las vistas reciben `progress` y leen de él — nunca calculan por su cuenta.
+  // useMemo DEBE ir antes del early return para no violar las Reglas de Hooks
   const progress=React.useMemo(function(){return calculateAllProgress(saves);},[saves]);
+  if(!auth)return h(Login,{onLogin:(a)=>save({auth:a})});
   const setTab=(t)=>save({tab:t});
   const onSave=(dep,sv)=>save({saves:{...saves,[dep]:sv}});
   const onGanttSave=(gd)=>save({ganttData:gd});
