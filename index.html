@@ -4376,20 +4376,19 @@ Promise.all([
     }
   }
 
-  // Fusionar nube + localStorage (local gana por depto — fue escrito antes del debounce)
+  // Fusionar nube + localStorage: LA NUBE GANA en avances (saves)
+  // local solo aporta datos que la nube no tiene (weekData vacío, etc.)
   var cloudData=metaData?Object.assign({},metaData,{saves:cloudSaves}):null;
   var initialData=cloudData||localData||{};
   if(cloudData){
-    if(localData&&localData.saves&&Object.keys(localData.saves).length>0){
-      var mergedSaves=Object.assign({},cloudSaves);
-      Object.keys(localData.saves).forEach(function(dep){mergedSaves[dep]=localData.saves[dep];});
-      initialData=Object.assign({},cloudData,{saves:mergedSaves});
-      console.log('Boot: '+Object.keys(mergedSaves).length+' deptos fusionados (nube+local)');
-    }
+    // saves: nube gana siempre → asegura que todos los dispositivos ven datos frescos al arrancar
+    initialData=Object.assign({},cloudData,{saves:cloudSaves});
+    // weekData: si la nube no tiene, usar local
     if(localData&&(!cloudData.weekData||Object.keys(cloudData.weekData||{}).length===0)){
       if(localData.weekData&&Object.keys(localData.weekData).length>0)
         initialData=Object.assign({},initialData,{weekData:localData.weekData});
     }
+    console.log('Boot: '+Object.keys(cloudSaves).length+' deptos cargados desde nube');
     try{localStorage.setItem('obra_v6',JSON.stringify(initialData));}catch(e){}
   }
 
@@ -4424,20 +4423,40 @@ if(needsSeed||versionChanged){
 
   // ── Listeners en tiempo real: colección saves granular + doc principal ──
   // SAVES_COL: cada doc es un depto → actualización quirúrgica, sin sobreescribir otros deptos.
-  SAVES_COL.onSnapshot(function(snap){
-    if(!window._fbReady)return;
-    var newSaves={};
-    snap.forEach(function(doc){newSaves[doc.id]=doc.data();});
-    // Actualizar localStorage con los saves remotos (sin tocar el resto del estado)
+  var _lastSnapTime=Date.now();
+  function applyRemoteSaves(newSaves){
+    _lastSnapTime=Date.now();
     try{
-      var cur={};
-      var ls=localStorage.getItem('obra_v6');
+      var cur={};var ls=localStorage.getItem('obra_v6');
       if(ls)cur=JSON.parse(ls);
       cur.saves=Object.assign({},cur.saves||{},newSaves);
       localStorage.setItem('obra_v6',JSON.stringify(cur));
     }catch(e){}
     window.dispatchEvent(new CustomEvent('fb-saves-update',{detail:newSaves}));
+  }
+  SAVES_COL.onSnapshot(function(snap){
+    if(!window._fbReady)return;
+    var newSaves={};
+    snap.forEach(function(doc){newSaves[doc.id]=doc.data();});
+    applyRemoteSaves(newSaves);
+  },function(err){
+    console.warn('onSnapshot error:',err);
+    window.setSyncState('error');
   });
+
+  // ── Polling fallback cada 30 s: si el WebSocket cayó, forza un get() manual ──
+  setInterval(function(){
+    if(!window._fbReady)return;
+    var elapsed=Date.now()-_lastSnapTime;
+    if(elapsed>28000){
+      SAVES_COL.get().then(function(snap){
+        var newSaves={};
+        snap.forEach(function(doc){newSaves[doc.id]=doc.data();});
+        applyRemoteSaves(newSaves);
+        window.setSyncState('synced');
+      }).catch(function(){window.setSyncState('error');});
+    }
+  },30000);
 
   // OBRA_REF: cambios en ganttData, weekData, rendData, etc.
   OBRA_REF.onSnapshot(function(snap){
