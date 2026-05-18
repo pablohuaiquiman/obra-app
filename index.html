@@ -2364,6 +2364,7 @@ function ProgramaView({ganttData,saves,onWeekSave,weekData,auth,toast,userResp})
   const[filtFase,sff]=useState('all');
   const[filtResp,sfr]=useState('all');
   const[showEntregas,setShowEntregas]=useState(false);
+  const[showVencidas,setShowVencidas]=useState(false);
   const[selectedEntDep,setSelectedEntDep]=useState(null);
   const[startDate,ssd]=useState(()=>{
     const d=new Date();
@@ -2467,6 +2468,34 @@ function ProgramaView({ganttData,saves,onWeekSave,weekData,auth,toast,userResp})
       _dfpCache[k]=saves?calcDeptoFase(dep,fn,saves):0;
     return _dfpCache[k];
   };
+  // ── VENCIDAS: deptos cuya fecha de entrega ya pasó y F3 < 100% ──
+  // (definido DESPUÉS de getDFP para evitar temporal dead zone)
+  const depVencidas=(function(){
+    var ov=ganttData.overrides||{};
+    var ds=ganttData.dateShift||0;
+    var today=new Date().toISOString().slice(0,10);
+    var result=[];
+    PLAN.de.forEach(function(dep,di){
+      var ovDep=ov['dep_'+di];
+      var eDay=ovDep&&ovDep.e!=null?ovDep.e:(dep.e+ds);
+      var eDate=n2d(eDay);
+      if(eDate>=startDate)return; // solo ANTES de la semana actual
+      var f3Pct=getDFP(dep.d,3);
+      if(f3Pct>=100)return; // ya entregado, ignorar
+      var diasAtraso=Math.max(0,Math.ceil((new Date(today)-new Date(eDate+'T12:00:00'))/(864e5)));
+      var fa3Idx=-1;
+      PLAN.fa.forEach(function(f,fi){if(f.di===di&&f.f==='3')fa3Idx=fi;});
+      var f3Parts=fa3Idx>=0?PLAN.pa.filter(function(pa){return pa[5]===fa3Idx;}):[];
+      var lastPart=f3Parts.length?f3Parts[f3Parts.length-1]:null;
+      var lastPartName=lastPart?planName(lastPart[0]):'';
+      result.push({dep:dep,di:di,eDate:eDate,diasAtraso:diasAtraso,
+        f3Pct:f3Pct,fa3Idx:fa3Idx,lastPartName:lastPartName,
+        pisoName:PLAN.pi[dep.pi]?PLAN.pi[dep.pi].n:''});
+    });
+    result.sort(function(a,b){return a.eDate<b.eDate?-1:a.eDate>b.eDate?1:0;});
+    return result;
+  })();
+  var totalVencidas=depVencidas.length;
   // Plan tasks that fall within a specific day, agrupadas por tipo de partida (pa[0])
   // para evitar mostrar múltiples entradas del mismo trabajo en distintos deptos
   const planTasksForDay=(dayDate)=>{
@@ -2586,14 +2615,91 @@ function ProgramaView({ganttData,saves,onWeekSave,weekData,auth,toast,userResp})
           color:'var(--purple)',padding:'2px 8px',borderRadius:10,fontSize:11,fontWeight:600}},
           userResp||filtResp
         ),
+        totalVencidas>0&&h('span',{
+          onClick:function(){setShowVencidas(!showVencidas);setShowEntregas(false);},
+          style:{marginLeft:6,background:showVencidas?'rgba(239,68,68,.35)':'rgba(239,68,68,.15)',
+            color:'var(--red)',padding:'2px 8px',borderRadius:10,fontSize:11,fontWeight:600,
+            cursor:'pointer',userSelect:'none',border:'1px solid rgba(239,68,68,.4)'}},
+          '⚠ '+totalVencidas+' vencida'+(totalVencidas>1?'s':'')+' '+(showVencidas?'▲':'▼')
+        ),
         totalEntregasSemana>0&&h('span',{
-          onClick:function(){setShowEntregas(!showEntregas);},
+          onClick:function(){setShowEntregas(!showEntregas);setShowVencidas(false);},
           style:{marginLeft:6,background:showEntregas?'rgba(34,197,94,.35)':'rgba(34,197,94,.15)',
             color:'var(--green)',padding:'2px 8px',borderRadius:10,fontSize:11,fontWeight:600,
             cursor:'pointer',userSelect:'none',border:'1px solid rgba(34,197,94,.3)'}},
           '🏠 '+totalEntregasSemana+' entrega'+(totalEntregasSemana>1?'s':'')+' '+(showEntregas?'▲':'▼')
         )
       )
+    ),
+    // ── PANEL VENCIDAS ──
+    showVencidas&&totalVencidas>0&&h('div',{className:'card',style:{
+      border:'1px solid rgba(239,68,68,.35)',background:'rgba(239,68,68,.04)'}},
+      h('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:12}},
+        h('div',{style:{fontSize:11,fontWeight:700,color:'var(--red)',letterSpacing:'.08em'}},
+          '⚠ ENTREGAS NO CUMPLIDAS — ACUMULADAS'),
+        h('span',{style:{fontSize:10,fontWeight:400,color:'var(--text3)',marginLeft:'auto'}},
+          totalVencidas+' depto'+(totalVencidas>1?'s':''))
+      ),
+      // Agrupar por fecha de entrega programada
+      (function(){
+        var byDate={};
+        depVencidas.forEach(function(ent){
+          if(!byDate[ent.eDate])byDate[ent.eDate]=[];
+          byDate[ent.eDate].push(ent);
+        });
+        return Object.keys(byDate).map(function(eDate){
+          var ents=byDate[eDate];
+          var dateLabel=new Date(eDate+'T12:00:00').toLocaleDateString('es-CL',{day:'2-digit',month:'short',year:'2-digit'});
+          var diasStr=ents[0].diasAtraso;
+          return h('div',{key:eDate,style:{marginBottom:12}},
+            h('div',{style:{display:'flex',alignItems:'center',gap:6,marginBottom:6}},
+              h('span',{style:{background:'var(--red)',color:'#fff',
+                borderRadius:4,padding:'1px 6px',fontSize:9,fontWeight:700}},dateLabel),
+              h('span',{style:{fontSize:9,color:'var(--red)',fontWeight:600}},
+                diasStr+' día'+(diasStr!==1?'s':'')+' de atraso'),
+              h('span',{style:{background:'rgba(239,68,68,.15)',color:'var(--red)',
+                borderRadius:8,padding:'0 6px',fontSize:10,fontWeight:700}},
+                ents.length+' dpto'+(ents.length>1?'s':''))
+            ),
+            h('div',{style:{display:'flex',flexWrap:'wrap',gap:6}},
+              ents.map(function(ent,ei){
+                var pct=ent.f3Pct;
+                var pctCol=pct>=60?'var(--amber)':pct>=30?'var(--amber)':'var(--red)';
+                return h('div',{key:ei,
+                  onClick:function(){setSelectedEntDep(ent);},
+                  style:{
+                    background:'rgba(239,68,68,.06)',
+                    border:'1px solid rgba(239,68,68,.35)',
+                    borderLeft:'3px solid var(--red)',
+                    borderRadius:8,padding:'8px 10px',
+                    minWidth:140,flex:'1 1 140px',cursor:'pointer',transition:'background .15s'},
+                  onMouseEnter:function(e){e.currentTarget.style.background='rgba(239,68,68,.12)';},
+                  onMouseLeave:function(e){e.currentTarget.style.background='rgba(239,68,68,.06)';}},
+                  h('div',{style:{display:'flex',alignItems:'center',gap:6,marginBottom:4}},
+                    h('span',{style:{fontSize:14,fontWeight:800,color:'var(--red)',
+                      fontFamily:'var(--mono)'}},'D'+ent.dep.d),
+                    h('span',{style:{fontSize:9,background:'rgba(239,68,68,.15)',
+                      color:'var(--red)',padding:'1px 5px',borderRadius:4,fontWeight:700}},'F3'),
+                    h('span',{style:{marginLeft:'auto',fontFamily:'var(--mono)',fontSize:11,
+                      fontWeight:700,color:pctCol}},pct+'%')
+                  ),
+                  h('div',{style:{fontSize:10,color:'var(--text2)',marginBottom:2}},ent.dep.n),
+                  h('div',{style:{fontSize:9,color:'var(--text3)',marginBottom:5}},ent.pisoName),
+                  // Barra F3
+                  h('div',{style:{height:3,background:'var(--bg3)',borderRadius:2,overflow:'hidden'}},
+                    h('div',{style:{height:'100%',borderRadius:2,
+                      background:pct>=60?'var(--amber)':'var(--red)',
+                      width:Math.min(100,pct)+'%',transition:'width .4s'}})),
+                  ent.lastPartName&&h('div',{style:{
+                    fontSize:9,color:'var(--text3)',marginTop:5,
+                    borderTop:'1px solid rgba(239,68,68,.2)',paddingTop:4}},
+                    '↳ '+ent.lastPartName)
+                );
+              })
+            )
+          );
+        });
+      })()
     ),
     // ── PANEL ENTREGAS SEMANA ──
     showEntregas&&totalEntregasSemana>0&&h('div',{className:'card',style:{
@@ -4689,6 +4795,10 @@ Promise.all([
   if(cloudData){
     // saves: nube gana siempre → asegura que todos los dispositivos ven datos frescos al arrancar
     initialData=Object.assign({},cloudData,{saves:cloudSaves});
+    // auth: NO se guarda en Firebase (privacidad) → restaurar desde localStorage
+    if(localData&&localData.auth)initialData.auth=localData.auth;
+    // tab: restaurar navegación desde local
+    if(localData&&localData.tab)initialData.tab=localData.tab;
     // weekData: si la nube no tiene, usar local
     if(localData&&(!cloudData.weekData||Object.keys(cloudData.weekData||{}).length===0)){
       if(localData.weekData&&Object.keys(localData.weekData).length>0)
