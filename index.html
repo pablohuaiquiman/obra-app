@@ -284,7 +284,6 @@ const SK='obra_v6';
 const USERS={
   // ── Admin ──
   pablo:              {pw:'pablo123',              role:'Admin',     name:'Pablo H.'},
-  admin:              {pw:'obra2024',              role:'Admin',     name:'Admin'},
   // ── Jefe Obra ──
   jefe:               {pw:'jefe123',               role:'Jefe Obra', name:'Jefe de Obra'},
   // ── Supervisores ──
@@ -294,20 +293,20 @@ const USERS={
   supervisortrazado:  {pw:'supervisortrazado123',  role:'Supervisor',name:'Supervisor Trazado'},
   supervisordetrazado:{pw:'supervisordetrazado123',role:'Supervisor',name:'Supervisor de Trazado'},
   // ── Subcontratos ──
-  subcventanas:       {pw:'subcventanas123',       role:'Supervisor',name:'Subcto Ventanas'},
-  subctabiqueria:     {pw:'subctabiqueria123',     role:'Supervisor',name:'Subcto Tabiquería'},
-  subcnivelacion:     {pw:'subcnivelacion123',     role:'Supervisor',name:'Subcto Nivelación'},
-  subcelectrico:      {pw:'subcelectrico123',      role:'Supervisor',name:'Subcto Eléctrico'},
-  subcsanitario:      {pw:'subcsanitario123',      role:'Supervisor',name:'Subcto Sanitario'},
-  subcclima:          {pw:'subcclima123',          role:'Supervisor',name:'Subcto Clima'},
-  subcinstpuertas:    {pw:'subcinstpuertas123',    role:'Supervisor',name:'Subcto Inst. Puertas'},
-  subcimpermeable:    {pw:'subcimpermeable123',    role:'Supervisor',name:'Subcto Impermeabiliz.'},
-  subcceramica:       {pw:'subcceramica123',       role:'Supervisor',name:'Subcto Cerámica'},
-  subcmueble:         {pw:'subcmueble123',         role:'Supervisor',name:'Subcto Mueble'},
-  subcpintura:        {pw:'subcpintura123',        role:'Supervisor',name:'Subcto Pintura'},
-  subcpuertas:        {pw:'subcpuertas123',        role:'Supervisor',name:'Subcto Puertas'},
-  subcpisovinilico:   {pw:'subcpisovinilico123',   role:'Supervisor',name:'Subcto Piso Vinílico'},
-  subccerradura:      {pw:'subccerradura123',      role:'Supervisor',name:'Subcto Cerradura Int.'}
+  ventanas:       {pw:'ventanas123',       role:'Supervisor',name:'Subcto Ventanas'},
+  tabiqueria:     {pw:'tabiqueria123',     role:'Supervisor',name:'Subcto Tabiquería'},
+  nivelacion:     {pw:'nivelacion123',     role:'Supervisor',name:'Subcto Nivelación'},
+  electrico:      {pw:'electrico123',      role:'Supervisor',name:'Subcto Eléctrico'},
+  sanitario:      {pw:'sanitario123',      role:'Supervisor',name:'Subcto Sanitario'},
+  clima:          {pw:'clima123',          role:'Supervisor',name:'Subcto Clima'},
+  instpuertas:    {pw:'instpuertas123',    role:'Supervisor',name:'Subcto Inst. Puertas'},
+  impermeable:    {pw:'impermeable123',    role:'Supervisor',name:'Subcto Impermeabiliz.'},
+  ceramica:       {pw:'ceramica123',       role:'Supervisor',name:'Subcto Cerámica'},
+  mueble:         {pw:'mueble123',         role:'Supervisor',name:'Subcto Mueble'},
+  pintura:        {pw:'pintura123',        role:'Supervisor',name:'Subcto Pintura'},
+  puertas:        {pw:'puertas123',        role:'Supervisor',name:'Subcto Puertas'},
+  pisovinilico:   {pw:'pisovinilico123',   role:'Supervisor',name:'Subcto Piso Vinílico'},
+  cerradura:      {pw:'cerradura123',      role:'Supervisor',name:'Subcto Cerradura Int.'}
 };
 // ── Mapa usuario → responsable (fuente: partidas_orden.xlsx) ─
 const USER_RESP_MAP={
@@ -316,20 +315,20 @@ const USER_RESP_MAP={
   supervisorf3:        'supervisor fase 3',
   supervisortrazado:   'supervisor de trazado',
   supervisordetrazado: 'supervisor de trazado',
-  subcventanas:        'sucto.ventanas',
-  subctabiqueria:      'sucto.tabiqueria',
-  subcnivelacion:      'sucto.nivelacion',
-  subcelectrico:       'sucto.electrico',
-  subcsanitario:       'sucto.sanitario',
-  subcclima:           'sucto.clima',
-  subcinstpuertas:     'sucto.instpuertas',
-  subcimpermeable:     'sucto.impermeabilizacion',
-  subcceramica:        'sucto.ceramica',
-  subcmueble:          'sucto.muebles',
-  subcpintura:         'sucto.pintura',
-  subcpuertas:         'sucto.instpuertas',
-  subcpisovinilico:    'sucto.piso',
-  subccerradura:       'sucto.cerradura'
+  ventanas:        'sucto.ventanas',
+  tabiqueria:      'sucto.tabiqueria',
+  nivelacion:      'sucto.nivelacion',
+  electrico:       'sucto.electrico',
+  sanitario:       'sucto.sanitario',
+  clima:           'sucto.clima',
+  instpuertas:     'sucto.instpuertas',
+  impermeable:     'sucto.impermeabilizacion',
+  ceramica:        'sucto.ceramica',
+  mueble:          'sucto.muebles',
+  pintura:         'sucto.pintura',
+  puertas:         'sucto.instpuertas',
+  pisovinilico:    'sucto.piso',
+  cerradura:       'sucto.cerradura'
 };
 // ── Mapa directo {faseNum_id} → responsable (fuente: partidas_orden.xlsx) ──
 const PARTIDA_RESP_MAP={
@@ -411,7 +410,7 @@ function Login({onLogin}){
       h('div',{className:'login-title'},'Control'),
       h('div',{className:'login-sub'},'Pablo Huaiquiman'),
       h('div',{className:'field'},h('label',null,'Usuario'),
-        h('input',{value:u,onChange:e=>su(e.target.value),placeholder:'ej: supervisorf1 / subcpintura',onKeyDown:e=>e.key==='Enter'&&go()})
+        h('input',{value:u,onChange:e=>su(e.target.value),placeholder:'ej: pablo / electrico / pintura',onKeyDown:e=>e.key==='Enter'&&go()})
       ),
       h('div',{className:'field'},h('label',null,'Contraseña'),
         h('input',{type:'password',value:p,onChange:e=>sp(e.target.value),onKeyDown:e=>e.key==='Enter'&&go()})
@@ -1572,6 +1571,21 @@ function getPartidaRespName(faseNum,idStr){
 const EP=new Date('2026-01-01');
 function n2d(n){if(!n)return'';const d=new Date(EP);d.setDate(d.getDate()+n);return d.toISOString().slice(0,10);}
 function d2n(s){if(!s)return 0;return Math.round((new Date(s)-EP)/(864e5));}
+// ── Orden secuencia de obra: Seq1 unidad 11→2, Seq2 unidad 13→22 ──────────
+// Devuelve número de orden para comparar deptos (menor = primero)
+function deptSeqOrder(depNum){
+  var s=String(depNum);
+  var floor=parseInt(s.length>2?s.slice(0,-2):s)||0;
+  var unit=parseInt(s.slice(-2))||0;
+  var seq;
+  if(unit>=2&&unit<=11)seq=11-unit;          // Seq1: 11→0, 10→1, ..., 2→9
+  else if(unit>=13&&unit<=22)seq=10+(unit-13); // Seq2: 13→10, ..., 22→19
+  else seq=30+unit;                            // otros al final
+  return floor*100+seq;
+}
+function sortDepts(arr){
+  return arr.slice().sort(function(a,b){return deptSeqOrder(a)-deptSeqOrder(b);});
+}
 // Get partida dates for a depto/fase/pid-index
 function getPDates(dep,fase,idx){
   const arr=(DPD[dep]&&DPD[dep][fase])||[];
@@ -2423,6 +2437,8 @@ function ProgramaView({ganttData,saves,onWeekSave,weekData,auth,toast,userResp})
         result[eDate].push({dep:dep,di:di,fa3Idx:fa3Idx,lastPartName:lastPartName,lastResp:lastResp,pisoName:PLAN.pi[dep.pi]?PLAN.pi[dep.pi].n:''});
       }
     });
+    // Ordenar cada fecha por secuencia de obra
+    Object.keys(result).forEach(function(d){result[d].sort(function(a,b){return deptSeqOrder(a.dep.d)-deptSeqOrder(b.dep.d);});});
     return result;
   })();
   var totalEntregasSemana=Object.values(depDeliveriesThisWeek).reduce(function(s,a){return s+a.length;},0);
@@ -2508,7 +2524,7 @@ function ProgramaView({ganttData,saves,onWeekSave,weekData,auth,toast,userResp})
         f3Pct:f3Pct,fa3Idx:fa3Idx,lastPartName:lastPartName,
         pisoName:PLAN.pi[dep.pi]?PLAN.pi[dep.pi].n:''});
     });
-    result.sort(function(a,b){return a.eDate<b.eDate?-1:a.eDate>b.eDate?1:0;});
+    result.sort(function(a,b){return deptSeqOrder(a.dep.d)-deptSeqOrder(b.dep.d);});
     return result;
   })();
   var totalVencidas=depVencidas.length;
@@ -2575,27 +2591,8 @@ function ProgramaView({ganttData,saves,onWeekSave,weekData,auth,toast,userResp})
     h('div',{className:'card'},
       // Header row with week nav
       h('div',{className:'flex aic jb mb8'},
-        h('div',{style:{fontSize:11,fontWeight:700,color:'var(--text2)',letterSpacing:'.08em'}},'FILTROS'),
-        h('div',{className:'flex aic g6'},
-          h('button',{onClick:()=>navWeek(-1),style:{background:'var(--bg2)',border:'1px solid var(--border)',
-            borderRadius:6,padding:'5px 10px',color:'var(--text2)',cursor:'pointer',fontSize:14}},'‹'),
-          h('span',{style:{fontSize:11,color:'var(--text3)',fontFamily:'var(--mono)'}},'S'),
-          h('button',{onClick:()=>navWeek(1),style:{background:'var(--bg2)',border:'1px solid var(--border)',
-            borderRadius:6,padding:'5px 10px',color:'var(--text2)',cursor:'pointer',fontSize:14}},'›')
-        )
-      ),
-      // Date range row
-      h('div',{className:'flex g8 mb8'},
-        h('div',{style:{flex:1}},
-          h('div',{style:{fontSize:10,color:'var(--text3)',letterSpacing:'.06em',marginBottom:4}},'INICIO SEMANA'),
-          h('input',{type:'date',className:'date-input',value:startDate,
-            onChange:e=>ssd(e.target.value)})
-        ),
-        h('div',{style:{flex:1}},
-          h('div',{style:{fontSize:10,color:'var(--text3)',letterSpacing:'.06em',marginBottom:4}},'FIN SEMANA'),
-          h('div',{className:'date-input',style:{color:'var(--text2)',
-            display:'flex',alignItems:'center'}},endDate)
-        )
+        h('div',{style:{fontSize:11,fontWeight:700,color:'var(--text2)',letterSpacing:'.08em'}},'SEMANA'),
+        h(WeekCalendarPicker,{value:startDate,onChange:ssd})
       ),
       // Fase + Responsable row
       h('div',{className:'flex g8'},
@@ -5385,6 +5382,1370 @@ function SobretiempoView({asistData,stData,onStSave,auth,toast}){
 }
 
 
+// ── WEEK CALENDAR PICKER ─────────────────────────────────────────────────
+function WeekCalendarPicker({value,onChange,label}){
+  const [open,setOpen]=useState(false);
+  const [pos,setPos]=useState({top:0,left:0,flipR:false});
+  const trigRef=useRef(null);
+  const dropRef=useRef(null);
+  const [vy,svy]=useState(function(){return parseInt((value||new Date().toISOString().slice(0,10)).slice(0,4));});
+  const [vm,svm]=useState(function(){return parseInt((value||new Date().toISOString().slice(0,10)).slice(5,7))-1;});
+  const today=new Date().toISOString().slice(0,10);
+
+  // Calculate dropdown position (fixed, below trigger)
+  function calcPos(){
+    if(!trigRef.current)return;
+    var r=trigRef.current.getBoundingClientRect();
+    var dropW=272;
+    var left=r.left;
+    var flipR=left+dropW>window.innerWidth-8;
+    setPos({top:r.bottom+4,left:flipR?Math.max(4,r.right-dropW):left,flipR});
+  }
+
+  // Close on outside click / scroll
+  useEffect(function(){
+    if(!open)return;
+    function onClose(e){
+      if(trigRef.current&&trigRef.current.contains(e.target))return;
+      if(dropRef.current&&dropRef.current.contains(e.target))return;
+      setOpen(false);
+    }
+    document.addEventListener('mousedown',onClose);
+    document.addEventListener('touchstart',onClose);
+    document.addEventListener('scroll',function(){setOpen(false);},{passive:true,capture:true});
+    return function(){
+      document.removeEventListener('mousedown',onClose);
+      document.removeEventListener('touchstart',onClose);
+    };
+  },[open]);
+
+  useEffect(function(){
+    if(value){svy(parseInt(value.slice(0,4)));svm(parseInt(value.slice(5,7))-1);}
+  },[value]);
+
+  function getMon(d){var day=d.getDay(),diff=day===0?-6:1-day,m=new Date(d);m.setDate(d.getDate()+diff);return m.toISOString().slice(0,10);}
+  function getWN(d){var dt=new Date(d.getFullYear(),d.getMonth(),d.getDate()),dy=dt.getDay()||7;dt.setDate(dt.getDate()+4-dy);var ys=new Date(dt.getFullYear(),0,1);return Math.ceil(((dt-ys)/864e5+1)/7);}
+  function fmtS(d){if(!d)return'';var p=d.split('-');return p[2]+'/'+p[1];}
+  function addD(d,n){var dt=new Date(d+'T12:00:00');dt.setDate(dt.getDate()+n);return dt.toISOString().slice(0,10);}
+
+  var wEnd=value?addD(value,5):'';
+  var wNum=value?getWN(new Date(value+'T12:00:00')):'';
+
+  var MN=['Enero','Feb','Mar','Abril','Mayo','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  var DN=['L','M','X','J','V','S','D'];
+
+  function buildCal(){
+    var first=new Date(vy,vm,1),start=new Date(first);
+    var dow=start.getDay(),diff=dow===0?-6:1-dow;
+    start.setDate(start.getDate()+diff);
+    var rows=[],cur=new Date(start);
+    for(var w=0;w<6;w++){
+      var row={wn:getWN(cur),mon:cur.toISOString().slice(0,10),days:[]};
+      for(var d2=0;d2<7;d2++){
+        row.days.push({ds:cur.toISOString().slice(0,10),day:cur.getDate(),inM:cur.getMonth()===vm,isT:cur.toISOString().slice(0,10)===today});
+        cur.setDate(cur.getDate()+1);
+      }
+      rows.push(row);
+      if(cur.getMonth()!==vm&&!(vm===11&&cur.getMonth()===0))break;
+    }
+    return rows;
+  }
+  var rows=buildCal();
+  function prevM(){if(vm===0){svy(vy-1);svm(11);}else svm(vm-1);}
+  function nextM(){if(vm===11){svy(vy+1);svm(0);}else svm(vm+1);}
+
+  var NB={background:'var(--bg3)',border:'1px solid var(--border)',color:'var(--text)',
+    padding:'5px 12px',borderRadius:5,cursor:'pointer',fontSize:15,lineHeight:1,flexShrink:0};
+
+  // Dropdown rendered via portal-style fixed div
+  function CalDrop(){
+    return h('div',{ref:dropRef,
+      onMouseDown:function(e){e.stopPropagation();},
+      style:{position:'fixed',top:pos.top+'px',left:pos.left+'px',zIndex:99999,
+        background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:12,
+        padding:'12px 10px',boxShadow:'0 12px 48px rgba(0,0,0,.75)',width:'272px',
+        fontFamily:'Arial,sans-serif'}
+    },
+      // Month nav
+      h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}},
+        h('button',{onClick:function(e){e.stopPropagation();prevM();},style:NB},'‹'),
+        h('div',{style:{fontWeight:700,fontSize:13,color:'var(--text)',textAlign:'center',flex:1}},
+          MN[vm]+' '+vy),
+        h('button',{onClick:function(e){e.stopPropagation();nextM();},style:NB},'›')
+      ),
+      // Day headers
+      h('div',{style:{display:'grid',gridTemplateColumns:'24px repeat(7,1fr)',gap:0,marginBottom:2}},
+        h('div',{style:{fontSize:8,color:'var(--text3)',textAlign:'center',padding:'2px 0'}},'W'),
+        DN.map(function(n,i){
+          // Columna del día de hoy resaltada
+          var todayDow=new Date(today+'T12:00:00').getDay();
+          // getDay(): 0=Dom,1=Lun...6=Sab → mapeamos a índice L=0..D=6
+          var todayColIdx=[6,0,1,2,3,4,5][todayDow];
+          var isHoyCol=i===todayColIdx;
+          return h('div',{key:i,style:{
+            fontSize:9,fontWeight:isHoyCol?800:700,
+            color:isHoyCol?'var(--accent)':'var(--text2)',
+            textAlign:'center',padding:'2px 0',
+            borderBottom:isHoyCol?'2px solid var(--accent)':'2px solid transparent'}
+          },n);
+        })
+      ),
+      // Week rows
+      rows.map(function(row){
+        var isSel=row.mon===value;
+        var hasToday=row.days.some(function(d){return d.ds===today;});
+        return h('div',{key:row.mon,
+          onClick:function(e){e.stopPropagation();onChange(row.mon);setOpen(false);},
+          style:{display:'grid',gridTemplateColumns:'24px repeat(7,1fr)',
+            borderRadius:7,marginBottom:1,cursor:'pointer',
+            background:isSel?'rgba(0,200,255,.18)':hasToday?'rgba(0,200,255,.05)':'transparent',
+            border:'1px solid '+(isSel?'rgba(0,200,255,.5)':hasToday?'rgba(0,200,255,.2)':'transparent'),
+            transition:'background .1s',padding:'1px 0'}
+        },
+          h('div',{style:{fontSize:8,color:isSel?'var(--accent)':'var(--text3)',
+            textAlign:'center',display:'flex',alignItems:'center',justifyContent:'center',
+            fontWeight:isSel?700:400,lineHeight:1}},row.wn),
+          row.days.map(function(day){
+            var isHoy=day.isT;
+            // Hoy: círculo sólido siempre visible, sea semana seleccionada o no
+            var cellStyle={
+              display:'flex',alignItems:'center',justifyContent:'center',
+              padding:'3px 1px',fontSize:12,position:'relative'
+            };
+            if(isHoy){
+              // Círculo sólido lleno — color accent si no seleccionada, blanco si seleccionada
+              return h('div',{key:day.ds,style:cellStyle},
+                h('div',{style:{
+                  width:28,height:28,borderRadius:'50%',
+                  background:isSel?'#fff':'var(--accent)',
+                  display:'flex',alignItems:'center',justifyContent:'center',
+                  fontSize:12,fontWeight:800,
+                  color:isSel?'var(--accent)':'#000',
+                  boxShadow:isSel?'0 0 0 2px var(--accent)':'0 0 0 2px rgba(0,200,255,.5)',
+                  flexShrink:0
+                }},day.day)
+              );
+            }
+            return h('div',{key:day.ds,
+              style:Object.assign({},cellStyle,{
+                fontSize:12,
+                color:!day.inM?'rgba(107,143,168,.35)':isSel?'#fff':'var(--text)',
+                fontWeight:isSel?600:400})
+            },day.day);
+          })
+        );
+      }),
+      // Buttons
+      h('div',{style:{marginTop:8,display:'flex',gap:6}},
+        h('button',{
+          onClick:function(e){e.stopPropagation();onChange(getMon(new Date()));setOpen(false);},
+          style:{flex:1,background:'var(--accent)',color:'#000',border:'none',
+            borderRadius:6,padding:'7px 0',fontSize:11,fontWeight:700,cursor:'pointer'}
+        },'↺ Semana actual'),
+        h('button',{
+          onClick:function(e){e.stopPropagation();setOpen(false);},
+          style:{background:'var(--bg3)',color:'var(--text2)',border:'1px solid var(--border)',
+            borderRadius:6,padding:'7px 14px',fontSize:11,cursor:'pointer'}
+        },'Cerrar')
+      )
+    );
+  }
+
+  return h('div',{ref:trigRef,style:{display:'inline-block',position:'relative'}},
+    // Trigger button
+    h('div',{
+      onClick:function(){
+        if(!open){calcPos();setOpen(true);}
+        else setOpen(false);
+      },
+      style:{display:'flex',alignItems:'center',gap:8,background:'var(--bg2)',
+        border:'1px solid '+(open?'var(--accent)':'var(--border)'),
+        borderRadius:9,padding:'7px 12px',cursor:'pointer',transition:'border-color .15s',
+        userSelect:'none',WebkitUserSelect:'none'}
+    },
+      h('span',{style:{fontSize:20,lineHeight:1}},'📅'),
+      h('div',{},
+        h('div',{style:{fontSize:12,fontWeight:700,color:'var(--accent)'}},
+          value?fmtS(value)+' → '+fmtS(wEnd)+' · '+vy:(label||'Elegir semana')),
+        h('div',{style:{fontSize:9,color:'var(--text2)',marginTop:1}},
+          value?'Semana '+wNum+' · '+(open?'▲ cerrar':'▼ cambiar'):(open?'▲':'▼'))
+      )
+    ),
+    // Portal-style fixed dropdown
+    open&&h(CalDrop,{key:'drop'})
+  );
+}
+
+// ── INFORME SEMANAL VIEW ──────────────────────────────────────────────────
+function InformeSemanalView({ganttData,saves,onSave,reportData,onReportSave,auth}){
+  // ── Week navigation ────────────────────────────────────────────────────
+  const getMonday=function(d){var day=d.getDay(),diff=day===0?-6:1-day;var m=new Date(d);m.setDate(d.getDate()+diff);return m.toISOString().slice(0,10);};
+  const [wStart,setWStart]=useState(function(){return getMonday(new Date());});
+  const wEnd=useMemo(function(){var d=new Date(wStart+'T12:00:00');d.setDate(d.getDate()+5);return d.toISOString().slice(0,10);},[wStart]);
+  const prevWeek=function(){var d=new Date(wStart+'T12:00:00');d.setDate(d.getDate()-7);setWStart(getMonday(d));};
+  const nextWeek=function(){var d=new Date(wStart+'T12:00:00');d.setDate(d.getDate()+7);setWStart(getMonday(d));};
+  const wKey=wStart; // key for reportData
+  const comp=(reportData||{})[wKey]||{};
+  const setComp=function(k,v){
+    var nd=Object.assign({},reportData||{});
+    nd[wKey]=Object.assign({},nd[wKey]||{},{[k]:v});
+    onReportSave(nd);
+  };
+  // ── Compute weekly tasks ───────────────────────────────────────────────
+  const weekTasks=useMemo(function(){
+    var ov=(ganttData||{}).overrides||{};
+    var ds=(ganttData||{}).dateShift||0;
+    var sdN=d2n(wStart),edN=d2n(wEnd);
+    var groups={};
+    PLAN.pa.forEach(function(pa){
+      var fi=pa[5];var fase=PLAN.fa[fi];if(!fase)return;
+      var fov=ov['fase_'+fi];
+      var fStart=fov&&fov.s!=null?fov.s:(fase.s+ds);
+      var pov=ov['pa_'+fi+'_'+pa[0]];
+      var psN=pov&&pov.s!=null?pov.s:fStart+(pa[1]||0);
+      var peN=pov&&pov.e!=null?pov.e:fStart+(pa[2]||0);
+      if(peN<sdN||psN>edN)return;
+      var fn=fase.f;var key=pa[0]+'_'+fn;
+      if(!groups[key])groups[key]={pa,fn,fn_num:parseInt(fn)||1,pct_sum:0,dep_count:0,deps:[]};
+      var dep=PLAN.de[fase.di];if(!dep)return;
+      var depPct=calcDeptoFase(dep.d,parseInt(fn)||1,saves)||0;
+      groups[key].pct_sum+=depPct;groups[key].dep_count++;groups[key].deps.push(dep.d);
+    });
+    // Ordenar deps dentro de cada grupo por secuencia de obra
+    Object.values(groups).forEach(function(g){g.deps=sortDepts(g.deps);});
+    return Object.values(groups).sort(function(a,b){return parseInt(a.fn)-parseInt(b.fn)||a.pa[0]-b.pa[0];});
+  },[ganttData,saves,wStart,wEnd]);
+
+  // ── Edición rápida de % desde informe ─────────────────────────────────
+  const [editDep,setEditDep]=useState(null); // depNum abierto para editar
+  function quickSave(depNum,pid,pct){
+    var sv=Object.assign({},saves[depNum]||{});
+    sv.f3=Object.assign({},sv.f3||{},{[pid]:pct});
+    onSave(depNum,sv);
+  }
+  // ── Filtro por responsable ─────────────────────────────────────────────
+  const [filtResp,setFiltResp]=useState('all');
+  // Lista de responsables únicos esta semana
+  const respList=useMemo(function(){
+    var seen={};
+    weekTasks.forEach(function(g){
+      var ri=g.pa[3];var r=ri===255||ri==null?'':PLAN.rl[ri]||'';
+      if(r)seen[r]=true;
+    });
+    return Object.keys(seen).sort();
+  },[weekTasks]);
+  // Tareas filtradas
+  const filtTasks=useMemo(function(){
+    if(filtResp==='all')return weekTasks;
+    return weekTasks.filter(function(g){
+      var ri=g.pa[3];return(PLAN.rl[ri]||'')===filtResp;
+    });
+  },[weekTasks,filtResp]);
+
+  // ── Compromisos por sub (group weekTasks by responsable) ───────────────
+  const subCompromisos=useMemo(function(){
+    var byR={};
+    filtTasks.forEach(function(g){
+      var ri=g.pa[3];var resp=ri===255||ri==null?'':PLAN.rl[ri]||'';if(!resp)return;
+      if(!byR[resp])byR[resp]={resp,tasks:[],total_pct:0,dep_count:0};
+      var avg=g.dep_count?Math.round(g.pct_sum/g.dep_count):0;
+      byR[resp].tasks.push({name:planName(g.pa[0]),fn:g.fn,avg,dep_count:g.dep_count,key:g.pa[0]+'_'+g.fn});
+      byR[resp].total_pct+=avg;byR[resp].dep_count+=g.dep_count;
+    });
+    return Object.values(byR).sort(function(a,b){return a.resp.localeCompare(b.resp);});
+  },[filtTasks]);
+
+  // ── Deliveries this week ───────────────────────────────────────────────
+  const deliveries=useMemo(function(){
+    var ov=(ganttData||{}).overrides||{};var ds=(ganttData||{}).dateShift||0;
+    var res=[];
+    PLAN.de.forEach(function(dep,di){
+      var ovDep=ov['dep_'+di];
+      var eDay=ovDep&&ovDep.e!=null?ovDep.e:(dep.e+ds);
+      var eDate=n2d(eDay);
+      if(eDate<wStart||eDate>wEnd)return;
+      var f3=calcDeptoFase(dep.d,3,saves)||0;
+      var pi=PLAN.pi[dep.pi]?PLAN.pi[dep.pi].n:'';
+      res.push({dep,di,eDate,f3:Math.round(f3),pi});
+    });
+    return res.sort(function(a,b){return deptSeqOrder(a.dep.d)-deptSeqOrder(b.dep.d);});
+  },[ganttData,saves,wStart,wEnd]);
+
+  // ── Dptos vencidos (todos los que pasaron la fecha, incluyendo completados) ──
+  const [showVencComp,setShowVencComp]=useState(true); // switch ver completados (ON por defecto)
+  const vencidasAll=useMemo(function(){
+    var ov=(ganttData||{}).overrides||{};var ds=(ganttData||{}).dateShift||0;
+    var today=new Date().toISOString().slice(0,10);
+    var res=[];
+    PLAN.de.forEach(function(dep,di){
+      var ovDep=ov['dep_'+di];
+      var eDay=ovDep&&ovDep.e!=null?ovDep.e:(dep.e+ds);
+      var eDate=n2d(eDay);
+      if(eDate>=wStart)return;
+      var f3=calcDeptoFase(dep.d,3,saves)||0;
+      var done=f3>=100;
+      var dias=Math.max(0,Math.ceil((new Date(today)-new Date(eDate+'T12:00:00'))/(864e5)));
+      var pi=PLAN.pi[dep.pi]?PLAN.pi[dep.pi].n:'';
+      res.push({dep,di,eDate,dias,f3:Math.round(f3),pi,done});
+    });
+    return res.sort(function(a,b){
+      // Pendientes primero, luego completados; dentro de cada grupo por secuencia de obra
+      if(a.done!==b.done)return a.done?1:-1;
+      return deptSeqOrder(a.dep.d)-deptSeqOrder(b.dep.d);
+    });
+  },[ganttData,saves,wStart]);
+  const vencidas=useMemo(function(){
+    return showVencComp?vencidasAll:vencidasAll.filter(function(v){return!v.done;});
+  },[vencidasAll,showVencComp]);
+
+  // ── Status badge helper ────────────────────────────────────────────────
+  const fcol={'1':'#ffb800','2':'#00c8ff','3':'#00ff9d','4':'#ff3d3d'};
+  function statusBtn(key){
+    var v=comp[key];
+    var opts=[['ok','✓ Cumplió','#22c55e'],['par','⚠ Parcial','#f97316'],['nok','✗ No cumplió','#ef4444']];
+    return h('div',{style:{display:'flex',gap:3,flexShrink:0}},
+      opts.map(function([val,lbl,col]){
+        var active=v===val;
+        return h('button',{key:val,
+          onClick:function(){setComp(key,active?null:val);},
+          style:{padding:'2px 7px',borderRadius:5,border:'1px solid '+(active?col:'var(--border)'),
+            background:active?col+'22':'transparent',color:active?col:'var(--text2)',
+            fontSize:9,fontWeight:active?700:400,cursor:'pointer',whiteSpace:'nowrap'}
+        },lbl);
+      })
+    );
+  }
+  function statusDot(v){
+    var m={ok:'#22c55e',par:'#f97316',nok:'#ef4444'};
+    return m[v]||'#6b8fa8';
+  }
+
+  // ── Print function ─────────────────────────────────────────────────────
+  const doPrint=function(){
+    // Inject print styles once
+    if(!document.getElementById('inf-print-style')){
+      var s=document.createElement('style');
+      s.id='inf-print-style';
+      s.textContent='@media print{'+
+        'body>*{display:none!important;}'+
+        '#informe-print-root{display:block!important;position:static!important;height:auto!important;overflow:visible!important;width:100%!important;}'+
+        '.inf-pr{display:block!important;}'+
+        '@page{size:A4;margin:15mm 12mm;}'+
+      '}'+
+      '.inf-pr{display:none;}'+
+      '#informe-print-root{display:none;position:fixed;top:0;left:0;width:100%;height:100%;z-index:9999;background:#fff;overflow:auto;font-family:Arial,sans-serif;font-size:10pt;color:#000;}'+
+      '#informe-print-root .inf-hdr{text-align:center;border-bottom:2px solid #1a3050;padding-bottom:8px;margin-bottom:12px;}'+
+      '#informe-print-root .inf-ttl{font-size:16pt;font-weight:700;letter-spacing:1px;color:#0a1220;}'+
+      '#informe-print-root .inf-sub{font-size:9pt;color:#6b8fa8;margin-top:2px;}'+
+      '#informe-print-root .inf-per{font-size:10pt;font-weight:700;background:#0a1220;color:#fff;display:inline-block;padding:2px 12px;border-radius:3px;margin-top:4px;}'+
+      '#informe-print-root .inf-sec{margin-top:14px;page-break-inside:avoid;}'+
+      '#informe-print-root .inf-sec-ttl{font-size:10pt;font-weight:700;letter-spacing:1px;background:#0a1220;color:#fff;padding:4px 8px;margin-bottom:0;}'+
+      '#informe-print-root table{width:100%;border-collapse:collapse;font-size:8.5pt;}'+
+      '#informe-print-root th{background:#e8eef4;padding:4px 6px;text-align:left;border:1px solid #cdd5dd;font-size:8pt;font-weight:700;letter-spacing:.3px;}'+
+      '#informe-print-root td{padding:3px 6px;border:1px solid #dde4ea;vertical-align:middle;}'+
+      '#informe-print-root .ok{color:#166534;font-weight:700;}#informe-print-root .par{color:#92400e;font-weight:700;}#informe-print-root .nok{color:#991b1b;font-weight:700;}#informe-print-root .nd{color:#6b8fa8;}'+
+      '#informe-print-root .inf-foot{margin-top:20px;border-top:1px solid #cdd5dd;padding-top:8px;display:flex;justify-content:space-between;font-size:8pt;color:#6b8fa8;}'+
+      '#informe-print-root .sign{border-top:1px solid #000;width:180px;text-align:center;padding-top:2px;font-size:8pt;}'+
+      '#informe-print-root .pbk{page-break-after:always;}';
+      document.head.appendChild(s);
+    }
+    // Build print HTML
+    var fmtD=function(d){if(!d)return'';var p=d.split('-');return p[2]+'/'+p[1]+'/'+p[0];};
+    var sLabel=function(v){return v==='ok'?'✓ CUMPLIÓ':v==='par'?'⚠ PARCIAL':v==='nok'?'✗ NO CUMPLIÓ':'—';};
+    var sClass=function(v){return v==='ok'?'ok':v==='par'?'par':v==='nok'?'nok':'nd';};
+    var semNum=function(s){var d=new Date(s+'T12:00:00');var start=new Date(d.getFullYear(),0,1);return Math.ceil(((d-start)/864e5+start.getDay()+1)/7);};
+
+    var esFiltrado=filtResp!=='all';
+    var labelResp=esFiltrado?filtResp.toUpperCase():'TODAS LAS ESPECIALIDADES';
+    var h2='<div id="informe-print-root">';
+    // Header diferenciado según si es general o por especialidad
+    if(esFiltrado){
+      h2+='<div class="inf-hdr">';
+      h2+='<div style="display:inline-block;background:#0a1220;color:#00c8ff;padding:2px 12px;border-radius:3px;font-size:8pt;font-weight:700;letter-spacing:1px;margin-bottom:6px">INFORME PERSONAL</div>';
+      h2+='<div class="inf-ttl" style="font-size:14pt">'+labelResp+'</div>';
+      h2+='<div class="inf-sub">EDIFICIO BASCUÑÁN &mdash; TUS TAREAS DE LA SEMANA</div>';
+      h2+='<div class="inf-per">SEMANA '+semNum(wStart)+' &nbsp;|&nbsp; '+fmtD(wStart)+' &nbsp;&rarr;&nbsp; '+fmtD(wEnd)+'</div>';
+      h2+='<div style="font-size:8pt;color:#6b8fa8;margin-top:4px">Emitido: '+new Date().toLocaleDateString('es-CL',{weekday:'long',year:'numeric',month:'long',day:'numeric'})+'</div>';
+      h2+='</div>';
+    } else {
+      h2+='<div class="inf-hdr"><div class="inf-ttl">INFORME SEMANAL DE OBRA</div>';
+      h2+='<div class="inf-sub">EDIFICIO BASCUÑÁN &mdash; PROGRAMA DE TERMINACIONES &mdash; '+labelResp+'</div>';
+      h2+='<div class="inf-per">SEMANA '+semNum(wStart)+' &nbsp;|&nbsp; '+fmtD(wStart)+' &nbsp;&rarr;&nbsp; '+fmtD(wEnd)+'</div>';
+      h2+='<div style="font-size:8pt;color:#6b8fa8;margin-top:4px">Generado: '+new Date().toLocaleDateString('es-CL',{weekday:'long',year:'numeric',month:'long',day:'numeric'})+' &nbsp;|&nbsp; Por: '+(auth&&auth.name||'Admin')+'</div>';
+      h2+='</div>';
+    }
+
+    // S1: Tareas de la semana
+    var s1Title=esFiltrado?'1. TUS TAREAS ESTA SEMANA':'1. CUMPLIMIENTO PLAN SEMANAL';
+    if(esFiltrado){
+      // Vista personal: más simple, sin columna responsable, dptos explícitos
+      h2+='<div class="inf-sec"><div class="inf-sec-ttl">'+s1Title+'</div>';
+      h2+='<table><tr><th>#</th><th>TAREA</th><th style="text-align:center">FASE</th><th>DEPARTAMENTOS</th><th style="text-align:center">AVANCE ACTUAL</th><th style="text-align:center">ESTADO</th></tr>';
+      filtTasks.forEach(function(g,i){
+        var avg=g.dep_count?Math.round(g.pct_sum/g.dep_count):0;
+        var k=g.pa[0]+'_'+g.fn;var v=comp[k];
+        var fColor=g.fn==='1'?'#b45309':g.fn==='2'?'#1d4ed8':g.fn==='3'?'#15803d':'#7c3aed';
+        // Listar dptos concretos (máx 8 luego "y N más")
+        var depStr=g.deps.slice(0,8).map(function(d){return'D'+d;}).join(', ');
+        if(g.deps.length>8)depStr+=' y '+(g.deps.length-8)+' más';
+        h2+='<tr>';
+        h2+='<td style="color:#6b8fa8;width:24px">'+(i+1)+'</td>';
+        h2+='<td><b>'+planName(g.pa[0])+'</b></td>';
+        h2+='<td style="text-align:center"><span style="background:'+fColor+'22;color:'+fColor+';padding:1px 6px;border-radius:3px;font-weight:700;font-size:8pt">F'+g.fn+'</span></td>';
+        h2+='<td style="font-size:8.5pt;color:#374151">'+depStr+'</td>';
+        h2+='<td style="text-align:center"><b style="font-size:11pt">'+avg+'%</b></td>';
+        h2+='<td style="text-align:center" class="'+sClass(v)+'">'+sLabel(v)+'</td>';
+        h2+='</tr>';
+      });
+      if(!filtTasks.length)h2+='<tr><td colspan="6" style="text-align:center;color:#6b8fa8;padding:10px">Sin tareas asignadas esta semana</td></tr>';
+      h2+='</table></div>';
+    } else {
+      h2+='<div class="inf-sec"><div class="inf-sec-ttl">'+s1Title+'</div><table><tr><th>#</th><th>PARTIDA</th><th>FASE</th><th>RESPONSABLE</th><th style="text-align:center">DPTOS</th><th style="text-align:center">AVG %</th><th style="text-align:center">CUMPLIMIENTO</th></tr>';
+      filtTasks.forEach(function(g,i){
+        var avg=g.dep_count?Math.round(g.pct_sum/g.dep_count):0;
+        var ri=g.pa[3];var resp=ri===255||ri==null?'—':PLAN.rl[ri]||'—';
+        var k=g.pa[0]+'_'+g.fn;var v=comp[k];
+        h2+='<tr><td style="color:#6b8fa8">'+(i+1)+'</td>';
+        h2+='<td><b>'+planName(g.pa[0])+'</b></td>';
+        h2+='<td style="text-align:center">F'+g.fn+'</td>';
+        h2+='<td>'+resp+'</td>';
+        h2+='<td style="text-align:center">'+g.dep_count+'</td>';
+        h2+='<td style="text-align:center"><b>'+avg+'%</b></td>';
+        h2+='<td style="text-align:center" class="'+sClass(v)+'">'+sLabel(v)+'</td></tr>';
+      });
+      if(!filtTasks.length)h2+='<tr><td colspan="7" style="text-align:center;color:#6b8fa8">Sin tareas planificadas para esta semana</td></tr>';
+      h2+='</table></div>';
+    }
+
+    // S2: Entregas programadas
+    h2+='<div class="inf-sec"><div class="inf-sec-ttl">2. ENTREGAS PROGRAMADAS ESTA SEMANA</div><table><tr><th>DEPTO</th><th>PISO</th><th>FECHA PROG.</th><th style="text-align:center">F3 %</th><th style="text-align:center">ESTADO</th><th style="text-align:center">CUMPLIMIENTO</th></tr>';
+    deliveries.forEach(function(e){
+      var k='del_'+e.dep.d;var v=comp[k];
+      var estado=e.f3>=100?'ENTREGADO':e.f3>0?'EN AVANCE':'PENDIENTE';
+      h2+='<tr><td><b>D'+e.dep.d+'</b></td><td>'+e.pi+'</td><td>'+fmtD(e.eDate)+'</td>';
+      h2+='<td style="text-align:center"><b>'+(e.f3)+'%</b></td>';
+      h2+='<td style="text-align:center">'+(e.f3>=100?'<span style="color:#166534;font-weight:700">✓ LISTO</span>':e.f3>0?'<span style="color:#92400e">'+e.f3+'%</span>':'<span style="color:#991b1b">0%</span>')+'</td>';
+      h2+='<td style="text-align:center" class="'+sClass(v)+'">'+sLabel(v)+'</td></tr>';
+    });
+    if(!deliveries.length)h2+='<tr><td colspan="6" style="text-align:center;color:#6b8fa8">Sin entregas programadas esta semana</td></tr>';
+    h2+='</table></div>';
+
+    // S3: Compromisos por subcontrato
+    h2+='<div class="inf-sec"><div class="inf-sec-ttl">3. COMPROMISOS POR SUBCONTRATO</div><table><tr><th>SUBCONTRATO</th><th style="text-align:center">TAREAS</th><th style="text-align:center">DPTOS ACT.</th><th style="text-align:center">% PROM.</th><th style="text-align:center">CUMPLIMIENTO</th></tr>';
+    subCompromisos.forEach(function(sc){
+      var k='sub_'+sc.resp;var v=comp[k];
+      var avg=sc.tasks.length?Math.round(sc.total_pct/sc.tasks.length):0;
+      h2+='<tr><td><b>'+sc.resp+'</b></td><td style="text-align:center">'+sc.tasks.length+'</td>';
+      h2+='<td style="text-align:center">'+sc.dep_count+'</td>';
+      h2+='<td style="text-align:center"><b>'+avg+'%</b></td>';
+      h2+='<td style="text-align:center" class="'+sClass(v)+'">'+sLabel(v)+'</td></tr>';
+    });
+    if(!subCompromisos.length)h2+='<tr><td colspan="5" style="text-align:center;color:#6b8fa8">Sin compromisos esta semana</td></tr>';
+    h2+='</table></div>';
+
+    // S4: Dptos vencidos — PDF siempre muestra TODOS (pendientes + entregados)
+    var pendV=vencidasAll.filter(function(v){return!v.done;});
+    var doneV=vencidasAll.filter(function(v){return v.done;});
+    h2+='<div class="inf-sec"><div class="inf-sec-ttl">4. DPTOS CON FECHA VENCIDA — REGISTRO COMPLETO</div>';
+    // Sub-encabezado resumen
+    h2+='<div style="display:flex;gap:20px;padding:5px 0 6px;font-size:8.5pt;">';
+    h2+='<span style="color:#991b1b;font-weight:700">⏳ '+pendV.length+' pendientes de entrega</span>';
+    h2+='<span style="color:#166534;font-weight:700">✅ '+doneV.length+' entregados</span>';
+    h2+='</div>';
+    h2+='<table><tr><th>DEPTO</th><th>PISO</th><th>FECHA PROG.</th><th style="text-align:center">DÍAS ATRASO</th><th style="text-align:center">F3 %</th><th>ESTADO</th></tr>';
+    // Primero pendientes, luego entregados con separador visual
+    var printedSep=false;
+    vencidasAll.forEach(function(v2){
+      // Separador visual antes de los entregados
+      if(v2.done&&!printedSep){
+        printedSep=true;
+        h2+='<tr><td colspan="6" style="background:#f0fdf4;color:#166534;font-weight:700;font-size:8pt;padding:4px 6px;border-top:2px solid #166534">✅ ENTREGADOS</td></tr>';
+      }
+      var flag=v2.done?'✅':v2.dias>14?'🔴':v2.dias>7?'🟡':'🟠';
+      var rowBg=v2.done?'background:#f0fdf4;':'';
+      var rowOp=v2.done?'opacity:.8;':'';
+      h2+='<tr style="'+rowBg+rowOp+'">';
+      h2+='<td><b style="'+(v2.done?'color:#166534':'')+'">D'+v2.dep.d+'</b></td>';
+      h2+='<td>'+v2.pi+'</td>';
+      h2+='<td>'+fmtD(v2.eDate)+'</td>';
+      h2+='<td style="text-align:center;font-weight:700;color:'+(v2.done?'#166534':'#991b1b')+'">'+(v2.done?'—':v2.dias+' días')+'</td>';
+      h2+='<td style="text-align:center"><b style="color:'+(v2.f3>=100?'#166534':v2.f3>0?'#92400e':'#991b1b')+'">'+v2.f3+'%</b></td>';
+      h2+='<td>'+flag+' '+(v2.done?'✓ Entregado':'Pendiente')+'</td></tr>';
+    });
+    if(!vencidasAll.length)h2+='<tr><td colspan="6" style="text-align:center;color:#166534;font-weight:700">✓ Sin unidades vencidas</td></tr>';
+    h2+='</table></div>';
+
+    // Summary metrics
+    var totTasks=filtTasks.length;
+    var cumOk=filtTasks.filter(function(g){return comp[g.pa[0]+'_'+g.fn]==='ok';}).length;
+    var cumPar=filtTasks.filter(function(g){return comp[g.pa[0]+'_'+g.fn]==='par';}).length;
+    var cumNok=filtTasks.filter(function(g){return comp[g.pa[0]+'_'+g.fn]==='nok';}).length;
+    var cumPct=totTasks?Math.round((cumOk+(cumPar*0.5))/totTasks*100):0;
+    h2+='<div class="inf-sec" style="background:#e8eef4;padding:8px 10px;border:1px solid #cdd5dd;">';
+    h2+=esFiltrado?('<b>RESUMEN — '+labelResp+':</b> &nbsp; '):('<b>RESUMEN SEMANA:</b> &nbsp; ');
+    h2+='Tareas: <b>'+totTasks+'</b> &nbsp;|&nbsp; ';
+    h2+='<span class="ok">✓ Cumplió: '+cumOk+'</span> &nbsp;|&nbsp; ';
+    h2+='<span class="par">⚠ Parcial: '+cumPar+'</span> &nbsp;|&nbsp; ';
+    h2+='<span class="nok">✗ No cumplió: '+cumNok+'</span> &nbsp;|&nbsp; ';
+    h2+='<b>Índice: '+cumPct+'%</b>';
+    if(!esFiltrado)h2+=' &nbsp;|&nbsp; Vencidas: <span class="'+(vencidas.length?'nok':'ok')+'">'+vencidas.length+'</span>';
+    h2+='</div>';
+
+    // Footer
+    h2+='<div class="inf-foot"><div>';
+    h2+=esFiltrado
+      ?'<div>Este informe es personal — '+labelResp+'</div><div style="margin-top:2px">Control Victoria V9 &mdash; Edificio Bascuñán</div>'
+      :'<div>Informe generado automáticamente — Control Victoria V9</div>';
+    h2+='</div>';
+    h2+='<div style="display:flex;gap:40px">';
+    if(esFiltrado){
+      h2+='<div class="sign">Responsable Subcontrato</div>';
+      h2+='<div class="sign">Jefe de Obra</div>';
+    } else {
+      h2+='<div class="sign">Jefe de Obra</div>';
+      h2+='<div class="sign">Inspector Técnico</div>';
+    }
+    h2+='</div></div>';
+    h2+='</div>';
+
+    // Render and print
+    var existing=document.getElementById('informe-print-root');
+    if(existing)existing.remove();
+    document.body.insertAdjacentHTML('beforeend',h2);
+    var root=document.getElementById('informe-print-root');
+    root.style.display='block';
+    // Breve pausa para que el DOM renderice todo el contenido antes de imprimir
+    setTimeout(function(){
+      // Al imprimir: liberar el fixed para que el navegador pagine el contenido completo
+      root.style.position='static';
+      root.style.height='auto';
+      root.style.overflow='visible';
+      window.print();
+      // Al cerrar el diálogo: restaurar el overlay
+      setTimeout(function(){
+        root.style.display='none';
+        root.style.position='fixed';
+        root.style.height='100%';
+        root.style.overflow='auto';
+      },800);
+    },200);
+  };
+
+  // ── Render ────────────────────────────────────────────────────────────
+  const faseColor=function(f){return fcol[f]||'#6b8fa8';};
+  var totTasks=weekTasks.length;
+  var cumOk=weekTasks.filter(function(g){return comp[g.pa[0]+'_'+g.fn]==='ok';}).length;
+  var cumPar=weekTasks.filter(function(g){return comp[g.pa[0]+'_'+g.fn]==='par';}).length;
+  var cumNok=weekTasks.filter(function(g){return comp[g.pa[0]+'_'+g.fn]==='nok';}).length;
+
+  var esFiltrado=filtResp!=='all';
+  return h('div',{className:'page gap10'},
+    // ── Header bar ────────────────────────────────────────────────────
+    h('div',{className:'card',style:{padding:'10px 14px'}},
+      // Fila 1: título + calendario + PDF
+      h('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}},
+        h('div',{style:{fontWeight:700,fontSize:13,color:'var(--text)',letterSpacing:1}},
+          '📄 INFORME SEMANAL'),
+        h('div',{style:{display:'flex',alignItems:'center',gap:8,marginLeft:'auto',flexWrap:'wrap'}},
+          h(WeekCalendarPicker,{value:wStart,onChange:setWStart}),
+          h('button',{onClick:doPrint,
+            style:{background:esFiltrado?'#22c55e':'var(--accent)',color:'#000',padding:'6px 14px',
+              border:'none',borderRadius:6,fontWeight:700,fontSize:11,cursor:'pointer'}
+          },esFiltrado?'📥 PDF — '+filtResp.split(' ').pop().toUpperCase():'📥 PDF')
+        )
+      ),
+      // Fila 2: Selector de especialidad/responsable
+      h('div',{style:{marginTop:10,display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}},
+        h('div',{style:{fontSize:10,color:'var(--text2)',fontWeight:600,letterSpacing:.5,flexShrink:0}},
+          '🎯 FILTRAR POR ESPECIALIDAD:'),
+        h('div',{style:{display:'flex',gap:5,flexWrap:'wrap'}},
+          h('button',{
+            onClick:function(){setFiltResp('all');},
+            style:{padding:'4px 10px',borderRadius:12,border:'1px solid '+(filtResp==='all'?'var(--accent)':'var(--border)'),
+              background:filtResp==='all'?'rgba(0,200,255,.15)':'var(--bg2)',
+              color:filtResp==='all'?'var(--accent)':'var(--text2)',
+              fontSize:10,fontWeight:filtResp==='all'?700:400,cursor:'pointer'}
+          },'Todos'),
+          respList.map(function(r){
+            var active=filtResp===r;
+            var short=r.replace('supervisor ','Sup. ').replace('sucto.','').replace('subcontrato ','').trim();
+            return h('button',{key:r,
+              onClick:function(){setFiltResp(r);},
+              style:{padding:'4px 10px',borderRadius:12,border:'1px solid '+(active?'var(--green)':'var(--border)'),
+                background:active?'rgba(34,197,94,.15)':'var(--bg2)',
+                color:active?'var(--green)':'var(--text2)',
+                fontSize:10,fontWeight:active?700:400,cursor:'pointer',
+                maxWidth:140,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}
+            },short);
+          })
+        )
+      ),
+      // Fila 3: pills de resumen
+      h('div',{style:{display:'flex',gap:6,marginTop:8,flexWrap:'wrap',alignItems:'center'}},
+        esFiltrado&&h('span',{style:{background:'rgba(34,197,94,.12)',color:'#22c55e',padding:'2px 9px',borderRadius:10,fontSize:10,fontWeight:700,border:'1px solid rgba(34,197,94,.3)'}},
+          '📋 '+filtResp),
+        h('span',{style:{background:'rgba(34,197,94,.15)',color:'#22c55e',padding:'2px 9px',borderRadius:10,fontSize:10,fontWeight:600}},
+          '✓ '+cumOk+' cumplió'),
+        h('span',{style:{background:'rgba(249,115,22,.15)',color:'#f97316',padding:'2px 9px',borderRadius:10,fontSize:10,fontWeight:600}},
+          '⚠ '+cumPar+' parcial'),
+        h('span',{style:{background:'rgba(239,68,68,.15)',color:'#ef4444',padding:'2px 9px',borderRadius:10,fontSize:10,fontWeight:600}},
+          '✗ '+cumNok+' no cumplió'),
+        h('span',{style:{background:'rgba(0,200,255,.12)',color:'var(--accent)',padding:'2px 9px',borderRadius:10,fontSize:10,fontWeight:600}},
+          totTasks+' tareas'),
+        !esFiltrado&&vencidas.length>0&&h('span',{style:{background:'rgba(239,68,68,.15)',color:'#ef4444',padding:'2px 9px',borderRadius:10,fontSize:10,fontWeight:600}},
+          '⚠ '+vencidas.length+' dptos vencidos')
+      )
+    ),
+
+    // ── S1: Plan semanal ──────────────────────────────────────────────
+    h('div',{className:'card'},
+      h('div',{style:{fontWeight:700,fontSize:11,letterSpacing:1,color:'var(--text)',marginBottom:8,display:'flex',alignItems:'center',gap:6}},
+        h('span',{style:{background:'var(--blue)',color:'#fff',padding:'1px 7px',borderRadius:3,fontSize:9}},'1'),
+        'CUMPLIMIENTO PLAN SEMANAL'),
+      filtTasks.length===0
+        ?h('div',{style:{color:'var(--text2)',fontSize:11,textAlign:'center',padding:'12px 0'}},esFiltrado?'Sin tareas asignadas a "'+filtResp+'" esta semana':'Sin tareas planificadas para esta semana')
+        :h('div',{style:{display:'flex',flexDirection:'column',gap:5}},
+          filtTasks.map(function(g){
+            var avg=g.dep_count?Math.round(g.pct_sum/g.dep_count):0;
+            var ri=g.pa[3];var resp=ri===255||ri==null?'—':PLAN.rl[ri]||'—';
+            var k=g.pa[0]+'_'+g.fn;var v=comp[k];
+            var border=v==='ok'?'rgba(34,197,94,.4)':v==='nok'?'rgba(239,68,68,.4)':v==='par'?'rgba(249,115,22,.4)':'var(--border)';
+            var bg=v==='ok'?'rgba(34,197,94,.05)':v==='nok'?'rgba(239,68,68,.05)':v==='par'?'rgba(249,115,22,.05)':'var(--card)';
+            return h('div',{key:k,
+              style:{background:bg,border:'1px solid '+border,borderRadius:8,padding:'7px 10px',
+                display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}},
+              h('span',{style:{background:faseColor(g.fn)+'22',color:faseColor(g.fn),
+                padding:'1px 6px',borderRadius:4,fontSize:9,fontWeight:700,flexShrink:0}},'F'+g.fn),
+              h('div',{style:{flex:1,minWidth:0}},
+                h('div',{style:{fontSize:11,fontWeight:600,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},
+                  planName(g.pa[0])),
+                h('div',{style:{fontSize:9,color:'var(--text2)',marginTop:1}},
+                  resp+' · '+g.dep_count+' dptos')
+              ),
+              h('span',{style:{fontSize:11,fontWeight:700,color:avg>=80?'var(--green)':avg>=40?'var(--amber)':'var(--red)',flexShrink:0}},
+                avg+'%'),
+              statusBtn(k)
+            );
+          })
+        )
+    ),
+
+    // ── S2: Entregas ──────────────────────────────────────────────────
+    h('div',{className:'card'},
+      h('div',{style:{fontWeight:700,fontSize:11,letterSpacing:1,color:'var(--text)',marginBottom:8,display:'flex',alignItems:'center',gap:6}},
+        h('span',{style:{background:'var(--green)',color:'#000',padding:'1px 7px',borderRadius:3,fontSize:9}},'2'),
+        'ENTREGAS PROGRAMADAS ESTA SEMANA'),
+      deliveries.length===0
+        ?h('div',{style:{color:'var(--text2)',fontSize:11,textAlign:'center',padding:'12px 0'}},'Sin entregas programadas para esta semana')
+        :h('div',{style:{display:'flex',flexDirection:'column',gap:5}},
+          deliveries.map(function(e){
+            var k='del_'+e.dep.d;var v=comp[k];
+            var isOpen=editDep===e.dep.d;
+            var f3Live=Math.round(calcDeptoFase(e.dep.d,3,saves)||0);
+            var col=f3Live>=100?'var(--green)':f3Live>0?'var(--amber)':'var(--red)';
+            var border=isOpen?'var(--accent)':v==='ok'?'rgba(34,197,94,.4)':v==='nok'?'rgba(239,68,68,.4)':v==='par'?'rgba(249,115,22,.4)':'var(--border)';
+            return h('div',{key:e.dep.d,
+              style:{background:'var(--card)',border:'1px solid '+border,borderRadius:8,padding:'7px 10px',transition:'border-color .15s'}},
+              h('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}},
+                h('div',{style:{fontFamily:'var(--mono)',fontWeight:700,fontSize:13,color:'var(--text)',minWidth:48}},'D'+e.dep.d),
+                h('div',{style:{flex:1}},
+                  h('div',{style:{fontSize:10,color:'var(--text2)'}},e.pi+' · Prog: '+e.eDate)),
+                h('div',{style:{textAlign:'center',minWidth:44}},
+                  h('div',{style:{fontSize:13,fontWeight:700,color:col}},f3Live+'%'),
+                  h('div',{style:{fontSize:8,color:'var(--text2)'}},f3Live>=100?'✓ F3':'F3')),
+                statusBtn(k),
+                h('button',{
+                  onClick:function(){setEditDep(isOpen?null:e.dep.d);},
+                  style:{padding:'5px 10px',borderRadius:6,border:'1px solid '+(isOpen?'var(--accent)':'var(--border)'),
+                    background:isOpen?'rgba(0,200,255,.1)':'var(--bg2)',
+                    color:isOpen?'var(--accent)':'var(--text2)',fontSize:10,cursor:'pointer',flexShrink:0}
+                },isOpen?'▲ Cerrar':'✏️ Editar')
+              ),
+              (function(){
+                if(!isOpen)return null;
+                var dn2=e.dep.d;
+                var ps3b=_D.ps3;
+                var sv3b=(saves[dn2]||{}).f3||{};
+                var lk3b=_D.lf3||{};
+                var rFiltB=filtResp!=='all'?filtResp:null;
+                var pRowsB=ps3b.filter(function(p){return rFiltB?getPartidaRespName(3,p.id)===rFiltB:true;});
+                if(!pRowsB.length)pRowsB=ps3b;
+                return h('div',{style:{borderTop:'1px solid var(--border)',marginTop:6,paddingTop:8,display:'flex',flexDirection:'column',gap:5}},
+                  h('div',{style:{fontSize:9,color:'var(--text2)',fontWeight:700,letterSpacing:.5,marginBottom:2}},'FASE 3 — PARTIDAS'),
+                  pRowsB.map(function(p){
+                    var cur=sv3b[p.id]!=null?sv3b[p.id]:(lk3b[dn2]?lk3b[dn2][p.id]||0:0);
+                    cur=Math.round(cur);
+                    var nm=p.name.replace(/^F3 /i,'');
+                    return h('div',{key:p.id,style:{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap',
+                      background:'var(--bg3)',borderRadius:6,padding:'5px 8px'}},
+                      h('div',{style:{flex:1,fontSize:10,color:'var(--text)',minWidth:120}},nm),
+                      h('div',{style:{fontSize:11,fontWeight:700,minWidth:32,textAlign:'right',
+                        color:cur>=100?'var(--green)':cur>0?'var(--amber)':'var(--text3)'}},cur+'%'),
+                      h('div',{style:{display:'flex',gap:3}},
+                        [0,25,50,75,100].map(function(v){
+                          var active=cur===v;
+                          return h('button',{key:v,
+                            onClick:function(evt){evt.stopPropagation();quickSave(dn2,p.id,v);},
+                            style:{padding:'4px 7px',borderRadius:5,
+                              border:'1px solid '+(active?'var(--accent)':'var(--border)'),
+                              background:active?'var(--accent)':'var(--bg2)',
+                              color:active?'#000':'var(--text2)',
+                              fontSize:10,fontWeight:active?700:400,cursor:'pointer',minWidth:36}
+                          },v+'%');
+                        })
+                      )
+                    );
+                  })
+                );
+              })()
+            );
+          })
+        )
+    ),
+
+    // ── S3: Compromisos por subcontrato ───────────────────────────────
+    h('div',{className:'card'},
+      h('div',{style:{fontWeight:700,fontSize:11,letterSpacing:1,color:'var(--text)',marginBottom:8,display:'flex',alignItems:'center',gap:6}},
+        h('span',{style:{background:'var(--purple)',color:'#fff',padding:'1px 7px',borderRadius:3,fontSize:9}},'3'),
+        'COMPROMISOS POR SUBCONTRATO'),
+      subCompromisos.length===0
+        ?h('div',{style:{color:'var(--text2)',fontSize:11,textAlign:'center',padding:'12px 0'}},'Sin compromisos para esta semana')
+        :h('div',{style:{display:'flex',flexDirection:'column',gap:5}},
+          subCompromisos.map(function(sc){
+            var k='sub_'+sc.resp;var v=comp[k];
+            var avg=sc.tasks.length?Math.round(sc.total_pct/sc.tasks.length):0;
+            var border=v==='ok'?'rgba(34,197,94,.4)':v==='nok'?'rgba(239,68,68,.4)':v==='par'?'rgba(249,115,22,.4)':'var(--border)';
+            return h('div',{key:sc.resp,
+              style:{background:'var(--card)',border:'1px solid '+border,borderRadius:8,padding:'7px 10px',
+                display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}},
+              h('div',{style:{flex:1,minWidth:0}},
+                h('div',{style:{fontSize:11,fontWeight:700,color:'var(--text)'}},sc.resp),
+                h('div',{style:{fontSize:9,color:'var(--text2)',marginTop:1}},
+                  sc.tasks.length+' tareas · '+sc.dep_count+' dptos-tarea')
+              ),
+              h('span',{style:{fontSize:12,fontWeight:700,color:avg>=70?'var(--green)':avg>=40?'var(--amber)':'var(--red)'}},
+                avg+'%'),
+              statusBtn(k)
+            );
+          })
+        )
+    ),
+
+    // ── S4: Vencidas ──────────────────────────────────────────────────
+    h('div',{className:'card'},
+      // Header + switch
+      h('div',{style:{display:'flex',alignItems:'center',gap:6,marginBottom:10,flexWrap:'wrap'}},
+        h('span',{style:{background:'var(--red)',color:'#fff',padding:'1px 7px',borderRadius:3,fontSize:9}},'4'),
+        h('div',{style:{fontWeight:700,fontSize:11,letterSpacing:1,color:'var(--text)',flex:1}},
+          'DPTOS VENCIDOS ACUMULADOS'),
+        // Contadores
+        h('span',{style:{fontSize:10,color:'var(--red)',fontWeight:600}},
+          vencidasAll.filter(function(v){return !v.done;}).length+' pendientes'),
+        h('span',{style:{fontSize:10,color:'var(--text3)'}},'·'),
+        h('span',{style:{fontSize:10,color:'var(--green)',fontWeight:600}},
+          vencidasAll.filter(function(v){return v.done;}).length+' entregados'),
+        // Switch
+        h('div',{
+          onClick:function(){setShowVencComp(!showVencComp);},
+          style:{display:'flex',alignItems:'center',gap:6,cursor:'pointer',
+            padding:'4px 10px',borderRadius:20,border:'1px solid var(--border)',
+            background:showVencComp?'rgba(34,197,94,.1)':'var(--bg2)',
+            transition:'all .2s'}
+        },
+          h('div',{style:{
+            width:30,height:16,borderRadius:8,position:'relative',
+            background:showVencComp?'var(--green)':'var(--border)',transition:'background .2s'
+          }},
+            h('div',{style:{
+              position:'absolute',top:2,left:showVencComp?14:2,width:12,height:12,
+              borderRadius:'50%',background:'#fff',transition:'left .2s',boxShadow:'0 1px 3px rgba(0,0,0,.3)'
+            }})
+          ),
+          h('span',{style:{fontSize:10,color:showVencComp?'var(--green)':'var(--text2)',fontWeight:600,whiteSpace:'nowrap'}},
+            showVencComp?'Ver todos':'Solo pendientes')
+        )
+      ),
+      // Lista
+      vencidasAll.length===0
+        ?h('div',{style:{color:'var(--green)',fontSize:11,textAlign:'center',padding:'12px 0'}},'✓ Sin unidades vencidas')
+        :vencidas.length===0&&!showVencComp
+          ?h('div',{style:{color:'var(--green)',fontSize:11,textAlign:'center',padding:'12px 0'}},'✓ Todas las unidades vencidas están entregadas')
+          :h('div',{style:{display:'flex',flexDirection:'column',gap:4}},
+            vencidas.map(function(v2){
+              var dn=v2.dep.d;
+              var isOpen=editDep===dn;
+              var f3Live=Math.round(calcDeptoFase(dn,3,saves)||0);
+              var isDone=f3Live>=100;
+              var col=isDone?'var(--green)':v2.dias>14?'var(--red)':v2.dias>7?'var(--amber)':'var(--warn)';
+              var bg=isOpen?'rgba(0,200,255,.05)':isDone?'rgba(34,197,94,.05)':'rgba(239,68,68,.05)';
+              var bdr=isOpen?'var(--accent)':isDone?'rgba(34,197,94,.2)':'rgba(239,68,68,.2)';
+              // Panel de edición inline (evita problema de componente dentro de map)
+              var editPanel=null;
+              if(isOpen){
+                var ps3=_D.ps3;
+                var sv3=(saves[dn]||{}).f3||{};
+                var lk3=_D.lf3||{};
+                var rFilt=filtResp!=='all'?filtResp:null;
+                var pRows=ps3.filter(function(p){return rFilt?getPartidaRespName(3,p.id)===rFilt:true;});
+                if(!pRows.length)pRows=ps3;
+                editPanel=h('div',{style:{borderTop:'1px solid var(--border)',marginTop:6,paddingTop:8,display:'flex',flexDirection:'column',gap:5}},
+                  h('div',{style:{fontSize:9,color:'var(--text2)',fontWeight:700,letterSpacing:.5,marginBottom:2}},'FASE 3 — PARTIDAS'),
+                  pRows.map(function(p){
+                    var cur=sv3[p.id]!=null?sv3[p.id]:(lk3[dn]?lk3[dn][p.id]||0:0);
+                    cur=Math.round(cur);
+                    var nm=p.name.replace(/^F3 /i,'');
+                    return h('div',{key:p.id,style:{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap',
+                      background:'var(--bg3)',borderRadius:6,padding:'5px 8px'}},
+                      h('div',{style:{flex:1,fontSize:10,color:'var(--text)',minWidth:120}},nm),
+                      h('div',{style:{fontSize:11,fontWeight:700,minWidth:32,textAlign:'right',
+                        color:cur>=100?'var(--green)':cur>0?'var(--amber)':'var(--text3)'}},cur+'%'),
+                      h('div',{style:{display:'flex',gap:3}},
+                        [0,25,50,75,100].map(function(v){
+                          var active=cur===v;
+                          return h('button',{key:v,
+                            onClick:function(e){e.stopPropagation();quickSave(dn,p.id,v);},
+                            style:{padding:'4px 7px',borderRadius:5,
+                              border:'1px solid '+(active?'var(--accent)':'var(--border)'),
+                              background:active?'var(--accent)':'var(--bg2)',
+                              color:active?'#000':'var(--text2)',
+                              fontSize:10,fontWeight:active?700:400,cursor:'pointer',minWidth:36}
+                          },v+'%');
+                        })
+                      )
+                    );
+                  })
+                );
+              }
+              return h('div',{key:dn,
+                style:{background:bg,border:'1px solid '+bdr,borderRadius:8,
+                  padding:'7px 10px',opacity:isDone&&!isOpen?.65:1,transition:'all .15s'}},
+                // Fila principal
+                h('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}},
+                  h('div',{style:{fontSize:16,flexShrink:0}},isDone?'✅':'⏳'),
+                  h('div',{style:{fontFamily:'var(--mono)',fontWeight:700,fontSize:13,
+                    color:isDone?'var(--green)':'var(--text)',minWidth:44,
+                    textDecoration:isDone?'line-through':'none'}},'D'+dn),
+                  h('div',{style:{flex:1}},
+                    h('div',{style:{fontSize:10,color:'var(--text2)'}},v2.pi+' · '+v2.eDate),
+                    isDone&&h('div',{style:{fontSize:9,color:'var(--green)',fontWeight:600,marginTop:1}},'✓ Entregado')
+                  ),
+                  h('div',{style:{textAlign:'center',minWidth:50}},
+                    h('div',{style:{fontSize:11,fontWeight:700,color:col}},isDone?'Listo':v2.dias+' días'),
+                    h('div',{style:{fontSize:8,color:'var(--text2)'}},isDone?'':' atraso')
+                  ),
+                  h('div',{style:{textAlign:'center',minWidth:42}},
+                    h('div',{style:{fontSize:12,fontWeight:700,
+                      color:f3Live>=100?'var(--green)':f3Live>0?'var(--amber)':'var(--red)'}},f3Live+'%'),
+                    h('div',{style:{fontSize:8,color:'var(--text2)'}},'F3')
+                  ),
+                  !isDone&&h('button',{
+                    onClick:function(){setEditDep(isOpen?null:dn);},
+                    style:{padding:'6px 12px',borderRadius:6,flexShrink:0,
+                      border:'1px solid '+(isOpen?'var(--accent)':'var(--border)'),
+                      background:isOpen?'rgba(0,200,255,.15)':'var(--bg2)',
+                      color:isOpen?'var(--accent)':'var(--text2)',
+                      fontSize:11,fontWeight:600,cursor:'pointer'}
+                  },isOpen?'▲ Cerrar':'✏️ Editar')
+                ),
+                // Panel edición (renderizado inline, no como componente)
+                editPanel
+              );
+            })
+          )
+    )
+  );
+}
+
+// ── PLAN MAESTRO VIEW ────────────────────────────────────────────────────
+const PM_CSS=`.pm-root{font-family:Arial,sans-serif;font-size:12px;background:var(--bg);color:var(--text);min-height:100%;}
+.pm-root .pm-hdr{background:linear-gradient(135deg,#060b14,#0a1628,#060b14);border-bottom:1px solid var(--border);padding:10px 16px;display:flex;align-items:center;justify-content:space-between;position:relative;}
+.pm-root .pm-hdr::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,#f472b6,#facc15,#60a5fa,#34d399,#fb923c,#a78bfa,#2dd4bf,#f87171,#86efac,#fcd34d);}
+.pm-root .pm-htitle{font-size:14px;font-weight:700;color:#fff;letter-spacing:1.5px;}
+.pm-root .pm-hsub{font-size:9px;color:var(--accent);margin-top:2px;}
+.pm-root .pm-hdate{font-size:10px;color:var(--warn);background:rgba(255,184,0,.1);border:1px solid rgba(255,184,0,.3);padding:2px 8px;border-radius:3px;}
+.pm-root .pm-tabs{display:flex;background:var(--bg2);border-bottom:1px solid var(--border);overflow-x:auto;}
+.pm-root .pm-tab{padding:8px 12px;cursor:pointer;font-weight:600;font-size:10px;letter-spacing:.5px;color:var(--text2);border-bottom:2px solid transparent;white-space:nowrap;user-select:none;}
+.pm-root .pm-tab.active{color:var(--accent);border-bottom-color:var(--accent);}
+.pm-root .pm-tab:hover{color:var(--text);background:rgba(255,255,255,.02);}
+.pm-root .pm-tc{display:none;padding:12px 14px;}
+.pm-root .pm-tc.active{display:block;}
+.pm-root .pm-al{border-radius:5px;padding:8px 12px;margin-bottom:10px;display:flex;gap:8px;font-size:10px;line-height:1.7;}
+.pm-root .pm-al.info{background:rgba(0,200,255,.07);border:1px solid rgba(0,200,255,.2);}
+.pm-root .pm-al.warn{background:rgba(255,184,0,.07);border:1px solid rgba(255,184,0,.2);}
+.pm-root .pm-al.danger{background:rgba(255,61,61,.07);border:1px solid rgba(255,61,61,.2);}
+.pm-root .pm-st{font-weight:700;font-size:12px;letter-spacing:1.5px;color:#fff;margin-bottom:8px;padding-bottom:5px;border-bottom:1px solid var(--border);}
+.pm-root .pm-st span{color:var(--accent);}
+.pm-root .pm-stats{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:12px;}
+.pm-root .pm-kpi{background:var(--bg3);border:1px solid var(--border);border-radius:5px;padding:9px;}
+.pm-root .pm-kpi-lbl{font-size:8px;color:var(--text2);letter-spacing:1px;margin-bottom:3px;}
+.pm-root .pm-kpi-val{font-size:20px;font-weight:700;}
+.pm-root .pm-kpi-sub{font-size:8px;color:var(--text2);}
+.pm-root .flujo-wrap{overflow-x:auto;}
+.pm-root .flujo-tbl{border-collapse:collapse;min-width:820px;}
+.pm-root .flujo-tbl th{background:var(--bg2);padding:5px 7px;font-size:9px;color:var(--text2);letter-spacing:.5px;border-right:1px solid var(--border);text-align:center;}
+.pm-root .flujo-tbl td{padding:3px 5px;border-bottom:1px solid rgba(255,255,255,.04);border-right:1px solid rgba(255,255,255,.03);}
+.pm-root .flujo-tbl td.fl{background:var(--bg3);font-size:9px;font-weight:700;letter-spacing:1px;text-align:left;padding-left:6px;min-width:55px;}
+.pm-root .flujo-tbl td.pl{min-width:220px;font-size:10px;background:var(--bg3);border-right:1px solid var(--border);}
+.pm-root .pm-bar{height:18px;border-radius:3px;display:flex;align-items:center;padding:0 5px;font-size:8px;font-weight:700;color:rgba(0,0,0,.75);white-space:nowrap;}
+.pm-root .ss{margin-bottom:16px;}
+.pm-root .sh{display:flex;align-items:center;gap:7px;margin-bottom:7px;padding:7px 10px;border-radius:5px;border:1px solid;}
+.pm-root .si{width:11px;height:11px;border-radius:2px;flex-shrink:0;}
+.pm-root .sn{font-weight:700;font-size:11px;letter-spacing:1px;}
+.pm-root .ptbl{width:100%;border-collapse:collapse;}
+.pm-root .ptbl th{background:var(--bg2);padding:4px 7px;font-size:9px;color:var(--text2);text-align:left;letter-spacing:.5px;}
+.pm-root .ptbl td{padding:4px 7px;border-bottom:1px solid rgba(255,255,255,.04);font-size:10px;vertical-align:top;}
+.pm-root .ptbl tr:hover td{background:rgba(255,255,255,.015);}
+.pm-root .fb{display:inline-block;padding:1px 5px;border-radius:3px;font-size:8px;font-weight:700;margin-right:3px;}
+.pm-root .fb.f1{background:rgba(255,184,0,.15);color:#ffb800;}
+.pm-root .fb.f2{background:rgba(0,200,255,.15);color:#00c8ff;}
+.pm-root .fb.f3{background:rgba(0,255,157,.15);color:#00ff9d;}
+.pm-root .fb.f4{background:rgba(255,61,61,.15);color:#ff3d3d;}
+.pm-root .pm-prog-wrap{overflow-x:auto;}
+.pm-root .pm-prog-tbl{border-collapse:collapse;min-width:1100px;}
+.pm-root .pm-prog-tbl th{background:var(--bg2);padding:5px 7px;font-size:9px;color:var(--text2);letter-spacing:.5px;text-align:center;border-right:1px solid var(--border);white-space:nowrap;}
+.pm-root .pm-prog-tbl th.cw{color:#ffb800;background:rgba(255,184,0,.06);}
+.pm-root .pm-prog-tbl td{padding:3px 5px;border-bottom:1px solid rgba(255,255,255,.04);border-right:1px solid rgba(255,255,255,.03);vertical-align:top;font-size:9px;}
+.pm-root .pm-prog-tbl td.rl{background:var(--bg3);font-weight:700;font-size:10px;white-space:nowrap;border-right:1px solid var(--border);min-width:120px;padding-left:7px;}
+.pm-root .pm-prog-tbl td.rl .rs{font-size:8px;color:var(--text2);font-weight:400;}
+.pm-root .gcell{border-radius:2px;padding:1px 3px;font-size:8px;font-weight:700;color:rgba(0,0,0,.8);text-align:center;white-space:nowrap;}
+.pm-root .pm-comp-wrap{overflow-x:auto;}
+.pm-root .pm-comp-tbl{border-collapse:collapse;width:100%;min-width:900px;}
+.pm-root .pm-comp-tbl th{background:var(--bg2);padding:6px 7px;font-size:9px;letter-spacing:.5px;color:var(--text2);text-align:left;border-bottom:1px solid var(--border);}
+.pm-root .pm-comp-tbl td{padding:5px 7px;border-bottom:1px solid rgba(255,255,255,.04);font-size:10px;vertical-align:top;}
+.pm-root .pm-comp-tbl tr.cw td{background:rgba(255,184,0,.03);}
+.pm-root .pm-comp-tbl tr.cw td:first-child{border-left:2px solid #ffb800;}
+.pm-root .wk{font-weight:700;color:#ffb800;font-size:12px;}
+.pm-root .dt{font-size:9px;color:var(--text2);}
+.pm-root .tbadge{display:inline-block;padding:2px 7px;border-radius:8px;font-size:9px;}
+.pm-root .tbadge.ok{background:rgba(0,255,157,.1);color:#00ff9d;border:1px solid rgba(0,255,157,.2);}
+.pm-root .tbadge.w{background:rgba(255,184,0,.1);color:#ffb800;border:1px solid rgba(255,184,0,.2);}
+.pm-root .tbadge.bad{background:rgba(255,61,61,.1);color:#ff3d3d;border:1px solid rgba(255,61,61,.2);}
+.pm-root .ri{margin-bottom:9px;background:var(--panel);border:1px solid var(--border);border-radius:5px;padding:10px;}
+.pm-root .rs2{font-weight:700;font-size:11px;letter-spacing:1px;margin-bottom:7px;}`;
+
+const PM_HTML=`<div class="pm-hdr"><div><div class="pm-htitle">PROGRAMA SUBCONTRATOS — BASCUÑÁN</div><div class="pm-hsub">173 PARTIDAS REALES &middot; F1+F2+F3+F4 &middot; 14 SUBCONTRATOS &middot; TREN VALE/ANGÉLICA/PAUL/HANZ</div></div><div class="pm-hdate">META: 30 SEP 2026</div></div>
+<div class="pm-tabs"><div class="pm-tab active" data-name="flujo">FLUJO POR DPTO</div><div class="pm-tab" data-name="subs">PARTIDAS POR SUB</div><div class="pm-tab" data-name="gantt">GANTT SUBS</div><div class="pm-tab" data-name="compromisos">COMPROMISOS</div><div class="pm-tab" data-name="restricciones">RESTRICCIONES</div></div>
+<div id="pm-tc-flujo" class="pm-tc active"><div class="pm-st">FLUJO DE SUBCONTRATOS <span>SECUENCIA REAL POR DPTO — 173 PARTIDAS</span></div><div class="pm-al info"><div>💡</div><div>Secuencia extraída del programa MS Project. Las fases se solapan según relaciones CC.</div></div><div class="pm-stats" id="pm-stats"></div><div class="flujo-wrap" id="pm-flujo"></div></div>
+<div id="pm-tc-subs" class="pm-tc"><div class="pm-st">PARTIDAS POR SUBCONTRATO <span>SECUENCIA REAL DEL PROGRAMA</span></div><div id="pm-subs"></div></div>
+<div id="pm-tc-gantt" class="pm-tc"><div class="pm-st">GANTT SUBCONTRATOS <span>18 SEMANAS — PISO POR PISO</span></div><div class="pm-al warn"><div>⚠</div><div>Cada celda muestra en qué piso trabaja ese subcontrato esa semana. F1=Paul/Hanz, F2/F3=Vale/Angélica.</div></div><div class="pm-prog-wrap"><table class="pm-prog-tbl"><thead id="pm-gantt-head"></thead><tbody id="pm-gantt-body"></tbody></table></div></div>
+<div id="pm-tc-compromisos" class="pm-tc"><div class="pm-st">COMPROMISOS SEMANALES <span>REUNIÓN LPS — LUNES</span></div><div class="pm-comp-wrap"><table class="pm-comp-tbl"><thead id="pm-comp-head"></thead><tbody id="pm-comp-body"></tbody></table></div></div>
+<div id="pm-tc-restricciones" class="pm-tc"><div class="pm-st">RESTRICCIONES CRÍTICAS <span>EXTRAÍDAS DEL PROGRAMA REAL</span></div><div id="pm-restr"></div></div>`;
+
+function runPlanMaestro(root){
+  // Tab switching
+  root.querySelectorAll('.pm-tab').forEach(function(btn){
+    btn.addEventListener('click',function(){
+      root.querySelectorAll('.pm-tab').forEach(function(t){t.classList.remove('active');});
+      root.querySelectorAll('.pm-tc').forEach(function(t){t.classList.remove('active');});
+      btn.classList.add('active');
+      var tc=root.querySelector('#pm-tc-'+btn.dataset.name);
+      if(tc)tc.classList.add('active');
+    });
+  });
+  // ── Data ──────────────────────────────────────────────────────────────
+  var PA={
+    f1:[
+      {id:1,n:"Despeje pasada shaf piso verticales",r:"supervisor fase 1",t:1,pred:"—"},
+      {id:2,n:"Despeje pasada shaf cielo verticales",r:"supervisor fase 1",t:1,pred:"4"},
+      {id:3,n:"Picado y rebaje piso baño",r:"supervisor fase 1",t:1,pred:"4"},
+      {id:4,n:"Descarachado dpto completo",r:"sucto. Descarachado",t:1,pred:"4"},
+      {id:5,n:"Anticorrosivo en fierro a la vista",r:"sucto. Descarachado",t:1,pred:"4"},
+      {id:6,n:"Albañilería en fierro a la vista",r:"sucto. Descarachado",t:1,pred:"4"},
+      {id:7,n:"Mejoramiento rasgos albañilería ventanas",r:"supervisor fase 1",t:1,pred:"9CC"},
+      {id:8,n:"Refuerzos metálicos para ventanas",r:"sucto. Estructura",t:1,pred:"10"},
+      {id:9,n:"Trazado tabiques piso y cielo",r:"supervisor de trazado",t:1,pred:"10"},
+      {id:10,n:"Toma de medidas ventanas (proveedor)",r:"sucto.ventanas",t:1,pred:"12"},
+      {id:11,n:"Estructuración de tabiques",r:"sucto.tabiqueria",t:1,pred:"13CC"},
+      {id:12,n:"1° cara tabiques volcometal",r:"sucto.tabiqueria",t:1,pred:"13CC"},
+      {id:13,n:"Dintel puerta de acceso",r:"sucto.tabiqueria",t:1,pred:"13CC"},
+      {id:14,n:"Dintel puerta de baño",r:"sucto.tabiqueria",t:1,pred:"13CC"},
+      {id:15,n:"Dintel puerta dormitorio",r:"sucto.tabiqueria",t:1,pred:"14CC"},
+      {id:16,n:"Nivelación de piso",r:"sucto.nivelacion",t:3,pred:"14CC"},
+      {id:17,n:"Entrega nivelación a calidad",r:"supervisor fase 1",t:1,pred:"4"},
+      {id:18,n:"Instalación eléctrica en tabiques",r:"sucto. Electrico",t:1,pred:"19"},
+      {id:19,n:"Colocación caja TDA",r:"sucto. Electrico",t:1,pred:"16;17;18"},
+      {id:20,n:"Instalación sanitaria en tabiques",r:"sucto. Sanitario",t:1,pred:"21CC"},
+      {id:21,n:"Descarga PVC vertical alcantarillado",r:"sucto. Sanitario",t:1,pred:"23"},
+      {id:22,n:"Descarga PVC horizontal alcantarillado",r:"sucto. Sanitario",t:1,pred:"12CC"},
+      {id:23,n:"Pruebas alcantarillado PVC",r:"sucto. Sanitario",t:1,pred:"25"},
+      {id:24,n:"Vertical ductos extracción clima",r:"sucto. Clima",t:1,pred:"13CC"},
+      {id:25,n:"Horizontal ductos extracción clima",r:"sucto. Clima",t:1,pred:"26"},
+      {id:26,n:"Refuerzos madera en tabiques",r:"supervisor fase 1",t:1,pred:"19;21;27"},
+      {id:27,n:"Refuerzo palos en puertas",r:"sucto.tabiqueria",t:1,pred:"14CC"},
+      {id:28,n:"Lana en tabiques 1° cara",r:"sucto.tabiqueria",t:1,pred:"29;30"},
+      {id:29,n:"Pruebas presión hermeticidad agua",r:"sucto. Sanitario",t:1,pred:"31"},
+      {id:30,n:"Entrega tabique calidad (antes 2° cara)",r:"supervisor fase 1",t:1,pred:"24;6"},
+      {id:31,n:"Tapar 2° cara tabiques",r:"sucto.tabiqueria",t:1,pred:"32;33"},
+      {id:32,n:"Nivelación mortero piso baño",r:"supervisor fase 1",t:1,pred:"34CC+1d"},
+      {id:33,n:"Yesos en cielo",r:"sucto.yesos",t:2,pred:"34;35"},
+      {id:34,n:"Yesos en muros",r:"sucto.yesos",t:1,pred:"32"},
+      {id:35,n:"Entrega yesos a calidad y pintura",r:"supervisor fase 1",t:1,pred:"37"},
+      {id:36,n:"Trazado niveles en tabiques",r:"supervisor de trazado",t:1,pred:"11+14d"},
+      {id:37,n:"Huinchas en uniones tabiques",r:"sucto.tabiqueria",t:1,pred:"38"},
+      {id:38,n:"Instalación ventanas",r:"sucto.ventanas",t:2,pred:"38"},
+      {id:39,n:"Shaf tabiquería",r:"sucto.tabiqueria",t:1,pred:"41"},
+      {id:40,n:"Esquinero metálico tabiques y shaft",r:"sucto.tabiqueria",t:1,pred:"33;18"},
+      {id:41,n:"Huinchas en shaft",r:"sucto.tabiqueria",t:1,pred:"38"},
+      {id:42,n:"Impermeabilización piso y muros baños",r:"sucto. Impermeabilización",t:1,pred:"43"},
+      {id:43,n:"Vigones tabiquería",r:"sucto.tabiqueria",t:1,pred:"45"},
+      {id:44,n:"Impermeabilización zócalos baños",r:"sucto. Impermeabilización",t:1,pred:"46"},
+      {id:45,n:"Entrega impermeabilización baños",r:"supervisor fase 1",t:1,pred:"47"},
+      {id:46,n:"Poliestireno expandido receptáculo",r:"supervisor fase 1",t:1,pred:"48"},
+      {id:47,n:"Colocación receptáculo ducha",r:"sucto. Sanitario",t:1,pred:"49"},
+      {id:48,n:"Retiro celosía receptáculo a bodega",r:"supervisor fase 1",t:1,pred:"46"},
+      {id:49,n:"Protección receptáculo",r:"supervisor fase 1",t:1,pred:"51"},
+      {id:50,n:"Revisión contratista porcelanato/cerámica",r:"supervisor fase 1",t:1,pred:"52CC"},
+      {id:51,n:"Instalación cerámica muro baño",r:"sucto.ceramica",t:1,pred:"52"},
+      {id:52,n:"Cerámica registro tee muro baño",r:"sucto.ceramica",t:1,pred:"54;53"},
+      {id:53,n:"Instalación porcelanato piso baño",r:"sucto.ceramica",t:1,pred:"55+1d"},
+      {id:54,n:"Fragüado cerámica baño",r:"sucto.ceramica",t:1,pred:"56"},
+      {id:55,n:"Entrega cerámica baño a calidad",r:"supervisor fase 1",t:1,pred:"57"},
+      {id:56,n:"Instalación marco puerta baño",r:"sucto. Inst. puertas",t:1,pred:"41"},
+      {id:57,n:"Instalación puerta de baño",r:"sucto. Inst. puertas",t:1,pred:"59"},
+      {id:58,n:"Instalación marco puerta acceso",r:"sucto. Inst. puertas",t:1,pred:"60"},
+      {id:59,n:"Instalación puerta de acceso",r:"sucto. Inst. puertas",t:1,pred:"32;70"},
+      {id:60,n:"Instalación cerradura puerta acceso",r:"sucto. Inst. cerradura int.",t:1,pred:"61"},
+      {id:61,n:"Estructuración cielos tabiquería",r:"sucto.tabiqueria",t:1,pred:"34"},
+      {id:62,n:"Instalación eléctrica en cielos",r:"sucto. Electrico",t:1,pred:"64CC"},
+      {id:63,n:"Instalación sanitaria en cielos",r:"sucto. Sanitario",t:1,pred:"64CC"},
+      {id:64,n:"Instalación clima en cielos",r:"sucto. Clima",t:1,pred:"64CC"},
+      {id:65,n:"Instalación despiche aire acondicionado",r:"sucto. Sanitario",t:1,pred:"66"},
+      {id:66,n:"Entrega calidad antes tapar cielos",r:"supervisor fase 1",t:1,pred:"64;65"},
+      {id:67,n:"Tapado cielos tabiquería",r:"sucto.tabiqueria",t:1,pred:"69"},
+      {id:68,n:"Instalación cornisas cocina",r:"supervisor fase 1",t:1,pred:"32"},
+      {id:69,n:"Instalación cornisas baño",r:"supervisor fase 1",t:1,pred:"68;35"},
+      {id:70,n:"Enlauchado instalaciones eléctricas",r:"sucto. Electrico",t:1,pred:"72CC"},
+      {id:71,n:"Trazado muebles cocina, closet etc.",r:"supervisor de trazado",t:1,pred:"69;36"},
+      {id:72,n:"Toma medidas muebles (proveedor)",r:"sucto.muebles",t:1,pred:"70"},
+      {id:73,n:"Instalación split aire acondicionado",r:"sucto. Clima",t:1,pred:"66"},
+      {id:74,n:"Instalación extractor de aire baño",r:"sucto. Clima",t:1,pred:"70"}
+    ],
+    f2:[
+      {id:1,n:"Recepción fase 1 por MANIFOLD",r:"supervisor fase 2",t:1,pred:"—"},
+      {id:2,n:"Revisión yesos para ingreso pintura",r:"supervisor fase 2",t:1,pred:"1"},
+      {id:3,n:"Empaste cielos dormitorios/closet",r:"sucto. Pintura",t:1,pred:"2"},
+      {id:4,n:"Empaste muros dormitorios/closet",r:"sucto. Pintura",t:1,pred:"3CC"},
+      {id:5,n:"Recorrido cornisa dormitorio/closet",r:"sucto. Pintura",t:1,pred:"3"},
+      {id:6,n:"Lijado cielos dormitorios/closet",r:"sucto. Pintura",t:1,pred:"5"},
+      {id:7,n:"Lijado muros dormitorios/closet",r:"sucto. Pintura",t:1,pred:"6CC"},
+      {id:8,n:"Empaste cielos baños",r:"sucto. Pintura",t:1,pred:"2"},
+      {id:9,n:"Empaste muros baños",r:"sucto. Pintura",t:1,pred:"8CC"},
+      {id:10,n:"Recorrido cornisa baños",r:"sucto. Pintura",t:1,pred:"8"},
+      {id:11,n:"Lijado cielos baños",r:"sucto. Pintura",t:1,pred:"10"},
+      {id:12,n:"Lijado muros baños",r:"sucto. Pintura",t:1,pred:"11CC"},
+      {id:13,n:"Instalación luminaria empotrada",r:"sucto. Electrico",t:1,pred:"2"},
+      {id:14,n:"Empaste cielos cocina",r:"sucto. Pintura",t:1,pred:"2"},
+      {id:15,n:"Empaste muros cocina",r:"sucto. Pintura",t:1,pred:"14CC"},
+      {id:16,n:"Recorrido cornisa cocina",r:"sucto. Pintura",t:1,pred:"14"},
+      {id:17,n:"Lijado cielos cocina",r:"sucto. Pintura",t:1,pred:"16"},
+      {id:18,n:"Lijado muros cocina",r:"sucto. Pintura",t:1,pred:"17CC"},
+      {id:19,n:"Pintura 1 mano cielos cocina",r:"sucto. Pintura",t:1,pred:"17"},
+      {id:20,n:"Pintura 1 mano cornisa cocina",r:"sucto. Pintura",t:1,pred:"19CC"},
+      {id:21,n:"Pintura 1 mano muros cocina",r:"sucto. Pintura",t:1,pred:"19"},
+      {id:22,n:"Instalación mueble cocina base",r:"sucto.muebles",t:1,pred:"21"},
+      {id:23,n:"Instalación mueble cocina aéreo",r:"sucto.muebles",t:1,pred:"22"},
+      {id:24,n:"Instalación mueble cocina repisas",r:"sucto.muebles",t:1,pred:"23CC"},
+      {id:25,n:"Instalación mueble cocina puertas",r:"sucto.muebles",t:1,pred:"23"},
+      {id:26,n:"Pintura 1 mano cielos dormitorios",r:"sucto. Pintura",t:1,pred:"6"},
+      {id:27,n:"Pintura 1 mano cornisas dormitorios",r:"sucto. Pintura",t:1,pred:"26CC"},
+      {id:28,n:"Pintura 1 mano muros dormitorios",r:"sucto. Pintura",t:1,pred:"26"},
+      {id:29,n:"Instalación mueble closet base",r:"sucto.muebles",t:1,pred:"28"},
+      {id:30,n:"Instalación mueble closet repisa",r:"sucto.muebles",t:1,pred:"29"},
+      {id:31,n:"Instalación mueble closet puertas",r:"sucto.muebles",t:1,pred:"30"},
+      {id:32,n:"Pintura 1 mano cielos baños",r:"sucto. Pintura",t:1,pred:"11"},
+      {id:33,n:"Pintura 1 mano cornisa baños",r:"sucto. Pintura",t:1,pred:"32CC"},
+      {id:34,n:"Pintura 1 mano muros baños",r:"sucto. Pintura",t:1,pred:"32"},
+      {id:35,n:"Instalación vanitorio base",r:"sucto.muebles",t:1,pred:"34"},
+      {id:36,n:"Instalación vanitorio puertas",r:"sucto.muebles",t:1,pred:"35"},
+      {id:37,n:"Instalación cubierta vanitorio",r:"sucto.muebles",t:1,pred:"36"},
+      {id:38,n:"Instalación WC",r:"sucto. Sanitario",t:1,pred:"34"},
+      {id:39,n:"Instalación marco puerta dormitorio",r:"sucto. Inst. puertas",t:1,pred:"28"},
+      {id:40,n:"Instalación puerta dormitorio",r:"sucto. Inst. puertas",t:1,pred:"39"},
+      {id:41,n:"Cerradura puerta dormitorio",r:"sucto. Inst. puertas",t:1,pred:"40"},
+      {id:42,n:"Cerradura puerta baño",r:"sucto. Inst. puertas",t:1,pred:"40"},
+      {id:43,n:"Instalación guardapolvos cocina",r:"supervisor fase 2",t:1,pred:"21"},
+      {id:44,n:"Instalación guardapolvos dormitorio",r:"supervisor fase 2",t:1,pred:"28"},
+      {id:45,n:"Revisión contratista instalación piso",r:"supervisor fase 2",t:1,pred:"44"},
+      {id:46,n:"Instalación piso vinílico",r:"sucto.piso",t:1,pred:"45"},
+      {id:47,n:"Protección de pisos",r:"supervisor fase 2",t:1,pred:"46"},
+      {id:48,n:"Alambrado eléctrico",r:"sucto. Electrico",t:1,pred:"45"},
+      {id:49,n:"Alambrado corrientes débiles",r:"sucto. Electrico",t:1,pred:"48CC"}
+    ],
+    f3:[
+      {id:1,n:"Instalación campana",r:"supervisor fase 3",t:1,pred:"—"},
+      {id:2,n:"Instalación encimera",r:"supervisor fase 3",t:1,pred:"1"},
+      {id:3,n:"Instalación horno",r:"supervisor fase 3",t:1,pred:"2"},
+      {id:4,n:"Instalación celosía cocina",r:"supervisor fase 3",t:1,pred:"—"},
+      {id:5,n:"Celosía receptáculo a bodega",r:"supervisor fase 3",t:1,pred:"—"},
+      {id:6,n:"Tope puerta baño",r:"supervisor fase 3",t:1,pred:"—"},
+      {id:7,n:"Tope puerta dormitorio",r:"supervisor fase 3",t:1,pred:"—"},
+      {id:8,n:"Tope puerta acceso",r:"supervisor fase 3",t:1,pred:"—"},
+      {id:9,n:"Instalación TDA con componentes",r:"sucto. Electrico",t:1,pred:"—"},
+      {id:10,n:"TDA falsos polos / espacios vacíos",r:"sucto. Electrico",t:1,pred:"9"},
+      {id:11,n:"TDA diagrama unilineal",r:"sucto. Electrico",t:1,pred:"10"},
+      {id:12,n:"TDA tapa final",r:"sucto. Electrico",t:1,pred:"11"},
+      {id:13,n:"Instalación artefactos ctes. débiles",r:"sucto. Electrico",t:1,pred:"—"},
+      {id:14,n:"Instalación artefactos eléctricos",r:"sucto. Electrico",t:1,pred:"9"},
+      {id:15,n:"Trazado espejo",r:"supervisor de trazado",t:1,pred:"—"},
+      {id:16,n:"Instalación espejo",r:"supervisor fase 3",t:1,pred:"15"},
+      {id:17,n:"Luminaria espejo baño",r:"sucto. Electrico",t:1,pred:"16"},
+      {id:18,n:"Trazado accesorios baño",r:"supervisor de trazado",t:1,pred:"—"},
+      {id:19,n:"Accesorios baño porta rollo",r:"supervisor fase 3",t:1,pred:"18"},
+      {id:20,n:"Accesorios baño percha",r:"supervisor fase 3",t:1,pred:"19CC"},
+      {id:21,n:"Accesorios baño toallero",r:"supervisor fase 3",t:1,pred:"20"},
+      {id:22,n:"Trazado mampara de baño",r:"supervisor de trazado",t:1,pred:"—"},
+      {id:23,n:"Instalación mampara de baño",r:"supervisor fase 3",t:1,pred:"22"},
+      {id:24,n:"Instalación grifería baño",r:"sucto. Sanitario",t:1,pred:"23"},
+      {id:25,n:"Campanas llaves de paso baño",r:"sucto. Sanitario",t:1,pred:"24CC"},
+      {id:26,n:"Instalación grifería cocina",r:"sucto. Sanitario",t:1,pred:"—"},
+      {id:27,n:"Campanas llaves de paso cocina",r:"sucto. Sanitario",t:1,pred:"26CC"},
+      {id:28,n:"Instalación termo eléctrico/calefont",r:"sucto. Sanitario",t:1,pred:"—"},
+      {id:29,n:"Campanas llaves de paso termo",r:"sucto. Sanitario",t:1,pred:"28"},
+      {id:30,n:"2da mano pintura cornisa sello",r:"sucto. Pintura",t:1,pred:"—"},
+      {id:31,n:"Sellado en dptos",r:"supervisor fase 3",t:1,pred:"—"},
+      {id:32,n:"Recorridos sellos silicona",r:"supervisor fase 3",t:1,pred:"31CC"},
+      {id:33,n:"Verificar agua fría/caliente",r:"sucto. Sanitario",t:1,pred:"25;27;29"},
+      {id:34,n:"Prueba funcional agua (calidad)",r:"supervisor fase 3",t:1,pred:"33"},
+      {id:35,n:"Prueba funcional eléctrica (calidad)",r:"supervisor fase 3",t:1,pred:"14;17"},
+      {id:36,n:"Prueba funcional ctes. débiles",r:"supervisor fase 3",t:1,pred:"13"},
+      {id:37,n:"Revisión muros y limpieza",r:"supervisor fase 3",t:1,pred:"—"},
+      {id:38,n:"Aseo fino",r:"supervisor fase 3",t:1,pred:"37"}
+    ],
+    f4:[
+      {id:1,n:"Entrega R1",r:"supervisor fase 4",t:1,pred:"—"},
+      {id:2,n:"Entrega RF",r:"supervisor fase 4",t:1,pred:"1"},
+      {id:3,n:"Acta de entrega archivada",r:"supervisor fase 4",t:1,pred:"2"}
+    ]
+  };
+  var SC={
+    "sucto.tabiqueria":{c:"#f472b6",n:"TABIQUERIA"},
+    "sucto. Electrico":{c:"#facc15",n:"ELECTRICO"},
+    "sucto. Sanitario":{c:"#60a5fa",n:"GASFITERIA"},
+    "sucto. Clima":{c:"#34d399",n:"CLIMA"},
+    "sucto. Pintura":{c:"#fb923c",n:"PINTURA"},
+    "sucto.ventanas":{c:"#a78bfa",n:"VENTANAS"},
+    "sucto.muebles":{c:"#2dd4bf",n:"MUEBLES"},
+    "sucto.ceramica":{c:"#f87171",n:"CERAMICA"},
+    "sucto. Impermeabilización":{c:"#86efac",n:"IMPERMEAB."},
+    "sucto. Inst. puertas":{c:"#fcd34d",n:"PUERTAS"},
+    "sucto. Inst. cerradura int.":{c:"#c084fc",n:"CERRADURAS"},
+    "sucto.piso":{c:"#7dd3fc",n:"PISO VINIL."},
+    "sucto.yesos":{c:"#d1d5db",n:"YESOS"},
+    "sucto.nivelacion":{c:"#cffafe",n:"NIVELACION"},
+    "sucto. Descarachado":{c:"#fef3c7",n:"DESCARACHADO"},
+    "sucto. Estructura":{c:"#e2e8f0",n:"ESTRUCTURA"},
+    "supervisor fase 1":{c:"#e0f2fe",n:"SUP. FASE 1"},
+    "supervisor fase 2":{c:"#ffe4e6",n:"SUP. FASE 2"},
+    "supervisor fase 3":{c:"#f0fdf4",n:"SUP. FASE 3"},
+    "supervisor fase 4":{c:"#fef9c3",n:"SUP. FASE 4"},
+    "supervisor de trazado":{c:"#f5f5f5",n:"SUP. TRAZADO"}
+  };
+  function gc(r){return(SC[r]||{c:"#888"}).c;}
+  function gn(r){return(SC[r]||{n:r}).n;}
+  function sfx(hex,p){
+    var r=Math.round(parseInt(hex.slice(1,3),16)*p+255*(1-p));
+    var g=Math.round(parseInt(hex.slice(3,5),16)*p+255*(1-p));
+    var b=Math.round(parseInt(hex.slice(5,7),16)*p+255*(1-p));
+    return"rgb("+r+","+g+","+b+")";
+  }
+  // ── Stats cards ───────────────────────────────────────────────────────
+  var statsEl=root.querySelector('#pm-stats');
+  if(statsEl){
+    var kpis=[
+      {lbl:"FASE 1 — OBRA GRUESA",val:74,color:"#ffb800",sub:"partidas · Paul/Hanz preparan"},
+      {lbl:"FASE 2 — TERMINACIONES MEDIAS",val:49,color:"#00c8ff",sub:"partidas · Vale/Angélica"},
+      {lbl:"FASE 3 — TERMINACIONES FINAS",val:38,color:"#00ff9d",sub:"partidas · Vale/Angélica + subs"},
+      {lbl:"FASE 4 — ENTREGA",val:3,color:"#ff3d3d",sub:"partidas · Sup. entrega"}
+    ];
+    statsEl.innerHTML=kpis.map(function(k){
+      return'<div class="pm-kpi"><div class="pm-kpi-lbl">'+k.lbl+'</div><div class="pm-kpi-val" style="color:'+k.color+'">'+k.val+'</div><div class="pm-kpi-sub">'+k.sub+'</div></div>';
+    }).join('');
+  }
+  // ── Flujo visual ──────────────────────────────────────────────────────
+  var flujoEl=root.querySelector('#pm-flujo');
+  if(flujoEl){
+    var phases=[
+      {key:'f1',label:'FASE 1 — OBRA GRUESA',color:'#ffb800',w:28},
+      {key:'f2',label:'FASE 2 — TERMINACIONES MEDIAS',color:'#00c8ff',w:28},
+      {key:'f3',label:'FASE 3 — TERMINACIONES FINAS',color:'#00ff9d',w:18},
+      {key:'f4',label:'FASE 4 — ENTREGA',color:'#ff3d3d',w:5}
+    ];
+    var fh='<div class="flujo-wrap"><table class="flujo-tbl"><thead><tr>';
+    fh+='<th style="text-align:left;min-width:52px">FASE</th><th style="text-align:left;min-width:210px">PARTIDA</th>';
+    fh+='<th style="min-width:160px">RESPONSABLE</th><th style="min-width:80px;text-align:center">PRED.</th>';
+    fh+='<th style="text-align:left;min-width:180px">BARRA</th></tr></thead><tbody>';
+    phases.forEach(function(ph){
+      fh+='<tr><td colspan="5" style="background:#0a1220;padding:5px 7px;font-size:9px;font-weight:700;letter-spacing:1px;color:'+ph.color+'">'+ph.label+'</td></tr>';
+      PA[ph.key].forEach(function(p){
+        var c=gc(p.r);var cs=sfx(c,0.3);
+        var w=Math.min(p.t*ph.w,110);
+        fh+='<tr><td class="fl"><span class="fb '+ph.key+'">'+ph.key.toUpperCase()+'</span></td>';
+        fh+='<td class="pl"><span>'+p.n+'</span></td>';
+        fh+='<td style="font-size:9px"><span style="background:'+cs+';padding:2px 5px;border-radius:3px;color:#000;font-size:8px;font-weight:700">'+gn(p.r)+'</span></td>';
+        fh+='<td style="text-align:center;font-size:9px;color:#6b8fa8;font-family:monospace">'+p.pred+'</td>';
+        fh+='<td><div class="pm-bar" style="background:'+c+';width:'+w+'px">'+(p.t>1?p.t+'d':'')+'</div></td></tr>';
+      });
+    });
+    fh+='</tbody></table></div>';
+    flujoEl.innerHTML=fh;
+  }
+  // ── Partidas por sub ──────────────────────────────────────────────────
+  var subsEl=root.querySelector('#pm-subs');
+  if(subsEl){
+    var allP=[];
+    ['f1','f2','f3','f4'].forEach(function(f){PA[f].forEach(function(p){allP.push(Object.assign({},p,{fase:f}));});});
+    var byR={};
+    allP.forEach(function(p){if(!byR[p.r])byR[p.r]=[];byR[p.r].push(p);});
+    var sh2='';
+    Object.keys(byR).sort().forEach(function(resp){
+      var ps=byR[resp];var c=gc(resp);var cs=sfx(c,0.13);
+      sh2+='<div class="ss"><div class="sh" style="background:'+cs+';border-color:'+c+'20">';
+      sh2+='<div class="si" style="background:'+c+'"></div>';
+      sh2+='<div class="sn" style="color:'+c+'">'+gn(resp)+'</div>';
+      sh2+='<div style="font-size:9px;color:#6b8fa8;margin-left:6px">'+resp+'</div>';
+      sh2+='<div style="margin-left:auto;font-size:10px;opacity:.7">'+ps.length+' partidas</div></div>';
+      sh2+='<table class="ptbl"><thead><tr><th>FASE</th><th>#</th><th>PARTIDA</th><th>DÍAS</th><th>PRED.</th></tr></thead><tbody>';
+      ps.forEach(function(p){
+        sh2+='<tr><td><span class="fb '+p.fase+'">'+p.fase.toUpperCase()+'</span></td>';
+        sh2+='<td style="font-family:monospace;color:#6b8fa8">'+p.id+'</td>';
+        sh2+='<td>'+p.n+'</td>';
+        sh2+='<td style="text-align:center;font-weight:700;color:'+c+'">'+p.t+'</td>';
+        sh2+='<td style="font-family:monospace;font-size:9px;color:#6b8fa8">'+p.pred+'</td></tr>';
+      });
+      sh2+='</tbody></table></div>';
+    });
+    subsEl.innerHTML=sh2;
+  }
+  // ── Gantt ─────────────────────────────────────────────────────────────
+  var SEMS=[[1,"25-May"],[2,"01-Jun"],[3,"08-Jun"],[4,"15-Jun"],[5,"22-Jun"],[6,"29-Jun"],[7,"06-Jul"],[8,"13-Jul"],[9,"20-Jul"],[10,"27-Jul"],[11,"03-Ago"],[12,"10-Ago"],[13,"17-Ago"],[14,"24-Ago"],[15,"31-Ago"],[16,"07-Sep"],[17,"14-Sep"],[18,"21-Sep"]];
+  var PROG={1:{VALE:["209","208","207","206"],ANGELICA:["411","410","409","408"],PAUL:["312","311","310","309","308","307","306","305","304","303","302"],HANZ:["512","511","510","509","508","507","506","505","504","503"]},2:{VALE:["205","204","203"],ANGELICA:["407","406","405"],PAUL:["313","314","315","316"],HANZ:["513","514","515","516"]},3:{VALE:["202","214","215"],ANGELICA:["404","403","413"],PAUL:["317","318","319","320"],HANZ:["517","518","519","520"]},4:{VALE:["216","217","218"],ANGELICA:["414","415","416"],PAUL:["321","322"],HANZ:["521","522"]},5:{VALE:["219","220","221"],ANGELICA:["417","418","419"],PAUL:["302","303","304","305","306","307","308","309","310","311","312"],HANZ:["503","504","505","506","507","508","509","510","511","512"]},6:{VALE:["222","213"],ANGELICA:["420","421","422"],PAUL:["313","314","315","316","317","318","319","320","321","322"],HANZ:["513","514","515","516","517","518","519","520","521","522"]},7:{VALE:["212","302","303"],ANGELICA:["302","303","304","305"],PAUL:["603","604","605"],HANZ:["603","604","605"]},8:{VALE:["304","305","306"],ANGELICA:["306","307","308"],PAUL:["606","607","608"],HANZ:["606","607","608"]},9:{VALE:["307","308","309"],ANGELICA:["309","310","311"],PAUL:["609","610","611"],HANZ:["609","610","611"]},10:{VALE:["310","311","312"],ANGELICA:["312","313","314"],PAUL:["612","613","614"],HANZ:["612","613","614"]},11:{VALE:["313","314","315"],ANGELICA:["315","316","317"],PAUL:["615","616","617"],HANZ:["615","616","617"]},12:{VALE:["316","317","318"],ANGELICA:["318","319","320"],PAUL:["618","619","620"],HANZ:["618","619","620"]},13:{VALE:["319","320","321","322"],ANGELICA:["321","322"],PAUL:["621","622"],HANZ:["621","622"]},14:{VALE:["503","504","505"],ANGELICA:["503","504","505"],PAUL:[],HANZ:[]},15:{VALE:["506","507","508"],ANGELICA:["506","507","508"],PAUL:[],HANZ:[]},16:{VALE:["509","510","511"],ANGELICA:["509","510","511"],PAUL:[],HANZ:[]},17:{VALE:["512","513","514"],ANGELICA:["512","513"],PAUL:[],HANZ:[]},18:{VALE:["613","614","615","616","617","618","619","620","621","622"],ANGELICA:["603","604","605","606","607","608","609","610","611","612"],PAUL:[],HANZ:[]}};
+  var PC={"2":"rgba(0,200,255,.55)","3":"rgba(167,139,250,.55)","4":"rgba(52,211,153,.55)","5":"rgba(249,115,22,.55)","6":"rgba(251,191,36,.55)"};
+  var GR=[
+    {l:"TABIQUERIA",sub:"f1",r:"sucto.tabiqueria"},{l:"ELECTRICO F1",sub:"f1",r:"sucto. Electrico"},
+    {l:"GASFITERIA F1",sub:"f1",r:"sucto. Sanitario"},{l:"CLIMA F1",sub:"f1",r:"sucto. Clima"},
+    {l:"IMPERMEAB.",sub:"f1",r:"sucto. Impermeabilización"},{l:"CERAMICA",sub:"f1",r:"sucto.ceramica"},
+    {l:"VENTANAS",sub:"f1f2",r:"sucto.ventanas"},{l:"PINTURA F2",sub:"f2",r:"sucto. Pintura"},
+    {l:"MUEBLES",sub:"f2",r:"sucto.muebles"},{l:"PUERTAS",sub:"f2",r:"sucto. Inst. puertas"},
+    {l:"ELECTRICO F3",sub:"f3",r:"sucto. Electrico"},{l:"GASFITERIA F3",sub:"f3",r:"sucto. Sanitario"},
+    {l:"PINTURA F3",sub:"f3",r:"sucto. Pintura"},{l:"PISO VINIL.",sub:"f2",r:"sucto.piso"},
+    {l:"CERRADURAS",sub:"f3",r:"sucto. Inst. cerradura int."}
+  ];
+  function apS(sem,cq){var ds=(PROG[sem]||{})[cq]||[];var ps={};ds.forEach(function(d){ps[d.charAt(0)]=true;});return Object.keys(ps);}
+  var ghEl=root.querySelector('#pm-gantt-head');
+  var gbEl=root.querySelector('#pm-gantt-body');
+  if(ghEl&&gbEl){
+    var gHead='<tr><th style="text-align:left;min-width:130px;padding-left:7px">SUBCONTRATO</th>';
+    SEMS.forEach(function(s){gHead+='<th class="'+(s[0]<=2?'cw':'')+'">S'+s[0]+'<br><span style="font-size:8px">'+s[1]+'</span></th>';});
+    gHead+='</tr>';
+    ghEl.innerHTML=gHead;
+    GR.forEach(function(row){
+      var c=gc(row.r);
+      var cells='<td class="rl" style="color:'+c+'">'+row.l+'<div class="rs">'+row.sub.toUpperCase()+'</div></td>';
+      SEMS.forEach(function(s){
+        var sem=s[0];var pisos=[];
+        if(row.sub==='f1'){var a={};apS(sem,'PAUL').forEach(function(p){a[p]=1;});apS(sem,'HANZ').forEach(function(p){a[p]=1;});pisos=Object.keys(a);}
+        else if(row.sub==='f2'||row.sub==='f3'){var a={};apS(sem,'VALE').forEach(function(p){a[p]=1;});apS(sem,'ANGELICA').forEach(function(p){a[p]=1;});pisos=Object.keys(a);}
+        else{var a={};[apS(sem,'PAUL'),apS(sem,'HANZ'),apS(sem,'VALE'),apS(sem,'ANGELICA')].forEach(function(arr){arr.forEach(function(p){a[p]=1;});});pisos=Object.keys(a);}
+        if(pisos.length){
+          cells+='<td style="background:rgba(255,255,255,.02)">'+pisos.sort().map(function(p){return'<span class="gcell" style="background:'+(PC[p]||'rgba(200,200,200,.4)')+'">P'+p+'</span>';}).join(' ')+'</td>';
+        }else cells+='<td style="background:#0d1a2e;text-align:center;color:#374151">—</td>';
+      });
+      var tr=document.createElement('tr');tr.innerHTML=cells;gbEl.appendChild(tr);
+    });
+  }
+  // ── Compromisos ───────────────────────────────────────────────────────
+  var CD=[
+    {w:1,d:"25-29 May",tab:"P3:312-302 F1\nP5:512-503 F1",ele:"P3/P5:inst.tab.\nP2:TDA colocacion",gas:"P3/P5:PVC vertical",cli:"P3/P5:ductos vert.",pin:"—",ven:"MEDIR P3+P5 LP CRITICO",mue:"MEDIR P3+P5 LP",cer:"P3/P5:F1 baños",s:"bad"},
+    {w:2,d:"01-05 Jun",tab:"P3:316-313\nP5:516-513",ele:"P3/P5:cielos F1\nP2:F3 alambrado",gas:"P3/P5:PVC horiz.",cli:"P5:SPLIT LP HOY",pin:"P2:F3 sello",ven:"Confirmar P3+P5",mue:"Confirmar P3",cer:"P3:308-303",s:"warn"},
+    {w:3,d:"08-12 Jun",tab:"P3:320-317\nP2:F2 inicio",ele:"P2/P4:F1 completo",gas:"P2/P4:pruebas hermeticidad",cli:"P2/P4:split",pin:"P2:empaste",ven:"P2 medición LP",mue:"P4 medición LP",cer:"P3/P4:avance",s:"warn"},
+    {w:4,d:"15-19 Jun",tab:"P4:F2 tab.cielos",ele:"P4:F2 luminaria",gas:"P2:WC+grifería",cli:"P4:split inst.",pin:"P2:1 mano\nP4:empaste",ven:"P2 inst.",mue:"P2:cocina\nP3 llegada",cer:"P2:baños",s:"ok"},
+    {w:5,d:"22-26 Jun",tab:"P3/P5:F1 completo",ele:"P2:F3\nP4:alambrado",gas:"P2/P4:F3 grifería",cli:"P2/P4:F3 split",pin:"P2:sello+P4:1m",ven:"P2 inst.",mue:"P2:closet+van.\nP4:cocina",cer:"P3:F1/F2 listo",s:"ok"},
+    {w:6,d:"29Jun-3Jul",tab:"P3/P5:F2 huinchas",ele:"P4:F3\nP3:enlauchado",gas:"P4:F3 WC+van.",cli:"P4:F3 split",pin:"P4:sello+P3:emp",ven:"P4 inst.\nP3 llegada",mue:"P4:van.+closet",cer:"P5:F1/F2 listo",s:"ok"},
+    {w:7,d:"06-10 Jul",tab:"P6:F1 inicio",ele:"P3:F2 lum.\nP6:F1 cajas",gas:"P3:F2 WC\nP6:F1 PVC",cli:"P3:F3 split",pin:"P3:empaste",ven:"P3 inst.",mue:"P3:cocina base",cer:"P6:F1 baños",s:"ok"},
+    {w:8,d:"13-17 Jul",tab:"P3/P5:F2 cielos",ele:"P3/P5:F2/F3 alam.",gas:"P3+P5:WC+grif.",cli:"P3+P5:split",pin:"P3+P5:1 mano",ven:"P5 inst.",mue:"P3:closet+van.\nP5:cocina",cer:"P6:avance",s:"ok"},
+    {w:9,d:"20-24 Jul",tab:"P3+P5:F3 sellado",ele:"P3+P5:F3 TDA+artef.",gas:"P3+P5:F3 verif.",cli:"P3+P5:extractor",pin:"P3+P5:F3 sello",ven:"P5 inst.",mue:"P5:closet+van.",cer:"P6:baños",s:"ok"},
+    {w:10,d:"27-31 Jul",tab:"P6:F1 yesos",ele:"P3:TDA final\nP5:artefactos",gas:"P3+P5:llaves",cli:"P5:split",pin:"P5:1 mano",ven:"P6:MEDIR LP",mue:"P5:cocina",cer:"—",s:"ok"},
+    {w:11,d:"03-07 Ago",tab:"P6:F1 tab.cielos",ele:"P5:TDA+artef.\nP6:F1 cajas",gas:"P6:F1 PVC",cli:"P6:F1 ductos",pin:"P6:empaste F2",ven:"P6:inst.(Ang)",mue:"P6:pedido",cer:"—",s:"ok"},
+    {w:12,d:"10-14 Ago",tab:"P5+P6:F2",ele:"P5:artefactos",gas:"P5:verif.",cli:"P5:split",pin:"P5:1m+P6:1m",ven:"P6:inst.avance",mue:"P6:cocina(Ang)",cer:"—",s:"ok"},
+    {w:13,d:"17-21 Ago",tab:"P6:F3 inicio",ele:"P5:TDA\nP6:F2 lum.",gas:"P5:verif.",cli:"P5:completo",pin:"P5:sello+P6:1m",ven:"P6:inst.(Vale)",mue:"P6:cocina(Vale)",cer:"—",s:"ok"},
+    {w:14,d:"24-28 Ago",tab:"P6:F3 avance",ele:"P6:alam.+artef.",gas:"P6:WC+grif.",cli:"P6:split",pin:"P6:sello",ven:"—",mue:"P6:closet+van.",cer:"—",s:"ok"},
+    {w:15,d:"31Ago-4Sep",tab:"P6:piso",ele:"P6:TDA final",gas:"P6:verif.agua",cli:"P6:completo",pin:"P6:sello",ven:"—",mue:"P6:completo",cer:"—",s:"ok"},
+    {w:16,d:"07-11 Sep",tab:"P6:cerrar",ele:"P6:TDA tapa",gas:"P6:llaves",cli:"—",pin:"P6:completo",ven:"—",mue:"—",cer:"—",s:"ok"},
+    {w:17,d:"14-18 Sep",tab:"Buffer",ele:"Buffer",gas:"Buffer",cli:"—",pin:"Buffer",ven:"—",mue:"—",cer:"—",s:"ok"},
+    {w:18,d:"21-25 Sep",tab:"Cierre",ele:"Cierre",gas:"Cierre",cli:"—",pin:"Cierre",ven:"—",mue:"—",cer:"—",s:"ok"}
+  ];
+  var chCols=[
+    {k:"tab",l:"TABIQUERIA",c:"#f472b6"},{k:"ele",l:"ELECTRICO",c:"#facc15"},
+    {k:"gas",l:"GASFITERIA",c:"#60a5fa"},{k:"cli",l:"CLIMA",c:"#34d399"},
+    {k:"pin",l:"PINTURA",c:"#fb923c"},{k:"ven",l:"VENTANAS",c:"#a78bfa"},
+    {k:"mue",l:"MUEBLES",c:"#2dd4bf"},{k:"cer",l:"CERAMICA",c:"#f87171"}
+  ];
+  var chEl=root.querySelector('#pm-comp-head');
+  var cbEl=root.querySelector('#pm-comp-body');
+  if(chEl&&cbEl){
+    var chHd='<tr><th style="width:45px">SEM</th><th style="width:85px">FECHAS</th>';
+    chCols.forEach(function(col){chHd+='<th style="color:'+col.c+'">'+col.l+'</th>';});
+    chHd+='<th style="width:75px">ESTADO</th></tr>';
+    chEl.innerHTML=chHd;
+    CD.forEach(function(r,ri){
+      var badge=r.s==='bad'?'<span class="tbadge bad">CRÍTICA</span>':r.s==='warn'?'<span class="tbadge w">ATENCIÓN</span>':'<span class="tbadge ok">OK</span>';
+      var tr=document.createElement('tr');
+      if(ri<2)tr.className='cw';
+      var cells='<td><span class="wk">S'+r.w+'</span><br><span class="dt">'+r.d+'</span></td>';
+      chCols.forEach(function(col){
+        var val=r[col.k]||'—';
+        var bg=val==='—'?'background:#0d1a2e;color:#374151':'background:'+col.c+'20;color:'+col.c;
+        cells+='<td style="'+bg+';font-size:9px;white-space:pre-wrap">'+val+'</td>';
+      });
+      cells+='<td>'+badge+'</td>';
+      tr.innerHTML=cells;cbEl.appendChild(tr);
+    });
+  }
+  // ── Restricciones ─────────────────────────────────────────────────────
+  var RD=[
+    {r:"sucto.ventanas",items:[{l:"bad",t:"LP FABRICACIÓN 4 SEMANAS — Toma de medidas (F1-10). Si no se toman en S1, la instalación (F1-38) llega tarde bloqueando F2. Tomar medidas P3 y P5 ESTA SEMANA."}]},
+    {r:"sucto.muebles",items:[{l:"bad",t:"LP FABRICACIÓN 3-4 SEMANAS — Toma medidas muebles (F1-72). Confirmar P3 y P5 ESTA SEMANA para que cocina base (F2-22) y closet (F2-29) lleguen a tiempo."}]},
+    {r:"sucto. Clima",items:[{l:"bad",t:"SPLIT AA LP 6 SEMANAS — Confirmar pedido HOY para los 102 dptos. Sin confirmación esta semana los splits P3/P4/P5 llegan tarde bloqueando entrega."},{l:"warn",t:"Ductos verticales (F1-24) deben ejecutarse en paralelo con tabiquería 1° cara. Relación 13CC en el programa."}]},
+    {r:"sucto. Sanitario",items:[{l:"bad",t:"Prueba hermeticidad (F1-29) OBLIGATORIA antes de tapar 2° cara (F1-31). No cerrar tabiques sin aprobación."},{l:"ok",t:"WC (F2-38), grifería baño (F3-24) y cocina (F3-26) deben estar en bodega 2 semanas antes del ingreso a F3."}]},
+    {r:"sucto.tabiqueria",items:[{l:"bad",t:"SUB MÁS CRÍTICO: 20 partidas en F1. Paul y Hanz dependen de tabiquería. Si falla, todo el tren se detiene."},{l:"warn",t:"Debe trabajar 2 frentes simultáneos: P3 (Angélica) y P5 (Vale) desde S1. Confirmar capacidad cuadrilla doble."}]},
+    {r:"sucto. Pintura",items:[{l:"warn",t:"20 partidas en F2 + 1 en F3. Puede trabajar 3-4 dptos en paralelo. En S6-S9 estará en P2, P4, P3 y P5 simultáneamente. Confirmar capacidad para ese peak."},{l:"ok",t:"Secuencia: Empaste cielos → muros CC → cornisa → lijado → 1 mano cielos → cornisa CC → muros."}]},
+    {r:"sucto. Electrico",items:[{l:"warn",t:"Partida F1-19 (TDA): requiere nivelación piso + entrega supervisor + inst. eléctrica tabiques. Coordinar 3 cuadrillas."},{l:"ok",t:"Luminaria espejo baño (F3-17) después de espejo instalado (F3-16). Confirmar stock 2 semanas antes."}]}
+  ];
+  var restrEl=root.querySelector('#pm-restr');
+  if(restrEl){
+    var rh='';
+    RD.forEach(function(r){
+      var c=gc(r.r);
+      rh+='<div class="ri"><div class="rs2" style="color:'+c+'">&loz; '+gn(r.r)+'</div>';
+      r.items.forEach(function(item){
+        var ac=item.l==='bad'?'danger':item.l==='warn'?'warn':'info';
+        var ic=item.l==='bad'?'🔴':item.l==='warn'?'🟡':'🟢';
+        rh+='<div class="pm-al '+ac+'" style="margin-bottom:6px"><div>'+ic+'</div><div>'+item.t+'</div></div>';
+      });
+      rh+='</div>';
+    });
+    restrEl.innerHTML=rh;
+  }
+}
+
+function PlanMaestroView(){
+  var ref=useRef(null);
+  var done=useRef(false);
+  useEffect(function(){
+    if(!ref.current||done.current)return;
+    done.current=true;
+    if(!document.getElementById('pm-style')){
+      var s=document.createElement('style');
+      s.id='pm-style';
+      s.textContent=PM_CSS;
+      document.head.appendChild(s);
+    }
+    ref.current.innerHTML=PM_HTML;
+    runPlanMaestro(ref.current);
+  },[]);
+  return h('div',{ref,className:'pm-root',style:{minHeight:'100%',overflowY:'auto',background:'var(--bg)'}});
+}
+
 function App({initialData}){
   const[state,ss]=useState(()=>{
     if(initialData&&Object.keys(initialData).length>0)return initialData;
@@ -5464,6 +6825,8 @@ function App({initialData}){
   const onSave=(dep,sv)=>save({saves:{...saves,[dep]:sv}});
   const onGanttSave=(gd)=>save({ganttData:gd});
   const onWeekSave=(wk,wd)=>save({weekData:{...weekData,[wk]:wd}});
+  const reportData=state.reportData||{};
+  const onReportSave=(rd)=>save({reportData:rd});
   const onRendSave=(rd)=>save({rendData:rd});
   const onCubicSave=(cd)=>save({cubicData:cd});
   const onLogSave=(ld)=>save({logData:ld});
@@ -5489,6 +6852,8 @@ function App({initialData}){
     {id:'materiales',icon:'🧱',label:'Mater.'},
       {id:'asistencia',icon:'👥',label:'Asist.'},
     {id:'sobretiempo',icon:'⏱',label:'S.Tiempo'},
+    {id:'informe',icon:'📄',label:'Informe'},
+    {id:'planmaestro',icon:'📋',label:'Plan Maestro'},
   ].filter(t=>!isSupervisor||SUPR_TABS.includes(t.id));
   const effectiveTab=isSupervisor&&!SUPR_TABS.includes(tab)?'partidas':tab;
   let content;
@@ -5503,6 +6868,8 @@ function App({initialData}){
   else if(effectiveTab==='materiales')content=h(MatView,{saves,matData,onMatSave,auth,toast:showToast});
   else if(effectiveTab==='asistencia')content=h(AsistenciaView,{asistData,onAsistSave,orgData,onOrgSave,auth,toast:showToast});
   else if(effectiveTab==='sobretiempo')content=h(SobretiempoView,{asistData,stData,onStSave,auth,toast:showToast});
+  else if(effectiveTab==='informe')content=h(InformeSemanalView,{ganttData,saves,onSave,reportData,onReportSave,auth});
+  else if(effectiveTab==='planmaestro')content=h(PlanMaestroView,{});
   else content=h(Dashboard,{progress,ganttData,saves});
   return h('div',{className:'app'},
     h('div',{className:'nav'},
