@@ -5623,8 +5623,11 @@ function InformeSemanalView({ganttData,saves,onSave,reportData,onReportSave,auth
     sv.f3=Object.assign({},sv.f3||{},{[pid]:pct});
     onSave(depNum,sv);
   }
-  // ── Filtro por responsable ─────────────────────────────────────────────
-  const [filtResp,setFiltResp]=useState('all');
+  // ── Responsable del usuario logueado ──────────────────────────────────
+  const isSup=auth&&auth.role==='Supervisor';
+  const userResp=isSup?(USER_RESP_MAP[auth.user]||null):null;
+  // ── Filtro por responsable (pre-seleccionado si es subcontrato) ────────
+  const [filtResp,setFiltResp]=useState(function(){return userResp||'all';});
   // Lista de responsables únicos esta semana
   const respList=useMemo(function(){
     var seen={};
@@ -5908,27 +5911,84 @@ function InformeSemanalView({ganttData,saves,onSave,reportData,onReportSave,auth
     h2+='</div></div>';
     h2+='</div>';
 
-    // Render and print
-    var existing=document.getElementById('informe-print-root');
-    if(existing)existing.remove();
-    document.body.insertAdjacentHTML('beforeend',h2);
-    var root=document.getElementById('informe-print-root');
-    root.style.display='block';
-    // Breve pausa para que el DOM renderice todo el contenido antes de imprimir
-    setTimeout(function(){
-      // Al imprimir: liberar el fixed para que el navegador pagine el contenido completo
-      root.style.position='static';
-      root.style.height='auto';
-      root.style.overflow='visible';
-      window.print();
-      // Al cerrar el diálogo: restaurar el overlay
+    // ── Detectar móvil ─────────────────────────────────────────────────────
+    var isMobile=/iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
+    if(isMobile){
+      // MÓVIL: generar HTML standalone y abrir en nueva pestaña para compartir
+      var docTitle='Informe '+(esFiltrado?labelResp:'Semanal')+' — S'+semNum(wStart)+' '+fmtD(wStart);
+      var btnStyle='display:inline-flex;align-items:center;gap:6px;padding:10px 20px;border-radius:8px;border:none;font-size:14px;font-weight:700;cursor:pointer;text-decoration:none;';
+      var shareBtn='';
+      if(window.navigator.share){
+        shareBtn='<button onclick="doShare()" style="'+btnStyle+'background:#25D366;color:#fff;">📤 Compartir (WhatsApp)</button>';
+      }
+      var standaloneHtml='<!DOCTYPE html><html lang="es"><head>'+
+        '<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">'+
+        '<title>'+docTitle+'</title>'+
+        '<style>'+
+          'body{font-family:Arial,sans-serif;font-size:10pt;color:#000;background:#fff;margin:0;padding:0;}'+
+          '.inf-toolbar{background:#0a1220;color:#fff;padding:12px 16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;position:sticky;top:0;z-index:99;}'+
+          '.inf-toolbar span{font-size:12px;font-weight:700;flex:1;}'+
+          '.inf-hdr{text-align:center;border-bottom:2px solid #1a3050;padding:12px;margin-bottom:12px;}'+
+          '.inf-ttl{font-size:18pt;font-weight:700;color:#0a1220;}'+
+          '.inf-sub{font-size:10pt;color:#6b8fa8;margin-top:3px;}'+
+          '.inf-per{font-size:11pt;font-weight:700;background:#0a1220;color:#fff;display:inline-block;padding:3px 14px;border-radius:3px;margin-top:5px;}'+
+          '.inf-sec{margin:14px 12px;page-break-inside:avoid;}'+
+          '.inf-sec-ttl{font-size:11pt;font-weight:700;background:#0a1220;color:#fff;padding:5px 10px;margin-bottom:0;}'+
+          'table{width:100%;border-collapse:collapse;font-size:9pt;}'+
+          'th{background:#e8eef4;padding:5px 7px;text-align:left;border:1px solid #cdd5dd;font-weight:700;}'+
+          'td{padding:4px 7px;border:1px solid #dde4ea;vertical-align:middle;}'+
+          '.ok{color:#166534;font-weight:700;}.par{color:#92400e;font-weight:700;}.nok{color:#991b1b;font-weight:700;}'+
+          '.inf-foot{margin:16px 12px;border-top:1px solid #cdd5dd;padding-top:10px;display:flex;justify-content:space-between;font-size:9pt;color:#6b8fa8;}'+
+          '.sign{border-top:1px solid #000;width:160px;text-align:center;padding-top:3px;font-size:9pt;}'+
+          '.inf-sum{background:#e8eef4;padding:8px 12px;margin:0 12px 12px;border:1px solid #cdd5dd;font-size:9pt;}'+
+          '@media print{.inf-toolbar{display:none!important;}@page{size:A4;margin:12mm;}body{font-size:9pt;}}'+
+        '</style></head><body>'+
+        '<div class="inf-toolbar">'+
+          '<span>'+docTitle+'</span>'+
+          '<button onclick="window.print()" style="'+btnStyle+'background:#1e40af;color:#fff;">🖨️ Guardar PDF</button>'+
+          shareBtn+
+        '</div>'+
+        h2.replace('<div id="informe-print-root">','').replace(/<\/div>$/,'')+
+        '<script>function doShare(){'+
+          'if(!navigator.share)return;'+
+          'var blob=new Blob([document.documentElement.outerHTML],{type:"text/html"});'+
+          'var file=new File([blob],"'+docTitle.replace(/ /g,'_')+'.html",{type:"text/html"});'+
+          'var sd={title:"'+docTitle+'",files:[file]};'+
+          'if(navigator.canShare&&navigator.canShare(sd)){navigator.share(sd).catch(function(){});}'+
+          'else{navigator.share({title:"'+docTitle+'"}).catch(function(){});}'+
+        '}<\/script>'+
+        '</body></html>';
+      var blob=new Blob([standaloneHtml],{type:'text/html'});
+      var url=URL.createObjectURL(blob);
+      var newTab=window.open(url,'_blank');
+      if(!newTab){
+        // Popup bloqueado: descarga directa
+        var a=document.createElement('a');
+        a.href=url;a.download=docTitle+'.html';
+        document.body.appendChild(a);a.click();document.body.removeChild(a);
+      }
+      setTimeout(function(){URL.revokeObjectURL(url);},60000);
+    } else {
+      // ESCRITORIO: overlay + window.print()
+      var existing=document.getElementById('informe-print-root');
+      if(existing)existing.remove();
+      document.body.insertAdjacentHTML('beforeend',h2);
+      var root=document.getElementById('informe-print-root');
+      root.style.display='block';
       setTimeout(function(){
-        root.style.display='none';
-        root.style.position='fixed';
-        root.style.height='100%';
-        root.style.overflow='auto';
-      },800);
-    },200);
+        root.style.position='static';
+        root.style.height='auto';
+        root.style.overflow='visible';
+        window.print();
+        setTimeout(function(){
+          root.style.display='none';
+          root.style.position='fixed';
+          root.style.height='100%';
+          root.style.overflow='auto';
+        },800);
+      },200);
+    }
   };
 
   // ── Render ────────────────────────────────────────────────────────────
@@ -6067,11 +6127,13 @@ function InformeSemanalView({ganttData,saves,onSave,reportData,onReportSave,auth
                 var ps3b=_D.ps3;
                 var sv3b=(saves[dn2]||{}).f3||{};
                 var lk3b=_D.lf3||{};
-                var rFiltB=filtResp!=='all'?filtResp:null;
+                var rFiltB=userResp||(filtResp!=='all'?filtResp:null);
                 var pRowsB=ps3b.filter(function(p){return rFiltB?getPartidaRespName(3,p.id)===rFiltB:true;});
-                if(!pRowsB.length)pRowsB=ps3b;
+                var noMatchB=rFiltB&&!pRowsB.length;
+                if(noMatchB)pRowsB=ps3b; // fallback: mostrar todas
                 return h('div',{style:{borderTop:'1px solid var(--border)',marginTop:6,paddingTop:8,display:'flex',flexDirection:'column',gap:5}},
-                  h('div',{style:{fontSize:9,color:'var(--text2)',fontWeight:700,letterSpacing:.5,marginBottom:2}},'FASE 3 — PARTIDAS'),
+                  h('div',{style:{fontSize:9,color:'var(--text2)',fontWeight:700,letterSpacing:.5,marginBottom:2}},
+                    rFiltB?'FASE 3 — TUS PARTIDAS ('+rFiltB.replace('sucto.','').toUpperCase()+')':'FASE 3 — PARTIDAS'),
                   pRowsB.map(function(p){
                     var cur=sv3b[p.id]!=null?sv3b[p.id]:(lk3b[dn2]?lk3b[dn2][p.id]||0:0);
                     cur=Math.round(cur);
@@ -6185,11 +6247,13 @@ function InformeSemanalView({ganttData,saves,onSave,reportData,onReportSave,auth
                 var ps3=_D.ps3;
                 var sv3=(saves[dn]||{}).f3||{};
                 var lk3=_D.lf3||{};
-                var rFilt=filtResp!=='all'?filtResp:null;
+                var rFilt=userResp||(filtResp!=='all'?filtResp:null);
                 var pRows=ps3.filter(function(p){return rFilt?getPartidaRespName(3,p.id)===rFilt:true;});
-                if(!pRows.length)pRows=ps3;
+                var noMatch=rFilt&&!pRows.length;
+                if(noMatch)pRows=ps3;
                 editPanel=h('div',{style:{borderTop:'1px solid var(--border)',marginTop:6,paddingTop:8,display:'flex',flexDirection:'column',gap:5}},
-                  h('div',{style:{fontSize:9,color:'var(--text2)',fontWeight:700,letterSpacing:.5,marginBottom:2}},'FASE 3 — PARTIDAS'),
+                  h('div',{style:{fontSize:9,color:'var(--text2)',fontWeight:700,letterSpacing:.5,marginBottom:2}},
+                    rFilt?'FASE 3 — TUS PARTIDAS ('+rFilt.replace('sucto.','').toUpperCase()+')':'FASE 3 — PARTIDAS'),
                   pRows.map(function(p){
                     var cur=sv3[p.id]!=null?sv3[p.id]:(lk3[dn]?lk3[dn][p.id]||0:0);
                     cur=Math.round(cur);
