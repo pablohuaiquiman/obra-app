@@ -7192,6 +7192,27 @@ function InformeSemanalView({ganttData,saves,onSave,reportData,onReportSave,auth
     });
   },[weekTasks,filtResp]);
 
+  // ── Vista Revisión ─────────────────────────────────────────────────────
+  const [reviewMode,setReviewMode]=useState(false);
+  const [reviewDep,setReviewDep]=useState(null);
+  const canEditInforme=!auth||auth.role==='Admin'||auth.role==='Jefe Obra'||auth.role==='Supervisor';
+  // Mapa depto → plan de semana: {avgPct, fases:{fnNum:[psIds,...]}}
+  const deptWeekPlan=useMemo(function(){
+    var plan={};
+    filtTasks.forEach(function(g){
+      g.deps.forEach(function(d){
+        if(!plan[d])plan[d]={pctSum:0,pctCnt:0,fases:{}};
+        plan[d].pctSum+=(g.depPcts[d]||0);plan[d].pctCnt++;
+        var fn=g.fn_num;
+        if(!plan[d].fases[fn])plan[d].fases[fn]=[];
+        if(g.taskPsIds&&g.taskPsIds.length)
+          g.taskPsIds.forEach(function(pid){if(plan[d].fases[fn].indexOf(pid)<0)plan[d].fases[fn].push(pid);});
+      });
+    });
+    Object.keys(plan).forEach(function(d){plan[d].avgPct=plan[d].pctCnt?Math.round(plan[d].pctSum/plan[d].pctCnt):0;});
+    return plan;
+  },[filtTasks]);
+
   // ── Compromisos por sub (group weekTasks by responsable) ───────────────
   const subCompromisos=useMemo(function(){
     var byR={};
@@ -7553,9 +7574,16 @@ function InformeSemanalView({ganttData,saves,onSave,reportData,onReportSave,auth
       h('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}},
         h('div',{style:{fontWeight:700,fontSize:13,color:'var(--text)',letterSpacing:1}},
           '📄 INFORME SEMANAL'),
-        h('div',{style:{display:'flex',alignItems:'center',gap:8,marginLeft:'auto',flexWrap:'wrap'}},
+        h('div',{style:{display:'flex',alignItems:'center',gap:6,marginLeft:'auto',flexWrap:'wrap'}},
           h(WeekCalendarPicker,{value:wStart,onChange:setWStart}),
-          h('button',{onClick:doPrint,
+          h('button',{
+            onClick:function(){setReviewMode(!reviewMode);setReviewDep(null);},
+            style:{background:reviewMode?'rgba(14,165,233,.2)':'var(--bg3)',
+              color:reviewMode?'var(--accent)':'var(--text2)',
+              padding:'6px 13px',border:'1px solid '+(reviewMode?'var(--accent)':'var(--border)'),
+              borderRadius:6,fontWeight:700,fontSize:11,cursor:'pointer'}
+          },reviewMode?'← Informe':'🔍 Revisar'),
+          !reviewMode&&h('button',{onClick:doPrint,
             style:{background:esFiltrado?'#22c55e':'var(--accent)',color:'#000',padding:'6px 14px',
               border:'none',borderRadius:6,fontWeight:700,fontSize:11,cursor:'pointer'}
           },esFiltrado?'📥 PDF — '+filtResp.split(' ').pop().toUpperCase():'📥 PDF')
@@ -7604,8 +7632,129 @@ function InformeSemanalView({ganttData,saves,onSave,reportData,onReportSave,auth
       )
     ),
 
+    // ── VISTA REVISIÓN (modo campo) ────────────────────────────────────────
+    reviewMode&&(function(){
+      var phLookup={
+        1:{ps:_D.ps,lk:_D.lf1||{},fk:'f1',col:'var(--blue)',label:'FASE 1'},
+        2:{ps:_D.ps2,lk:_D.lf2||{},fk:'f2',col:'var(--purple)',label:'FASE 2'},
+        3:{ps:_D.ps3,lk:_D.lf3||{},fk:'f3',col:'var(--green)',label:'FASE 3'},
+        4:{ps:_D.ps4||[],lk:_D.lf4||{},fk:'f4',col:'var(--amber)',label:'FASE 4'}
+      };
+      var pisoOfDep=function(dn){var r='';Object.keys(_D.fl).forEach(function(fl){if((_D.fl[fl]||[]).indexOf(dn)>=0)r=fl;});return r;};
+      var plannedCount=Object.keys(deptWeekPlan).length;
+      return h('div',{style:{display:'flex',flexDirection:'column',gap:10}},
+        // ── Barra de navegación sticky ───────────────────────────────────
+        h('div',{style:{
+          position:'sticky',top:0,zIndex:20,
+          background:'rgba(6,13,24,.97)',backdropFilter:'blur(12px)',
+          border:'1px solid var(--border)',borderRadius:10,
+          padding:'9px 12px',display:'flex',alignItems:'center',gap:10}},
+          h('button',{
+            onClick:function(){setReviewMode(false);setReviewDep(null);},
+            style:{background:'var(--bg3)',color:'var(--text)',
+              padding:'7px 16px',border:'1px solid var(--border)',
+              borderRadius:8,fontWeight:700,fontSize:12,cursor:'pointer',
+              display:'flex',alignItems:'center',gap:6,flexShrink:0}
+          },'← Volver al Informe'),
+          h('div',{style:{flex:1,fontSize:11,fontWeight:600,color:'var(--accent)',letterSpacing:.5,textAlign:'center'}},
+            '🔍 MODO REVISIÓN — SEMANA '+wStart.slice(5).replace('-','/')),
+          plannedCount>0&&h('div',{style:{fontSize:10,color:'var(--text3)',flexShrink:0}},
+            plannedCount+' dptos planif.')
+        ),
+        // ── Panel edición del depto seleccionado ────────────────────────
+        reviewDep&&deptWeekPlan[reviewDep]&&h('div',{className:'card',style:{border:'1px solid var(--accent)',background:'rgba(0,13,28,.8)'}},
+          h('div',{style:{display:'flex',alignItems:'center',gap:10,marginBottom:10,flexWrap:'wrap'}},
+            h('div',{style:{fontFamily:'var(--mono)',fontSize:18,fontWeight:800,color:'var(--accent)'}},'D'+reviewDep),
+            h('div',{style:{fontSize:11,color:'var(--text2)',textTransform:'uppercase',letterSpacing:.5}},pisoOfDep(reviewDep)),
+            h('div',{style:{fontSize:13,fontWeight:700,color:deptWeekPlan[reviewDep].avgPct>=80?'var(--green)':deptWeekPlan[reviewDep].avgPct>=40?'var(--amber)':'var(--red)',marginLeft:'auto'}},
+              deptWeekPlan[reviewDep].avgPct+'% semana'),
+            h('button',{onClick:function(){setReviewDep(null);},
+              style:{padding:'5px 12px',borderRadius:8,border:'1px solid var(--border)',
+                background:'var(--bg2)',color:'var(--text2)',fontSize:11,cursor:'pointer',flexShrink:0}
+            },'✕ Cerrar')
+          ),
+          Object.keys(deptWeekPlan[reviewDep].fases).sort(function(a,b){return a-b;}).map(function(fn){
+            var fi=parseInt(fn);var ph=phLookup[fi];if(!ph)return null;
+            var psIds=deptWeekPlan[reviewDep].fases[fn];
+            var sv=saves[reviewDep]||{};var svPh=sv[ph.fk]||{};
+            var rows=psIds.length?ph.ps.filter(function(p){return psIds.indexOf(p.id)>=0;}):ph.ps;
+            if(!rows.length)return null;
+            return h('div',{key:fn,style:{marginBottom:8}},
+              h('div',{style:{fontSize:10,fontWeight:700,color:ph.col,letterSpacing:'.06em',textTransform:'uppercase',marginBottom:5,paddingBottom:4,borderBottom:'1px solid rgba(255,255,255,.06)'}},ph.label),
+              rows.map(function(p){
+                var cur=svPh[p.id]!=null?svPh[p.id]:(ph.lk[reviewDep]?(ph.lk[reviewDep][p.id]||0):0);
+                cur=Math.round(cur);
+                var col=cur>=100?'var(--green)':cur>0?'var(--amber)':'var(--text3)';
+                return h('div',{key:p.id,style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',
+                  padding:'8px 10px',borderRadius:8,marginBottom:4,
+                  background:cur>=100?'rgba(34,197,94,.08)':'var(--bg3)',
+                  borderLeft:'3px solid '+(cur>=100?'var(--green)':cur>0?'var(--amber)':'var(--border)')}},
+                  h('div',{style:{flex:1,fontSize:11,color:'var(--text)',minWidth:130,
+                    textDecoration:cur>=100?'line-through':'none',lineHeight:1.3}},
+                    p.name.replace(/^F[1-4] /i,'')),
+                  h('div',{style:{fontFamily:'var(--mono)',fontSize:14,fontWeight:800,color:col,minWidth:50,textAlign:'right'}},cur+'%'),
+                  canEditInforme&&h('div',{style:{display:'flex',gap:4,flexWrap:'wrap'}},
+                    [0,25,50,75,100].map(function(v){
+                      var act=cur===v;
+                      return h('button',{key:v,
+                        onClick:function(){quickSave(reviewDep,p.id,v,ph.fk);},
+                        style:{padding:'7px 10px',borderRadius:7,fontSize:12,fontWeight:700,
+                          minWidth:50,fontFamily:'var(--mono)',cursor:'pointer',transition:'all .1s',
+                          border:'1px solid '+(act?'var(--accent)':'var(--border)'),
+                          background:act?'var(--accent)':'var(--bg2)',
+                          color:act?'#000':'var(--text2)'}
+                      },v+'%');
+                    })
+                  )
+                );
+              })
+            );
+          })
+        ),
+        // ── Grilla de pisos/dptos ────────────────────────────────────────
+        h('div',{className:'card'},
+          h('div',{style:{fontWeight:700,fontSize:11,letterSpacing:1,color:'var(--text)',marginBottom:8,display:'flex',alignItems:'center',gap:6}},
+            h('span',{style:{background:'var(--blue)',color:'#fff',padding:'1px 7px',borderRadius:3,fontSize:9}},'→'),
+            plannedCount>0
+              ?'DPTOS A REVISAR ESTA SEMANA'+(esFiltrado?' · '+filtResp.replace('subcontrato ','').replace('supervisor ','Sup. ').toUpperCase():'')
+              :'SIN DPTOS PLANIFICADOS ESTA SEMANA'),
+          plannedCount===0
+            ?h('div',{style:{color:'var(--text3)',fontSize:11,textAlign:'center',padding:'16px 0'}},'No hay departamentos planificados para esta semana')
+            :Object.keys(_D.fl).map(function(fl){
+              var deps=_D.fl[fl]||[];
+              var flHasPlanned=deps.some(function(d){return!!deptWeekPlan[d];});
+              return h('div',{key:fl,style:{marginBottom:flHasPlanned?8:4,
+                opacity:flHasPlanned?1:.28,transition:'opacity .2s'}},
+                h('div',{style:{display:'flex',alignItems:'center',gap:5,flexWrap:'wrap'}},
+                  h('span',{style:{fontSize:10,fontWeight:700,color:'var(--text3)',
+                    textTransform:'uppercase',letterSpacing:'.05em',minWidth:52,flexShrink:0}},fl),
+                  deps.map(function(d){
+                    var plan=deptWeekPlan[d];var isPlanned=!!plan;var isSel=reviewDep===d;
+                    var pct=plan?plan.avgPct:null;
+                    var col=isSel?'var(--accent)':isPlanned?(pct>=80?'var(--green)':pct>=40?'var(--amber)':'var(--red)'):'var(--text3)';
+                    var bg=isSel?'rgba(0,200,255,.22)':isPlanned?(pct>=80?'rgba(34,197,94,.18)':pct>=40?'rgba(245,158,11,.18)':'rgba(239,68,68,.18)'):'var(--bg2)';
+                    var brd=isSel?'var(--accent)':isPlanned?(pct>=80?'rgba(34,197,94,.6)':pct>=40?'rgba(245,158,11,.6)':'rgba(239,68,68,.6)'):'rgba(255,255,255,.06)';
+                    return h('button',{key:d,
+                      onClick:function(){if(isPlanned)setReviewDep(isSel?null:d);},
+                      style:{padding:'5px 8px',borderRadius:7,border:'1px solid '+brd,
+                        background:bg,color:col,fontFamily:'var(--mono)',
+                        fontSize:11,fontWeight:700,cursor:isPlanned?'pointer':'default',
+                        minWidth:46,textAlign:'center',lineHeight:'1.35',
+                        transition:'all .12s',flexShrink:0}
+                    },
+                      h('div',null,'D'+d),
+                      isPlanned&&h('div',{style:{fontSize:9,opacity:.9}},pct+'%')
+                    );
+                  })
+                )
+              );
+            })
+        )
+      );
+    })(),
+
     // ── S1: Plan semanal ──────────────────────────────────────────────
-    h('div',{className:'card'},
+    !reviewMode&&h('div',{className:'card'},
       h('div',{style:{fontWeight:700,fontSize:11,letterSpacing:1,color:'var(--text)',marginBottom:8,display:'flex',alignItems:'center',gap:6}},
         h('span',{style:{background:'var(--blue)',color:'#fff',padding:'1px 7px',borderRadius:3,fontSize:9}},'1'),
         'CUMPLIMIENTO PLAN SEMANAL'),
@@ -7664,8 +7813,8 @@ function InformeSemanalView({ganttData,saves,onSave,reportData,onReportSave,auth
         )
     ),
 
-    // ── S2: Entregas ──────────────────────────────────────────────────
-    h('div',{className:'card'},
+    // ── S2: Entregas (solo en modo informe) ─────────────────────────
+    !reviewMode&&h('div',{className:'card'},
       h('div',{style:{fontWeight:700,fontSize:11,letterSpacing:1,color:'var(--text)',marginBottom:8,display:'flex',alignItems:'center',gap:6}},
         h('span',{style:{background:'var(--green)',color:'#000',padding:'1px 7px',borderRadius:3,fontSize:9}},'2'),
         'ENTREGAS PROGRAMADAS ESTA SEMANA'),
@@ -7774,8 +7923,8 @@ function InformeSemanalView({ganttData,saves,onSave,reportData,onReportSave,auth
         )
     ),
 
-    // ── S3: Compromisos por subcontrato ───────────────────────────────
-    h('div',{className:'card'},
+    // ── S3: Compromisos por subcontrato (solo en modo informe) ───────
+    !reviewMode&&h('div',{className:'card'},
       h('div',{style:{fontWeight:700,fontSize:11,letterSpacing:1,color:'var(--text)',marginBottom:8,display:'flex',alignItems:'center',gap:6}},
         h('span',{style:{background:'var(--purple)',color:'#fff',padding:'1px 7px',borderRadius:3,fontSize:9}},'3'),
         'COMPROMISOS POR SUBCONTRATO'),
@@ -7802,8 +7951,8 @@ function InformeSemanalView({ganttData,saves,onSave,reportData,onReportSave,auth
         )
     ),
 
-    // ── S4: Vencidas ──────────────────────────────────────────────────
-    h('div',{className:'card'},
+    // ── S4: Vencidas (solo en modo informe) ───────────────────────────
+    !reviewMode&&h('div',{className:'card'},
       // Header + switch
       h('div',{style:{display:'flex',alignItems:'center',gap:6,marginBottom:10,flexWrap:'wrap'}},
         h('span',{style:{background:'var(--red)',color:'#fff',padding:'1px 7px',borderRadius:3,fontSize:9}},'4'),
