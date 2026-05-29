@@ -342,6 +342,32 @@ const RESP_ORDER=['supervisor fase 1','supervisor fase 2','supervisor fase 3','s
 // Mapeo de PLAN.rl → PARTIDA_RESP_MAP (formatos distintos)
 const PLANRL_TO_RESP={'subcontrato pintura':'sucto.pintura','subcontrato electrico':'sucto.electrico','subcontrato tabiqueria':'sucto.tabiqueria','subcontrato sanitario':'sucto.sanitario','subcontrato clima y extracion':'sucto.clima','subcontrato inst puertas':'sucto.instpuertas','subcontrato impermeabilización':'sucto.impermeabilizacion','subcontrato ceramica':'sucto.ceramica','subcontrato mueble':'sucto.muebles','subcontrato puertas':'sucto.instpuertas','subcontrato piso vinilico':'sucto.piso','subcontrato cerradura inteligente':'sucto.cerradura','subcontrato nivelacion':'sucto.nivelacion','subcontrato ventanas':'sucto.ventanas','supervisor trazado':'supervisor de trazado'};
 function rl2Resp(r){return PLANRL_TO_RESP[r]||r;}
+// Mapeo de PLAN.pn[index] → IDs de _D.ps/ps2/ps3 correspondientes
+const PLAN_PS_MAP={
+  // F1 tasks
+  0:["1","2"],1:["4","5","6"],2:["7"],3:["10"],4:["9"],5:["8"],
+  6:["11","13","14","15","61"],7:["16","17"],8:["12"],9:["36"],
+  10:["18","19","62"],11:["20","63"],12:["21"],13:["22"],14:["23"],
+  15:["24","25","64","73","74"],16:["26","27"],17:["28"],18:["29"],19:["65"],
+  20:["30","31"],21:["37"],22:["38"],23:[],24:["39","43"],25:["40","41"],
+  26:["56","58"],27:["3","32"],28:["33","34","35"],29:["68","69"],30:["70"],
+  31:["42","45"],32:["46"],33:["47","48"],34:["49"],35:["44"],
+  36:["50"],37:["53"],38:["51","52"],39:["54","55"],
+  // F2 tasks
+  40:["1"],41:[],42:[],43:[],44:["3","8","14"],45:["4","9","15"],46:[],
+  47:["5","10","16"],48:["6","7","11","12","17","18"],49:["2"],
+  50:["26","19"],51:["32"],52:["27","33","20"],53:[],54:["28","34","21"],
+  55:["22","23","24","25"],56:["35","36","37"],57:["29","30"],58:["31"],
+  59:["38"],60:["43","44"],61:["39","40","41","42"],62:["45"],63:["46"],
+  64:["47"],65:[],66:[],67:[],68:["48"],69:["49"],
+  70:["50","53","56"],71:["55","52","58"],72:[],73:["51","54","57"],
+  // F3 tasks
+  74:["6","7","8"],75:["9","10","11","12"],76:["15"],77:["18"],
+  78:["16","17"],79:["22","23"],80:["19","20","21"],81:["24","25"],
+  82:["26","27"],83:["1"],84:["2"],85:["3"],86:["4","5"],
+  87:["13","14"],88:["28","29"],89:["30","31","32"],
+  90:["33","34"],91:["35"],92:["36"],93:["37","38"]
+};
 // ── Helpers ──────────────────────────────────────────────
 const pc=(v)=>v>=80?'var(--green)':v>=50?'var(--blue)':v>=25?'var(--amber)':'var(--red)';
 const pcl=(v)=>v>=80?'pill-green':v>=50?'pill-blue':v>=25?'pill-amber':'pill-red';
@@ -475,8 +501,8 @@ function calcFaseGlobal(faseNum,saves){
 }
 // ── Motor centralizado: avance de una fase para un depto específico ──
 function calcDeptoFase(dep,faseNum,saves){
-  var ps=faseNum===1?_D.ps:faseNum===2?_D.ps2:_D.ps3;
-  var lk=_D['lf'+faseNum];
+  var ps=faseNum===1?_D.ps:faseNum===2?_D.ps2:faseNum===3?_D.ps3:(_D.ps4||[]);
+  var lk=_D['lf'+faseNum]||{};
   var sv=saves&&saves[dep];
   var tot=0,cnt=0;
   ps.forEach(function(p){
@@ -486,6 +512,38 @@ function calcDeptoFase(dep,faseNum,saves){
     tot+=v;cnt++;
   });
   return cnt?Math.round(tot/cnt*10)/10:(_D.ds[dep]?(_D.ds[dep]['f'+faseNum]||0):0);
+}
+// calcDeptoFasePartidas: calcula el % solo para los IDs de partida indicados
+function calcDeptoFasePartidas(dep,faseNum,saves,psIds){
+  if(!psIds)return calcDeptoFase(dep,faseNum,saves); // null/undefined → fase completa
+  if(!psIds.length)return 0; // array vacío → sin partidas asignadas = 0%
+  var ps=faseNum===1?_D.ps:faseNum===2?_D.ps2:faseNum===3?_D.ps3:(_D.ps4||[]);
+  var lk=_D['lf'+faseNum]||{};
+  var sv=saves&&saves[dep];
+  var tot=0,cnt=0;
+  ps.forEach(function(p){
+    if(psIds.indexOf(p.id)<0)return;
+    var v=sv&&sv['f'+faseNum]&&sv['f'+faseNum][p.id]!=null
+      ?sv['f'+faseNum][p.id]
+      :(lk[dep]?(lk[dep][p.id]||0):0);
+    tot+=v;cnt++;
+  });
+  return cnt?Math.round(tot/cnt*10)/10:0;
+}
+// calcDeptoFaseResp: igual a calcDeptoFase pero filtra partidas por responsable
+function calcDeptoFaseResp(dep,faseNum,saves,resp){
+  var ps=faseNum===1?_D.ps:faseNum===2?_D.ps2:faseNum===3?_D.ps3:(_D.ps4||[]);
+  var lk=_D['lf'+faseNum]||{};
+  var sv=saves&&saves[dep];
+  var tot=0,cnt=0;
+  ps.forEach(function(p){
+    if(resp&&PARTIDA_RESP_MAP[faseNum+'_'+p.id]!==resp)return;
+    var v=sv&&sv['f'+faseNum]&&sv['f'+faseNum][p.id]!=null
+      ?sv['f'+faseNum][p.id]
+      :(lk[dep]?(lk[dep][p.id]||0):0);
+    tot+=v;cnt++;
+  });
+  return cnt?Math.round(tot/cnt*10)/10:0;
 }
 // ══════════════════════════════════════════════════════════════════
 // calculateAllProgress(saves) — MOTOR ÚNICO DE CÁLCULO
@@ -1148,54 +1206,41 @@ function PartidasView({progress,saves,onSave,auth,toast,userResp}){
   const filtered=q.trim()===''?allPs:
     /^F[1-4]$/.test(q)?allPs.filter(p=>p.fase===parseInt(q[1])):
     allPs.filter(p=>p.name.toLowerCase().includes(q.toLowerCase()));
-  // ── Edit single depto for selected partida ──
-  if(selDep&&sel){
-    var dep2=selDep;
-    var lk2=sel.fase===1?_D.lf1:sel.fase===2?_D.lf2:sel.fase===3?_D.lf3:(_D.lf4||{});
-    var svDep2=saves&&saves[dep2]||{};
-    var fkP2='f'+sel.fase;
-    var savedV2=svDep2[fkP2]&&svDep2[fkP2][sel.id]!=null?svDep2[fkP2][sel.id]:null;
-    var v2=savedV2!=null?savedV2:(lk2[dep2]&&lk2[dep2][sel.id]!=null?lk2[dep2][sel.id]:0);
-    var col2=v2>=100?'var(--green)':v2>=50?'var(--blue)':v2>0?'var(--amber)':'var(--text3)';
-    var pisoLabel='';
-    Object.keys(_D.fl).forEach(function(fl){if((_D.fl[fl]||[]).indexOf(dep2)>=0)pisoLabel=fl.toUpperCase();});
-    function setV2(pct){
-      var ns=Object.assign({},svDep2);
-      if(!ns[fkP2])ns[fkP2]={};
-      ns[fkP2]=Object.assign({},ns[fkP2]);
-      ns[fkP2][sel.id]=pct;
-      onSave&&onSave(dep2,ns);
-      toast&&toast('✓ Guardado D'+dep2+' — '+pct+'%');
+  // helper para editar un depto en la grilla (usado inline — sin cambio de vista)
+  function makeDepEdit(dep,fkP,lkMap){
+    var svD=saves&&saves[dep]||{};
+    var saved=svD[fkP]&&svD[fkP][sel.id]!=null?svD[fkP][sel.id]:null;
+    var v=saved!=null?saved:(lkMap[dep]&&lkMap[dep][sel.id]!=null?lkMap[dep][sel.id]:0);
+    var col=v>=100?'var(--green)':v>=50?'var(--blue)':v>0?'var(--amber)':'var(--text3)';
+    function saveV(pct){
+      var ns=Object.assign({},svD);
+      if(!ns[fkP])ns[fkP]={};
+      ns[fkP]=Object.assign({},ns[fkP]);
+      ns[fkP][sel.id]=pct;
+      onSave&&onSave(dep,ns);
+      toast&&toast('✓ D'+dep+' — '+pct+'%');
     }
-    return h('div',{className:'page'},
-      h('div',{className:'flex aic jb mb10'},
-        h('button',{className:'bc-btn',style:{fontSize:13},onClick:()=>ssd2(null)},'← '+pisoLabel),
-        h('div',{className:`pill ${fcpill(sel.fase)}`},'Fase '+sel.fase)
+    return h('div',{style:{borderTop:'1px solid var(--border)',marginTop:4,paddingTop:8,display:'flex',flexDirection:'column',gap:6}},
+      h('div',{style:{display:'flex',alignItems:'center',gap:8}},
+        h('span',{style:{fontFamily:'var(--mono)',fontSize:13,fontWeight:700,color:'var(--text)'}},'D'+dep),
+        h('div',{style:{flex:1}},h(Bar,{val:v,color:col,h:6})),
+        h('span',{style:{fontFamily:'var(--mono)',fontSize:13,fontWeight:700,color:col,minWidth:44,textAlign:'right'}},v+'%')
       ),
-      h('div',{style:{background:'var(--card)',border:'1px solid '+(v2>=100?'rgba(34,197,94,.3)':'var(--border)'),
-        borderRadius:12,padding:'16px'}},
-        h('div',{style:{fontSize:12,color:'var(--text3)',marginBottom:4,lineHeight:1.3}},sel.name),
-        h('div',{style:{display:'flex',alignItems:'center',gap:12,marginBottom:14}},
-          h('span',{className:'mono',style:{fontSize:24,fontWeight:800,color:'var(--text)'}},dep2),
-          h('div',{style:{flex:1}},h(Bar,{val:v2,color:col2,h:8})),
-          h('span',{className:'mono',style:{fontSize:18,fontWeight:800,color:col2}},v2+'%')
-        ),
-        canEdit&&h('div',{style:{display:'flex',gap:8,flexWrap:'wrap'}},
-          [0,25,50,75,100].map(function(pct){
-            var sel_=v2===pct;
-            return h('button',{key:pct,
-              style:{flex:1,padding:'10px 0',borderRadius:10,
-                border:'1px solid '+(sel_?col2:'var(--border)'),
-                background:sel_?col2:'var(--bg2)',
-                color:sel_?'#fff':col2,
-                fontSize:14,fontWeight:700,cursor:'pointer',fontFamily:'var(--mono)',
-                transition:'all .15s'},
-              onClick:function(){setV2(pct);}
-            },pct+'%');
-          })
-        ),
-        !canEdit&&h('div',{style:{fontSize:12,color:'var(--text3)',textAlign:'center',padding:'8px 0'}},'Solo lectura')
-      )
+      canEdit
+        ?h('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
+            [0,25,50,75,100].map(function(pct){
+              var act=Math.round(v)===pct;
+              return h('button',{key:pct,
+                style:{flex:1,padding:'8px 0',borderRadius:8,minWidth:50,
+                  border:'1px solid '+(act?col:'var(--border)'),
+                  background:act?col:'var(--bg2)',
+                  color:act?'#000':'var(--text2)',
+                  fontSize:13,fontWeight:700,cursor:'pointer',fontFamily:'var(--mono)',transition:'all .12s'},
+                onClick:function(){saveV(pct);}
+              },pct+'%');
+            })
+          )
+        :h('div',{style:{fontSize:11,color:'var(--text3)',textAlign:'center'}},'Solo lectura')
     );
   }
   // ── Vista grilla de deptos por piso para una partida ──
@@ -1249,40 +1294,53 @@ function PartidasView({progress,saves,onSave,auth,toast,userResp}){
         h('span',{className:'mono',style:{fontSize:13,fontWeight:700,color:pc(totalAvg)}},totalAvg+'%')
       ),
       h('div',{style:{marginBottom:12}},h(Bar,{val:totalAvg,color:fColor})),
-      // Grid por piso
-      Object.keys(_D.fl).map(function(fl){
-        var deps=_D.fl[fl]||[];
-        var flSum=deps.reduce(function(s,dep){return s+getVal(dep);},0);
-        var flAvgP=deps.length?Math.round(flSum/deps.length*10)/10:0;
-        var visibleDeps=hideDone?deps.filter(function(d){return getVal(d)<100;}):deps;
-        if(hideDone&&visibleDeps.length===0)return null;
-        return h('div',{key:fl,style:{display:'flex',alignItems:'center',gap:8,marginBottom:8,minHeight:36}},
-          // Piso label
-          h('span',{style:{fontSize:10,fontWeight:700,color:'var(--text3)',
-            textTransform:'uppercase',letterSpacing:'.05em',minWidth:50,flexShrink:0}},fl),
-          // Depto buttons
-          h('div',{style:{flex:1,display:'flex',flexWrap:'wrap',gap:4}},
-            visibleDeps.map(function(dep){
-              var v=getVal(dep);
-              var bg=v>=100?'rgba(34,197,94,.28)':v>0?'rgba(14,165,233,.22)':'var(--bg2)';
-              var bdr=v>=100?'rgba(34,197,94,.55)':v>0?'rgba(14,165,233,.45)':'var(--border)';
-              var col=v>=100?'var(--green)':v>0?'var(--blue)':'var(--text3)';
-              return h('button',{key:dep,
-                onClick:function(){ssd2(dep);},
-                title:dep+': '+v+'%',
-                style:{padding:'4px 7px',borderRadius:6,border:'1px solid '+bdr,
-                  background:bg,color:col,fontSize:12,fontWeight:700,
-                  fontFamily:'var(--mono)',cursor:'pointer',
-                  minWidth:42,textAlign:'center',transition:'all .12s',lineHeight:1.4}
-              },dep);
-            })
-          ),
-          // % piso
-          h('span',{style:{fontFamily:'var(--mono)',fontSize:12,fontWeight:700,
-            color:pc(flAvgP),minWidth:40,textAlign:'right',flexShrink:0}},
-            flAvgP+'%')
-        );
-      })
+      // Grid por piso — clic en depto abre panel inline sin cambiar de vista
+      (function(){
+        var lkG2=sel.fase===1?_D.lf1:sel.fase===2?_D.lf2:sel.fase===3?_D.lf3:(_D.lf4||{});
+        var fkG2='f'+sel.fase;
+        return Object.keys(_D.fl).map(function(fl){
+          var deps=_D.fl[fl]||[];
+          var flSum=deps.reduce(function(s,dep){return s+getVal(dep);},0);
+          var flAvgP=deps.length?Math.round(flSum/deps.length*10)/10:0;
+          var visibleDeps=hideDone?deps.filter(function(d){return getVal(d)<100;}):deps;
+          var flHasSel=selDep!=null&&deps.indexOf(selDep)>=0;
+          if(hideDone&&visibleDeps.length===0&&!flHasSel)return null;
+          return h('div',{key:fl,style:{marginBottom:flHasSel?4:8}},
+            // Fila principal: label + botones depto + % piso
+            h('div',{style:{display:'flex',alignItems:'center',gap:8,minHeight:36,
+              borderRadius:flHasSel?'8px 8px 0 0':8,
+              background:flHasSel?'var(--bg3)':'transparent',
+              padding:flHasSel?'4px 6px':'0'}},
+              h('span',{style:{fontSize:10,fontWeight:700,color:'var(--text3)',
+                textTransform:'uppercase',letterSpacing:'.05em',minWidth:50,flexShrink:0}},fl),
+              h('div',{style:{flex:1,display:'flex',flexWrap:'wrap',gap:4}},
+                visibleDeps.map(function(dep){
+                  var v=getVal(dep);
+                  var isSelDep=selDep===dep;
+                  var bg=isSelDep?'rgba(0,200,255,.2)':v>=100?'rgba(34,197,94,.28)':v>0?'rgba(14,165,233,.22)':'var(--bg2)';
+                  var bdr=isSelDep?'var(--accent)':v>=100?'rgba(34,197,94,.55)':v>0?'rgba(14,165,233,.45)':'var(--border)';
+                  var col=isSelDep?'var(--accent)':v>=100?'var(--green)':v>0?'var(--blue)':'var(--text3)';
+                  return h('button',{key:dep,
+                    onClick:function(){ssd2(selDep===dep?null:dep);},
+                    title:dep+': '+v+'%',
+                    style:{padding:'4px 7px',borderRadius:6,border:'1px solid '+bdr,
+                      background:bg,color:col,fontSize:12,fontWeight:700,
+                      fontFamily:'var(--mono)',cursor:'pointer',
+                      minWidth:42,textAlign:'center',transition:'all .12s',lineHeight:1.4}
+                  },dep);
+                })
+              ),
+              h('span',{style:{fontFamily:'var(--mono)',fontSize:12,fontWeight:700,
+                color:pc(flAvgP),minWidth:40,textAlign:'right',flexShrink:0}},flAvgP+'%')
+            ),
+            // Panel inline de edición (sin cambio de vista)
+            flHasSel&&h('div',{style:{background:'var(--bg3)',border:'1px solid var(--accent)',
+              borderRadius:'0 0 8px 8px',padding:'10px 12px'}},
+              makeDepEdit(selDep,fkG2,lkG2)
+            )
+          );
+        });
+      })()
     );
   }
   // ── Search list ──
@@ -6999,10 +7057,16 @@ function InformeSemanalView({ganttData,saves,onSave,reportData,onReportSave,auth
       var peN=pov&&pov.e!=null?pov.e:fStart+(pa[2]||0);
       if(peN<sdN||psN>edN)return;
       var fn=fase.f;var key=pa[0]+'_'+fn;
-      if(!groups[key])groups[key]={pa,fn,fn_num:parseInt(fn)||1,pct_sum:0,dep_count:0,deps:[]};
+      var taskPsIds=PLAN_PS_MAP[pa[0]]||null;
+      var ri2=pa[3];var taskResp=ri2===255||ri2==null?null:PLANRL_TO_RESP[PLAN.rl[ri2]||'']||(PLAN.rl[ri2]||null);
+      if(!groups[key])groups[key]={pa,fn,fn_num:parseInt(fn)||1,pct_sum:0,dep_count:0,deps:[],depPcts:{},taskPsIds:taskPsIds,taskResp:taskResp};
       var dep=PLAN.de[fase.di];if(!dep)return;
-      var depPct=calcDeptoFase(dep.d,parseInt(fn)||1,saves)||0;
-      groups[key].pct_sum+=depPct;groups[key].dep_count++;groups[key].deps.push(dep.d);
+      var fni=parseInt(fn)||1;
+      var depPct=taskPsIds&&taskPsIds.length
+        ?calcDeptoFasePartidas(dep.d,fni,saves,taskPsIds)
+        :taskResp?calcDeptoFaseResp(dep.d,fni,saves,taskResp):calcDeptoFase(dep.d,fni,saves);
+      depPct=depPct||0;
+      groups[key].pct_sum+=depPct;groups[key].dep_count++;groups[key].deps.push(dep.d);groups[key].depPcts[dep.d]=Math.round(depPct);
     });
     // Ordenar deps dentro de cada grupo por secuencia de obra
     Object.values(groups).forEach(function(g){g.deps=sortDepts(g.deps);});
@@ -7010,14 +7074,102 @@ function InformeSemanalView({ganttData,saves,onSave,reportData,onReportSave,auth
   },[ganttData,saves,wStart,wEnd]);
 
   // ── Edición rápida de % desde informe ─────────────────────────────────
-  const [editDep,setEditDep]=useState(null); // depNum abierto para editar
-  const [hideEditDone,setHideEditDone]=useState(false); // ocultar partidas 100% en panel edición
+  const [editDep,setEditDep]=useState(null);
+  const [editDepFn,setEditDepFn]=useState(null);
+  const [editTask,setEditTask]=useState(null);
+  const [hideEditDone,setHideEditDone]=useState(false);
+  // Resetear panel de edición al cambiar semana (cualquier vía: botones, picker)
+  useEffect(function(){setEditDep(null);setEditTask(null);},[wStart]);
   function quickSave(depNum,pid,pct,fk){
     fk=fk||'f3';
     var sv=Object.assign({},saves[depNum]||{});
     sv[fk]=Object.assign({},sv[fk]||{},{[pid]:pct});
     onSave(depNum,sv);
   }
+  const renderDeptEditPanel=function(depNum,faseNum,psIds,taskResp){
+    if(depNum==null)return null;
+    var dep=PLAN.de.find(function(d){return d.d===depNum;});
+    if(!dep)return null;
+    var sv=saves[depNum]||{};
+    var hasPsFilter=psIds&&psIds.length>0;
+    // rFilt: psIds tiene prioridad; si no hay psIds, usa taskResp del gantt task; si no, filtro global
+    var rFilt=userResp||
+      (hasPsFilter?null:taskResp)||
+      (filtResp!=='all'?rl2Resp(filtResp):null);
+    // % mostrado: partidas específicas > resp-filtrado > fase completa > overall
+    var currentOverall=Math.round(
+      hasPsFilter
+        ?calcDeptoFasePartidas(depNum,faseNum,saves,psIds)
+        :(faseNum&&taskResp)
+          ?calcDeptoFaseResp(depNum,faseNum,saves,taskResp)
+          :faseNum
+            ?calcDeptoFase(depNum,faseNum,saves)
+            :calcDeptoOverall(depNum,saves)||0
+    );
+    var phDefsAll=[
+      {fi:1,fk:'f1',label:'FASE 1',color:'var(--blue)',ps:_D.ps,lf:_D.lf1||{}},
+      {fi:2,fk:'f2',label:'FASE 2',color:'var(--purple)',ps:_D.ps2,lf:_D.lf2||{}},
+      {fi:3,fk:'f3',label:'FASE 3',color:'var(--green)',ps:_D.ps3,lf:_D.lf3||{}},
+      {fi:4,fk:'f4',label:'FASE 4',color:'var(--amber)',ps:_D.ps4||[],lf:_D.lf4||{}}
+    ];
+    // Solo la fase del task cuando viene del plan semanal
+    var phDefs=faseNum?phDefsAll.filter(function(ph){return ph.fi===faseNum;}):phDefsAll;
+    function filterRow(ph,p){
+      if(hasPsFilter)return psIds.indexOf(p.id)>=0;
+      return rFilt?getPartidaRespName(ph.fi,p.id)===rFilt:true;
+    }
+    var totalDone=0;
+    phDefs.forEach(function(ph){  // solo las fases visibles
+      ph.ps.forEach(function(p){
+        if(!filterRow(ph,p))return;
+        var c=(sv[ph.fk]||{})[p.id]!=null?(sv[ph.fk]||{})[p.id]:(ph.lf[depNum]?(ph.lf[depNum][p.id]||0):0);
+        if(Math.round(c)>=100)totalDone++;
+      });
+    });
+    var hasAny=phDefs.some(function(ph){return ph.ps.some(function(p){return filterRow(ph,p);});});
+    var faseLabel=faseNum?{1:'FASE 1',2:'FASE 2',3:'FASE 3',4:'FASE 4'}[faseNum]:'';
+    var piosoName=dep.pi?PLAN.pi[dep.pi]&&PLAN.pi[dep.pi].n:'';
+    return h('div',{style:{display:'flex',flexDirection:'column',gap:10}},
+      h('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}},
+        h('div',{style:{fontSize:12,fontWeight:700,color:'var(--text)'}},'D'+depNum+(faseLabel?' · '+faseLabel:'')+(piosoName?' · '+piosoName:'')),
+        h('div',{style:{fontSize:10,fontWeight:700,color:currentOverall>=80?'var(--green)':currentOverall>=40?'var(--amber)':'var(--red)',marginLeft:'auto'}},
+          currentOverall+'%'+(hasPsFilter?' tarea':(faseNum&&taskResp)?' resp':faseNum?' fase':' global')),
+        totalDone>0&&h('div',{style:{fontSize:9,color:'var(--text3)',padding:'2px 6px',borderRadius:8,background:'rgba(34,197,94,.08)'}},totalDone+' al 100%')
+      ),
+      !hasAny
+        ?h('div',{style:{fontSize:10,color:'var(--text3)',padding:'10px',borderRadius:10,background:'var(--bg2)'}},'No hay partidas para este departamento y tarea.')
+        :phDefs.map(function(ph){
+          var pRows=ph.ps.filter(function(p){return filterRow(ph,p);});
+          if(!pRows.length)return null;
+          var svPh=sv[ph.fk]||{};
+          var visRows=hideEditDone?pRows.filter(function(p){var c=svPh[p.id]!=null?svPh[p.id]:(ph.lf[depNum]?(ph.lf[depNum][p.id]||0):0);return Math.round(c)<100;}):pRows;
+          if(hideEditDone&&visRows.length===0)return null;
+          return h('div',{key:ph.fi},
+            h('div',{style:{fontSize:10,fontWeight:700,letterSpacing:'.08em',color:ph.color,marginBottom:3,textTransform:'uppercase'}},ph.label),
+            visRows.length===0
+              ?h('div',{style:{fontSize:10,color:'var(--green)',padding:'6px 0'}},'✓ Todas las partidas de esta fase están al 100%')
+              :visRows.map(function(p){
+                var cur=svPh[p.id]!=null?svPh[p.id]:(ph.lf[depNum]?(ph.lf[depNum][p.id]||0):0);
+                cur=Math.round(cur);
+                var nm=p.name.replace(/^F[1-4] /i,'');
+                return h('div',{key:p.id,style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',padding:'6px 8px',borderRadius:8,background:cur>=100?'rgba(34,197,94,.08)': 'var(--bg3)'}},
+                  h('div',{style:{flex:1,minWidth:120,fontSize:10,color:'var(--text)',textDecoration:cur>=100?'line-through':'none'}},nm),
+                  h('div',{style:{fontSize:11,fontWeight:700,minWidth:36,textAlign:'right',color:cur>=100?'var(--green)':cur>0?'var(--amber)':'var(--text3)'}},cur+'%'),
+                  h('div',{style:{display:'flex',gap:4}},
+                    [0,25,50,75,100].map(function(v){
+                      var active=cur===v;
+                      return h('button',{key:v,
+                        onClick:function(){quickSave(depNum,p.id,v,ph.fk);},
+                        style:{padding:'4px 8px',borderRadius:6,border:'1px solid '+(active?'var(--accent)':'var(--border)'),background:active?'var(--accent)':'var(--bg2)',color:active?'#000':'var(--text2)',fontSize:10,cursor:'pointer',minWidth:38}
+                      },v+'%');
+                    })
+                  )
+                );
+              })
+          );
+        })
+    );
+  };
   // ── Responsable del usuario logueado ──────────────────────────────────
   const isSup=auth&&auth.role==='Supervisor';
   const userResp=isSup?(USER_RESP_MAP[auth.user]||null):null;
@@ -7466,20 +7618,47 @@ function InformeSemanalView({ganttData,saves,onSave,reportData,onReportSave,auth
             var k=g.pa[0]+'_'+g.fn;var v=comp[k];
             var border=v==='ok'?'rgba(34,197,94,.4)':v==='nok'?'rgba(239,68,68,.4)':v==='par'?'rgba(249,115,22,.4)':'var(--border)';
             var bg=v==='ok'?'rgba(34,197,94,.05)':v==='nok'?'rgba(239,68,68,.05)':v==='par'?'rgba(249,115,22,.05)':'var(--card)';
+            var taskHasEditDep=editDep!=null&&editTask===k&&g.deps.indexOf(editDep)>=0;
             return h('div',{key:k,
-              style:{background:bg,border:'1px solid '+border,borderRadius:8,padding:'7px 10px',
-                display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}},
-              h('span',{style:{background:faseColor(g.fn)+'22',color:faseColor(g.fn),
-                padding:'1px 6px',borderRadius:4,fontSize:9,fontWeight:700,flexShrink:0}},'F'+g.fn),
-              h('div',{style:{flex:1,minWidth:0}},
-                h('div',{style:{fontSize:11,fontWeight:600,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},
-                  planName(g.pa[0])),
-                h('div',{style:{fontSize:9,color:'var(--text2)',marginTop:1}},
-                  resp+' · '+g.dep_count+' dptos')
+              style:{background:bg,border:'1px solid '+(taskHasEditDep?'var(--accent)':border),borderRadius:8,overflow:'hidden'}},
+              h('div',{style:{padding:'8px 10px',display:'flex',flexDirection:'column',gap:6}},
+                // Fila 1: badge fase + nombre completo + % avg + cumplimiento
+                h('div',{style:{display:'flex',alignItems:'flex-start',gap:7}},
+                  h('span',{style:{background:faseColor(g.fn)+'22',color:faseColor(g.fn),
+                    padding:'1px 6px',borderRadius:4,fontSize:9,fontWeight:700,flexShrink:0,marginTop:2}},'F'+g.fn),
+                  h('div',{style:{flex:1,minWidth:0}},
+                    h('div',{style:{fontSize:11,fontWeight:600,color:'var(--text)',lineHeight:1.35}},
+                      planName(g.pa[0])),
+                    h('div',{style:{fontSize:9,color:'var(--text2)',marginTop:2}},
+                      resp+' · '+g.dep_count+' dptos')
+                  ),
+                  h('span',{style:{fontSize:12,fontWeight:700,color:avg>=80?'var(--green)':avg>=40?'var(--amber)':'var(--red)',flexShrink:0,marginTop:1}},
+                    avg+'%'),
+                  h('div',{style:{flexShrink:0}},statusBtn(k))
+                ),
+                // Fila 2: departamentos con % individual
+                g.deps&&g.deps.length&&h('div',{style:{display:'flex',gap:4,flexWrap:'wrap',paddingLeft:2}},
+                  g.deps.slice(0,12).map(function(d){
+                    var dPct=g.depPcts&&g.depPcts[d]!=null?g.depPcts[d]:null;
+                    var isOpen=editDep===d&&editTask===k;
+                    var col=isOpen?'var(--accent)':dPct>=80?'var(--green)':dPct>=40?'var(--amber)':'var(--red)';
+                    var bg2=isOpen?'rgba(0,200,255,.2)':dPct>=80?'rgba(34,197,94,.12)':dPct>=40?'rgba(245,158,11,.12)':'rgba(239,68,68,.12)';
+                    var brd=isOpen?'var(--accent)':dPct>=80?'rgba(34,197,94,.5)':dPct>=40?'rgba(245,158,11,.5)':'rgba(239,68,68,.5)';
+                    return h('button',{key:d,
+                      onClick:function(e){e.stopPropagation();if(isOpen){setEditDep(null);setEditTask(null);}else{setEditDep(d);setEditTask(k);}},
+                      style:{padding:'3px 7px',borderRadius:6,border:'1px solid '+brd,background:bg2,color:col,fontSize:10,cursor:'pointer',flexShrink:0,textAlign:'center',lineHeight:'1.3',minWidth:44}
+                    },
+                      h('div',{style:{fontWeight:700,fontSize:10}},'D'+d),
+                      dPct!=null&&h('div',{style:{fontSize:8,opacity:.9}},(dPct+'%'))
+                    );
+                  }),
+                  g.deps.length>12&&h('span',{style:{fontSize:10,color:'var(--text3)',alignSelf:'center'}},'+'+(g.deps.length-12)+' más')
+                )
               ),
-              h('span',{style:{fontSize:11,fontWeight:700,color:avg>=80?'var(--green)':avg>=40?'var(--amber)':'var(--red)',flexShrink:0}},
-                avg+'%'),
-              statusBtn(k)
+              // Panel de edición inline — aparece justo debajo del task clickeado
+              taskHasEditDep&&h('div',{style:{borderTop:'1px solid rgba(0,200,255,.25)',padding:'10px',background:'rgba(0,13,28,.6)'}},
+                renderDeptEditPanel(editDep,g.fn_num,g.taskPsIds,g.taskResp)
+              )
             );
           })
         )
