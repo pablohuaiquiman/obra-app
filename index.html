@@ -8272,10 +8272,65 @@ function ControlView({saves,onSave,auth,toast}){
     try{return JSON.parse(localStorage.getItem('ctrl_vent_est_v2')||'{}');}catch(e){return{};}
   });
   var today=new Date().toISOString().slice(0,10);
+  // Índice numérico de cada estado (para comparar avance)
+  var EST_ORDER={pendiente:0,rasgo:1,medida:2,transito:3,marco:4,termopanel:5,completo:6};
   function saveItemData(nd){setItemData(nd);try{localStorage.setItem('ctrl_vent_est_v2',JSON.stringify(nd));}catch(e){}}
-  function updItem(id,patch){var nd=Object.assign({},itemData);nd[id]=Object.assign({},nd[id]||{},patch);saveItemData(nd);}
-  function getEst(id){return(itemData[id]||{}).estado||'pendiente';}
+
+  // ── Leer estado desde saves (Pisos/Partidas) para un depto ───────────────
+  // Mapeo: id:'7'=rasgos, id:'10'=medida, id:'38'=instalacion ventanas
+  function estIdxFromSaves(dep){
+    if(typeof dep!=='number')return 0;
+    var sv=saves[dep]||{};var f1=sv.f1||{};var lk=_D.lf1||{};
+    function gv(pid){return f1[pid]!=null?f1[pid]:(lk[dep]?lk[dep][pid]||0:0);}
+    if(gv('38')>=100)return 6; // completo
+    if(gv('38')>=50) return 5; // termopanel
+    if(gv('38')>0)   return 4; // marco
+    if(gv('10')>=100)return 3; // transito (medida completa)
+    if(gv('10')>0)   return 2; // medida parcial
+    if(gv('7')>=100) return 1; // rasgo
+    return 0;
+  }
+
+  // ── getEst: máximo entre Control y Pisos/Partidas ───────────────────────
+  function getEst(id){
+    var stored=(itemData[id]||{}).estado||'pendiente';
+    var storedIdx=EST_ORDER[stored]||0;
+    var item=VENT_SCHEDULE.find(function(i){return i.id===id;});
+    if(!item)return stored;
+    var savesIdx=estIdxFromSaves(item.depto);
+    var maxIdx=Math.max(storedIdx,savesIdx);
+    return VENT_EST[maxIdx]?VENT_EST[maxIdx].k:'pendiente';
+  }
   function getED(id){return ventEstDef(getEst(id));}
+
+  // ── updItem: guarda en Control Y sincroniza saves de Pisos/Partidas ──────
+  function updItem(id,patch){
+    var nd=Object.assign({},itemData);
+    nd[id]=Object.assign({},nd[id]||{},patch);
+    saveItemData(nd);
+    // Sincronizar saves solo si cambia el estado
+    if(!patch.estado)return;
+    var it=VENT_SCHEDULE.find(function(i){return i.id===id;});
+    if(!it||typeof it.depto!=='number')return;
+    var dep=it.depto;
+    var depItems=VENT_SCHEDULE.filter(function(i){return i.depto===dep;});
+    var total=depItems.length;if(!total)return;
+    var rCnt=0,mCnt=0,iCnt=0;
+    depItems.forEach(function(di){
+      var est=(nd[di.id]||{}).estado||'pendiente';
+      var idx=EST_ORDER[est]||0;
+      if(idx>=1)rCnt++; // rasgo+
+      if(idx>=2)mCnt++; // medida+
+      if(idx>=6)iCnt++; // completo
+    });
+    var sv=Object.assign({},saves[dep]||{});
+    sv.f1=Object.assign({},sv.f1||{});
+    sv.f1['7'] =Math.round(rCnt/total*100); // Rasgos albañilería ventanas
+    sv.f1['10']=Math.round(mCnt/total*100); // Toma de medidas ventanas
+    sv.f1['38']=Math.round(iCnt/total*100); // Instalación de ventanas
+    onSave(dep,sv);
+    toast&&toast('✓ Sincronizado con Pisos y Partidas');
+  }
   // Agrupar schedule por piso
   var schedByPiso={};
   VENT_SCHEDULE.forEach(function(item){if(!schedByPiso[item.piso])schedByPiso[item.piso]=[];schedByPiso[item.piso].push(item);});
