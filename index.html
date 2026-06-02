@@ -6600,9 +6600,10 @@ function generarPDFSobreTiempo(rec,fecha){
   y+=8;doc.setFontSize(11);doc.setFont('helvetica','bold');
   doc.text('LISTADO DE PERSONAL SOBRE TIEMPO',pw/2,y,{align:'center'});
   var tot=0,totConCol=0;
-  (rec.jefatura||[]).forEach(function(){tot++;totConCol++;});
-  (rec.bodega||[]).forEach(function(){tot++;totConCol++;});
-  (rec.grupos||[]).forEach(function(g){(g.trabajadores||[]).forEach(function(t){tot++;if(!t.sinColacion)totConCol++;});});
+  (rec.jefatura||[]).forEach(function(w){tot++;if(!w.sinColacion)totConCol++;});
+  (rec.bodega||[]).forEach(function(w){tot++;if(!w.sinColacion)totConCol++;});
+  (rec.mantenimiento||[]).forEach(function(w){tot++;if(!w.sinColacion)totConCol++;});
+  (rec.grupos||[]).forEach(function(g){if(g.supervisor){tot++;if(!g.supervisor.sinColacion)totConCol++;}(g.trabajadores||[]).forEach(function(t){tot++;if(!t.sinColacion)totConCol++;});});
   var montoTotal=totConCol*(rec.monto||1800);
   y+=4;doc.setFontSize(9);doc.setFont('helvetica','bold');
   doc.text('CANTIDAD',pw-margin,y,{align:'right'});
@@ -6644,9 +6645,13 @@ function generarPDFSobreTiempo(rec,fecha){
 
   drawSection('JEFATURA',rec.jefatura||[],(rec.jefatura||[]).length);
   drawSection('ENCARGADO DE BODEGA',rec.bodega||[],(rec.bodega||[]).length);
+  if((rec.mantenimiento||[]).length>0)drawSection('ENCARGADO DE MANTENIMIENTO',rec.mantenimiento||[],(rec.mantenimiento||[]).length);
   (rec.grupos||[]).forEach(function(g,gi){
     var svn=g.supervisor?g.supervisor.nombre:'';
-    drawSection('PERSONAL '+(gi+1)+' : DEL SUPERVISOR '+svn,g.trabajadores||[],(g.trabajadores||[]).length);
+    // Incluir supervisor como primer trabajador del grupo
+    var allWorkers=g.supervisor?[Object.assign({},g.supervisor,{cargo:g.supervisor.cargo||'SUPERVISOR'})]:[].concat(g.trabajadores||[]);
+    if(g.supervisor)allWorkers=allWorkers.concat(g.trabajadores||[]);
+    drawSection('PERSONAL '+(gi+1)+' : DEL SUPERVISOR '+svn,allWorkers,allWorkers.length);
     if(g.funciones){
       if(y>245){doc.addPage();y=16;}
       doc.setFont('helvetica','bold');doc.setFontSize(8);
@@ -6711,6 +6716,7 @@ function SobretiempoView({asistData,stData,onStSave,auth,toast}){
   var[monto,setMonto]=useState(1800);
   var[jefatura,setJefatura]=useState([]);
   var[bodega,setBodega]=useState([]);
+  var[mantenimiento,setMantenimiento]=useState([]);
   var[grupos,setGrupos]=useState([]);
   var[showPicker,setShowPicker]=useState(null);
   var[pickerQ,setPickerQ]=useState('');
@@ -6722,8 +6728,8 @@ function SobretiempoView({asistData,stData,onStSave,auth,toast}){
   var asistMo=asistData[moKey]||{};
   var allPersonal=asistMo.casa||[];
   var savedRec=stData[fecha];
-  var totalPersonas=jefatura.length+bodega.length;grupos.forEach(function(g){totalPersonas+=(g.trabajadores||[]).length;});
-  var totalConCol=jefatura.length+bodega.length;grupos.forEach(function(g){(g.trabajadores||[]).forEach(function(t){if(!t.sinColacion)totalConCol++;});});
+  var totalPersonas=jefatura.length+bodega.length+mantenimiento.length;grupos.forEach(function(g){if(g.supervisor)totalPersonas++;totalPersonas+=(g.trabajadores||[]).length;});
+  var totalConCol=jefatura.filter(function(w){return !w.sinColacion;}).length+bodega.filter(function(w){return !w.sinColacion;}).length+mantenimiento.filter(function(w){return !w.sinColacion;}).length;grupos.forEach(function(g){if(g.supervisor&&!g.supervisor.sinColacion)totalConCol++;(g.trabajadores||[]).forEach(function(t){if(!t.sinColacion)totalConCol++;});});
   var montoTotal=totalConCol*monto;
   // ── Nuevos estados: historial, boleta, registros ──────────────────────
   var[vistaReg,setVistaReg]=useState(false);
@@ -6733,7 +6739,9 @@ function SobretiempoView({asistData,stData,onStSave,auth,toast}){
   var[conBoletas,setConBoletas]=useState(true);
   var[pagOtroNombre,setPagOtroNombre]=useState('');
   var[filtPeriod,setFiltPeriod]=useState('semana');
-  var[filtBoletaEdit,setFiltBoletaEdit]=useState(null); // id del registro donde se sube boleta inline
+  var[filtBoletaEdit,setFiltBoletaEdit]=useState(null);
+  var[boletaPagData,setBoletaPagData]=useState(null); // boleta adjunta al registrar pago
+  var[boletaPagDesc,setBoletaPagDesc]=useState('');
   // Historial almacenado dentro de stData._historial
   var historial=(stData._historial||[]).slice().sort(function(a,b){return(b.fecha||'').localeCompare(a.fecha||'');});
   // Agrupar por semana (lunes)
@@ -6749,14 +6757,14 @@ function SobretiempoView({asistData,stData,onStSave,auth,toast}){
   historial.forEach(function(h){if(h.pagado)histTotPagado+=(h.montoTotal||0);else histTotPend+=(h.montoTotal||0);});
   // Agregar entrada al historial al generar PDF
   function addToHistorial(){
-    var totP=jefatura.length+bodega.length;grupos.forEach(function(g){totP+=(g.trabajadores||[]).length;});
-    var totCC=jefatura.length+bodega.length;grupos.forEach(function(g){(g.trabajadores||[]).forEach(function(t){if(!t.sinColacion)totCC++;});});
+    var totP=jefatura.length+bodega.length+mantenimiento.length;grupos.forEach(function(g){if(g.supervisor)totP++;totP+=(g.trabajadores||[]).length;});
+    var totCC=jefatura.filter(function(w){return !w.sinColacion;}).length+bodega.filter(function(w){return !w.sinColacion;}).length+mantenimiento.filter(function(w){return !w.sinColacion;}).length;grupos.forEach(function(g){if(g.supervisor&&!g.supervisor.sinColacion)totCC++;(g.trabajadores||[]).forEach(function(t){if(!t.sinColacion)totCC++;});});
     var entry={id:Date.now().toString(),fecha:fecha,monto:monto,totalPersonas:totP,totalConColacion:totCC,
       montoTotal:totCC*monto,generadoPor:auth&&auth.name||'Usuario',pdfGeneradoAt:new Date().toISOString(),
       boleta:boletaData||null,boletaDesc:boletaDesc||'',pagado:false,pagadoPor:null,pagadoPorNombre:null,fechaPago:null,observacion:''};
     var hist=(stData._historial||[]).filter(function(h){return h.fecha!==fecha;});
     hist.push(entry);
-    onStSave(Object.assign({},stData,{[fecha]:{fecha,monto,jefatura,bodega,grupos,savedAt:new Date().toISOString()},_historial:hist}));
+    onStSave(Object.assign({},stData,{[fecha]:{fecha,monto,jefatura,bodega,mantenimiento,grupos,savedAt:new Date().toISOString()},_historial:hist}));
   }
   function updHist(id,patch){
     var hist=(stData._historial||[]).map(function(h){return h.id===id?Object.assign({},h,patch):h;});
@@ -6768,19 +6776,37 @@ function SobretiempoView({asistData,stData,onStSave,auth,toast}){
     return fmt(d)+' — '+fmt(fin);
   }
 
-  function doSave(){onStSave(Object.assign({},stData,{[fecha]:{fecha,monto,jefatura,bodega,grupos,savedAt:new Date().toISOString()}}));toast&&toast('Guardado');}
-  function loadRec(){if(savedRec){setMonto(savedRec.monto||1800);setJefatura(savedRec.jefatura||[]);setBodega(savedRec.bodega||[]);setGrupos(savedRec.grupos||[]);toast&&toast('Registro cargado');}}
+  function doSave(){onStSave(Object.assign({},stData,{[fecha]:{fecha,monto,jefatura,bodega,mantenimiento,grupos,savedAt:new Date().toISOString()}}));toast&&toast('Guardado');}
+  function loadRec(){if(savedRec){setMonto(savedRec.monto||1800);setJefatura(savedRec.jefatura||[]);setBodega(savedRec.bodega||[]);setMantenimiento(savedRec.mantenimiento||[]);setGrupos(savedRec.grupos||[]);toast&&toast('Registro cargado');}}
+  function loadHistEntry(entry){
+    // Carga el registro completo desde stData[fecha] si existe, si no desde el historial
+    var rec=stData[entry.fecha]||{};
+    setFecha(entry.fecha||today);
+    setMonto(entry.monto||rec.monto||1800);
+    setJefatura(rec.jefatura||[]);
+    setBodega(rec.bodega||[]);
+    setMantenimiento(rec.mantenimiento||[]);
+    setGrupos(rec.grupos||[]);
+    setVistaReg(false);
+    setExpandedId(null);
+    toast&&toast('Cargado para edición — modifica y genera PDF para actualizar');
+  }
   function addGrupo(){setGrupos(grupos.concat([{supervisor:null,funciones:'',trabajadores:[]}]));}
   function updGrupo(gi,ch){var ng=grupos.slice();ng[gi]=Object.assign({},ng[gi],ch);setGrupos(ng);}
   function remGrupo(gi){setGrupos(grupos.filter(function(_,i){return i!==gi;}));}
   function addWtoGrupo(gi,w){var ng=grupos.slice();var ws2=(ng[gi].trabajadores||[]).slice();ws2.push(Object.assign({},w,{sinColacion:false}));ng[gi]=Object.assign({},ng[gi],{trabajadores:ws2});setGrupos(ng);}
   function toggleSC(gi,wi){var ng=grupos.slice();var ws2=(ng[gi].trabajadores||[]).slice();ws2[wi]=Object.assign({},ws2[wi],{sinColacion:!ws2[wi].sinColacion});ng[gi]=Object.assign({},ng[gi],{trabajadores:ws2});setGrupos(ng);}
   function remWfromGrupo(gi,wi){var ng=grupos.slice();ng[gi]=Object.assign({},ng[gi],{trabajadores:(ng[gi].trabajadores||[]).filter(function(_,i){return i!==wi;})});setGrupos(ng);}
+  function toggleJefSC(i){var nj=jefatura.slice();nj[i]=Object.assign({},nj[i],{sinColacion:!nj[i].sinColacion});setJefatura(nj);}
+  function toggleBodSC(i){var nb=bodega.slice();nb[i]=Object.assign({},nb[i],{sinColacion:!nb[i].sinColacion});setBodega(nb);}
+  function toggleMantSC(i){var nm=mantenimiento.slice();nm[i]=Object.assign({},nm[i],{sinColacion:!nm[i].sinColacion});setMantenimiento(nm);}
+  function toggleSupSC(gi){var ng=grupos.slice();ng[gi]=Object.assign({},ng[gi],{supervisor:Object.assign({},ng[gi].supervisor,{sinColacion:!ng[gi].supervisor.sinColacion})});setGrupos(ng);}
 
   function pickWorker(w){
     var pw2={nombre:w.nombre,cargo:w.cargo,rut:w.rut};
     if(showPicker.t==='jefatura')setJefatura(jefatura.concat([pw2]));
     else if(showPicker.t==='bodega')setBodega(bodega.concat([pw2]));
+    else if(showPicker.t==='mantenimiento')setMantenimiento(mantenimiento.concat([pw2]));
     else if(showPicker.t==='supervisor')updGrupo(showPicker.gi,{supervisor:pw2});
     else if(showPicker.t==='grupo')addWtoGrupo(showPicker.gi,pw2);
     setShowPicker(null);setPickerQ('');setManNom('');setManCgo('');setManRut('');
@@ -6891,7 +6917,7 @@ function SobretiempoView({asistData,stData,onStSave,auth,toast}){
                   var pagCol=e.pagado?'var(--green)':'var(--text3)';
                   return h('div',{key:e.id,style:{borderRadius:8,border:'1px solid '+(isExp?'var(--accent)':'var(--border)'),overflow:'hidden'}},
                     // Fila compacta
-                    h('div',{onClick:function(){setExpandedId(isExp?null:e.id);setPagOtroNombre(e.pagadoPorNombre||'');},
+                    h('div',{onClick:function(){setExpandedId(isExp?null:e.id);setPagOtroNombre(e.pagadoPorNombre||'');setBoletaPagData(null);setBoletaPagDesc('');},
                       style:{padding:'8px 10px',display:'flex',alignItems:'center',gap:8,cursor:'pointer',
                         background:isExp?'rgba(0,13,28,.7)':'transparent'}},
                       h('div',{style:{fontSize:11,fontWeight:700,color:'var(--text)',minWidth:70}},fd),
@@ -6902,6 +6928,13 @@ function SobretiempoView({asistData,stData,onStSave,auth,toast}){
                     ),
                     // Panel expandido
                     isExp&&h('div',{style:{padding:'10px 12px',borderTop:'1px solid var(--border)',display:'flex',flexDirection:'column',gap:8}},
+                      // Botón editar (solo admin)
+                      isAdmin&&h('button',{
+                        onClick:function(){loadHistEntry(e);},
+                        style:{alignSelf:'flex-start',padding:'6px 14px',borderRadius:8,fontSize:11,fontWeight:700,
+                          cursor:'pointer',border:'1px solid var(--accent)',
+                          background:'rgba(0,200,255,.1)',color:'var(--accent)'}
+                      },'✏️ Editar registro — abrir en formulario'),
                       // Info
                       h('div',{style:{display:'flex',gap:8,flexWrap:'wrap',fontSize:10,color:'var(--text2)'}},
                         h('span',null,'Generado por: '+e.generadoPor),
@@ -6918,7 +6951,7 @@ function SobretiempoView({asistData,stData,onStSave,auth,toast}){
                               h('img',{src:e.boleta,style:{maxWidth:120,maxHeight:80,borderRadius:6,border:'1px solid var(--border)'}}),
                               h('div',null,
                                 h('div',{style:{fontSize:10,color:'var(--text2)'}},e.boletaDesc||'Sin descripción'),
-                                canEdit&&h('button',{onClick:function(){updHist(e.id,{boleta:null,boletaDesc:'',savedAt:new Date().toISOString()});},
+                                isAdmin&&h('button',{onClick:function(){updHist(e.id,{boleta:null,boletaDesc:'',savedAt:new Date().toISOString()});},
                                   style:{fontSize:9,padding:'2px 6px',borderRadius:4,border:'1px solid rgba(239,68,68,.3)',
                                     background:'rgba(239,68,68,.1)',color:'var(--red)',cursor:'pointer',marginTop:4}},'Eliminar')
                               )
@@ -6935,25 +6968,91 @@ function SobretiempoView({asistData,stData,onStSave,auth,toast}){
                       ),
                       // Control de pago
                       e.pagado
-                        ?h('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}},
-                            h('div',{style:{fontSize:11,color:'var(--green)',fontWeight:700}},'✓ Pagado el '+e.fechaPago),
-                            h('div',{style:{fontSize:10,color:'var(--text2)'}},'por: '+(e.pagadoPor==='jefatura'?'Jefatura':e.pagadoPor==='otro'?e.pagadoPorNombre||'Otro':'Yo')),
-                            canEdit&&h('button',{onClick:function(){updHist(e.id,{pagado:false,pagadoPor:null,pagadoPorNombre:null,fechaPago:null});},
-                              style:{fontSize:9,padding:'2px 6px',borderRadius:4,border:'1px solid var(--border)',
-                                background:'var(--bg2)',color:'var(--text3)',cursor:'pointer',marginLeft:'auto'}},'Deshacer')
+                        ?h('div',{style:{display:'flex',flexDirection:'column',gap:6}},
+                            h('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}},
+                              h('div',{style:{fontSize:11,color:'var(--green)',fontWeight:700}},'✓ Pagado el '+e.fechaPago),
+                              h('div',{style:{fontSize:10,color:'var(--text2)'}},'por: '+(e.pagadoPor==='jefatura'?'Jefatura':e.pagadoPor==='otro'?e.pagadoPorNombre||'Otro':'Yo')),
+                              isAdmin&&h('button',{onClick:function(){updHist(e.id,{pagado:false,pagadoPor:null,pagadoPorNombre:null,fechaPago:null,boletaPago:null,boletaPagoDesc:''});},
+                                style:{fontSize:9,padding:'2px 6px',borderRadius:4,border:'1px solid var(--border)',
+                                  background:'var(--bg2)',color:'var(--text3)',cursor:'pointer',marginLeft:'auto'}},'Deshacer')
+                            ),
+                            // Boleta del pago
+                            h('div',{style:{background:'var(--bg3)',borderRadius:8,padding:'8px 10px'}},
+                              h('div',{style:{fontSize:9,fontWeight:700,color:'var(--text3)',letterSpacing:.5,marginBottom:6,textTransform:'uppercase'}},'Boleta de pago'),
+                              e.boletaPago
+                                ?h('div',{style:{display:'flex',gap:8,alignItems:'center'}},
+                                    h('img',{src:e.boletaPago,style:{maxWidth:100,maxHeight:70,borderRadius:6,border:'1px solid var(--border)',cursor:'pointer'},
+                                      onClick:function(){window.open(e.boletaPago,'_blank');}}),
+                                    h('div',null,
+                                      h('div',{style:{fontSize:10,color:'var(--text2)',marginBottom:4}},e.boletaPagoDesc||'Sin descripción'),
+                                      isAdmin&&h('button',{onClick:function(){updHist(e.id,{boletaPago:null,boletaPagoDesc:''});},
+                                        style:{fontSize:9,padding:'2px 6px',borderRadius:4,border:'1px solid rgba(239,68,68,.3)',
+                                          background:'rgba(239,68,68,.1)',color:'var(--red)',cursor:'pointer'}},'Eliminar')
+                                    )
+                                  )
+                                :h('label',{style:{display:'flex',alignItems:'center',gap:6,cursor:'pointer',
+                                    padding:'6px 10px',borderRadius:6,border:'1px dashed rgba(34,197,94,.4)',
+                                    background:'transparent',width:'fit-content'}},
+                                    h('span',{style:{fontSize:14}},'📎'),
+                                    h('span',{style:{fontSize:11,color:'var(--green)',fontWeight:600}},'Adjuntar boleta de pago'),
+                                    h('input',{type:'file',accept:'image/*',style:{display:'none'},
+                                      onChange:function(ev){
+                                        var file=ev.target.files[0];if(!file)return;
+                                        var reader=new FileReader();
+                                        reader.onload=function(re){updHist(e.id,{boletaPago:re.target.result,boletaPagoDesc:file.name});};
+                                        reader.readAsDataURL(file);
+                                        toast&&toast('✓ Boleta de pago adjuntada');
+                                      }})
+                                  )
+                            )
                           )
-                        :h('div',{style:{display:'flex',flexDirection:'column',gap:6}},
+                        :h('div',{style:{display:'flex',flexDirection:'column',gap:8}},
+                            // Adjuntar boleta ANTES de registrar pago
+                            h('div',{style:{background:'var(--bg3)',borderRadius:8,padding:'8px 10px'}},
+                              h('div',{style:{fontSize:9,fontWeight:700,color:'var(--text3)',letterSpacing:.5,marginBottom:6,textTransform:'uppercase'}},'Adjuntar boleta de pago (opcional)'),
+                              boletaPagData
+                                ?h('div',{style:{display:'flex',gap:8,alignItems:'center'}},
+                                    h('img',{src:boletaPagData,style:{maxWidth:80,maxHeight:60,borderRadius:6,border:'1px solid var(--border)'}}),
+                                    h('div',{style:{flex:1}},
+                                      h('input',{value:boletaPagDesc,placeholder:'Descripción boleta...',
+                                        onChange:function(ev){setBoletaPagDesc(ev.target.value);},
+                                        style:{width:'100%',background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:6,
+                                          padding:'4px 7px',color:'var(--text)',fontSize:10,outline:'none',fontFamily:'var(--font)',boxSizing:'border-box'}}),
+                                      h('button',{onClick:function(){setBoletaPagData(null);setBoletaPagDesc('');},
+                                        style:{marginTop:4,fontSize:9,padding:'2px 6px',borderRadius:4,border:'1px solid rgba(239,68,68,.3)',
+                                          background:'rgba(239,68,68,.1)',color:'var(--red)',cursor:'pointer'}},'Quitar')
+                                    )
+                                  )
+                                :h('label',{style:{display:'flex',alignItems:'center',gap:6,cursor:'pointer',
+                                    padding:'6px 10px',borderRadius:6,border:'1px dashed rgba(14,165,233,.3)',background:'transparent'}},
+                                    h('span',{style:{fontSize:14}},'📷'),
+                                    h('span',{style:{fontSize:11,color:'var(--blue)'}},'Foto de boleta'),
+                                    h('input',{type:'file',accept:'image/*',style:{display:'none'},
+                                      onChange:function(ev){
+                                        var file=ev.target.files[0];if(!file)return;
+                                        var reader=new FileReader();
+                                        reader.onload=function(re){setBoletaPagData(re.target.result);setBoletaPagDesc(file.name);};
+                                        reader.readAsDataURL(file);
+                                      }})
+                                  )
+                            ),
+                            // Botones de pago
                             h('div',{style:{fontSize:9,fontWeight:700,color:'var(--text3)',letterSpacing:.5,textTransform:'uppercase'}},'¿Quién pagó la caja chica?'),
                             h('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
                               ['yo','jefatura','otro'].map(function(opc){
                                 return h('button',{key:opc,
                                   onClick:function(){
                                     if(opc!=='otro'||pagOtroNombre.trim()){
-                                      updHist(e.id,{pagado:true,pagadoPor:opc,pagadoPorNombre:opc==='otro'?pagOtroNombre.trim():null,fechaPago:new Date().toISOString().slice(0,10)});
+                                      updHist(e.id,{pagado:true,pagadoPor:opc,
+                                        pagadoPorNombre:opc==='otro'?pagOtroNombre.trim():null,
+                                        fechaPago:new Date().toISOString().slice(0,10),
+                                        boletaPago:boletaPagData||null,
+                                        boletaPagoDesc:boletaPagDesc||''});
+                                      setBoletaPagData(null);setBoletaPagDesc('');
                                       toast&&toast('✓ Pago registrado');
                                     }
                                   },
-                                  style:{padding:'7px 14px',borderRadius:8,fontSize:12,fontWeight:700,cursor:'pointer',
+                                  style:{padding:'8px 14px',borderRadius:8,fontSize:12,fontWeight:700,cursor:'pointer',
                                     border:'1px solid '+(opc==='yo'?'var(--blue)':opc==='jefatura'?'var(--green)':'var(--amber)'),
                                     background:opc==='yo'?'rgba(14,165,233,.15)':opc==='jefatura'?'rgba(34,197,94,.15)':'rgba(245,158,11,.15)',
                                     color:opc==='yo'?'var(--blue)':opc==='jefatura'?'var(--green)':'var(--amber)'}
@@ -7013,14 +7112,21 @@ function SobretiempoView({asistData,stData,onStSave,auth,toast}){
         h('div',{style:{fontSize:11,fontWeight:700,color:'var(--text)',letterSpacing:'.08em'}},'JEFATURA'),
         jefatura.length<3&&h('button',{onClick:function(){setShowPicker({t:'jefatura'});},style:{fontSize:11,padding:'3px 8px',borderRadius:5,border:'1px solid var(--border)',background:'var(--bg2)',color:'var(--text2)',cursor:'pointer'}},'+ Agregar')
       ),
-      jefatura.length===0?h('div',{style:{fontSize:11,color:'var(--text3)',textAlign:'center',padding:'6px'}},'Sin jefatura asignada'):jefatura.map(function(w,i){return wRow(w,function(){setJefatura(jefatura.filter(function(_,x){return x!==i;}));},null,false);})
+      jefatura.length===0?h('div',{style:{fontSize:11,color:'var(--text3)',textAlign:'center',padding:'6px'}},'Sin jefatura asignada'):jefatura.map(function(w,i){return wRow(w,function(){setJefatura(jefatura.filter(function(_,x){return x!==i;}));},function(){toggleJefSC(i);},true);})
     ),
     h('div',{style:{background:'var(--card)',border:'1px solid var(--border)',borderRadius:12,padding:12,marginBottom:8}},
       h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}},
         h('div',{style:{fontSize:11,fontWeight:700,color:'var(--text)',letterSpacing:'.08em'}},'ENCARGADO DE BODEGA'),
         bodega.length<1&&h('button',{onClick:function(){setShowPicker({t:'bodega'});},style:{fontSize:11,padding:'3px 8px',borderRadius:5,border:'1px solid var(--border)',background:'var(--bg2)',color:'var(--text2)',cursor:'pointer'}},'+ Agregar')
       ),
-      bodega.length===0?h('div',{style:{fontSize:11,color:'var(--text3)',textAlign:'center',padding:'6px'}},'Sin bodeguero asignado'):bodega.map(function(w,i){return wRow(w,function(){setBodega(bodega.filter(function(_,x){return x!==i;}));},null,false);})
+      bodega.length===0?h('div',{style:{fontSize:11,color:'var(--text3)',textAlign:'center',padding:'6px'}},'Sin bodeguero asignado'):bodega.map(function(w,i){return wRow(w,function(){setBodega(bodega.filter(function(_,x){return x!==i;}));},function(){toggleBodSC(i);},true);})
+    ),
+    h('div',{style:{background:'var(--card)',border:'1px solid var(--border)',borderRadius:12,padding:12,marginBottom:8}},
+      h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}},
+        h('div',{style:{fontSize:11,fontWeight:700,color:'var(--text)',letterSpacing:'.08em'}},'ENCARGADO DE MANTENIMIENTO'),
+        mantenimiento.length<1&&h('button',{onClick:function(){setShowPicker({t:'mantenimiento'});},style:{fontSize:11,padding:'3px 8px',borderRadius:5,border:'1px solid var(--border)',background:'var(--bg2)',color:'var(--text2)',cursor:'pointer'}},'+ Agregar')
+      ),
+      mantenimiento.length===0?h('div',{style:{fontSize:11,color:'var(--text3)',textAlign:'center',padding:'6px'}},'Sin encargado de mantenimiento'):mantenimiento.map(function(w,i){return wRow(w,function(){setMantenimiento(mantenimiento.filter(function(_,x){return x!==i;}));},function(){toggleMantSC(i);},true);})
     ),
     h('div',{className:'gap8'},
       grupos.map(function(grupo,gi){
@@ -7037,7 +7143,15 @@ function SobretiempoView({asistData,stData,onStSave,auth,toast}){
               h('div',{style:{fontSize:10,color:'var(--text3)',marginBottom:5,fontWeight:600,letterSpacing:'.06em'}},'SUPERVISOR DEL GRUPO'),
               grupo.supervisor?
                 h('div',{style:{display:'flex',alignItems:'center',gap:8,background:'var(--bg2)',borderRadius:7,padding:'7px 10px'}},
-                  h('div',{style:{flex:1}},h('div',{style:{fontSize:12,fontWeight:600,color:'var(--text)'}},grupo.supervisor.nombre),h('div',{style:{fontSize:10,color:'var(--text3)'}},grupo.supervisor.cargo)),
+                  h('div',{style:{flex:1}},
+                    h('div',{style:{fontSize:12,fontWeight:600,color:'var(--text)'}},grupo.supervisor.nombre),
+                    h('div',{style:{fontSize:10,color:'var(--text3)'}},grupo.supervisor.cargo)
+                  ),
+                  h('button',{onClick:function(){toggleSupSC(gi);},
+                    style:{fontSize:10,padding:'3px 7px',borderRadius:4,whiteSpace:'nowrap',
+                      border:'1px solid '+(grupo.supervisor.sinColacion?'var(--amber)':'var(--border)'),
+                      background:grupo.supervisor.sinColacion?'rgba(245,158,11,.15)':'transparent',
+                      color:grupo.supervisor.sinColacion?'var(--amber)':'var(--text3)',cursor:'pointer'}},'Sin colaci\xf3n'),
                   h('button',{onClick:function(){updGrupo(gi,{supervisor:null});},style:{background:'transparent',border:'none',color:'var(--text3)',cursor:'pointer',fontSize:13}},'x')
                 ):
                 h('button',{onClick:function(){setShowPicker({t:'supervisor',gi:gi});},style:{width:'100%',padding:'7px',borderRadius:7,border:'1px dashed var(--border)',background:'transparent',color:'var(--text3)',cursor:'pointer',fontSize:11}},'+ Seleccionar supervisor')
@@ -7090,7 +7204,7 @@ function SobretiempoView({asistData,stData,onStSave,auth,toast}){
       h('button',{onClick:function(){
         if(typeof jspdf==='undefined'){toast&&toast('Error: jsPDF no disponible');return;}
         addToHistorial();
-        generarPDFSobreTiempo({jefatura,bodega,grupos,monto},fecha);
+        generarPDFSobreTiempo({jefatura,bodega,mantenimiento,grupos,monto},fecha);
         toast&&toast('PDF generado y guardado en Registros');
       },style:{width:'100%',padding:'12px',borderRadius:10,background:'var(--green)',border:'none',color:'#fff',fontSize:14,fontWeight:700,cursor:'pointer',letterSpacing:'.05em'}},'Generar PDF')
     )
