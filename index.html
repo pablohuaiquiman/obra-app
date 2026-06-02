@@ -73,7 +73,7 @@ if(typeof React==='undefined'){
   --blue:#0ea5e9;--blue2:#38bdf8;
   --green:#22c55e;--green2:#16a34a;
   --amber:#f59e0b;--red:#ef4444;--purple:#a855f7;
-  --cyan:#06b6d4;--teal:#14b8a6;
+  --cyan:#06b6d4;--teal:#14b8a6;--accent:#00c8ff;
   --text:#e2e8f0;--text2:#94a3b8;--text3:#475569;
   --border:#1e3a5f;--card:#0d1f3c;
   --font:'Barlow Condensed',sans-serif;
@@ -8113,6 +8113,450 @@ function InformeSemanalView({ganttData,saves,onSave,reportData,onReportSave,auth
   );
 }
 
+// ── CONTROL VIEW — Seguimiento ventanas por piso ─────────────────────────
+const VENT_SCHEDULE=[
+  // ── PISO 2 ──────────────────────────────────────────────────────────────
+  {id:'202a',depto:202,tipo:'V30',cant:2,lugar:'Baños',       piso:'Piso 2'},
+  {id:'202b',depto:202,tipo:'V28',cant:2,lugar:'Patio de Luz',piso:'Piso 2'},
+  {id:'202c',depto:202,tipo:'V29',cant:1,lugar:'Patio de Luz',piso:'Piso 2'},
+  {id:'203a',depto:203,tipo:'V33',cant:1,lugar:'Dormitorio',  piso:'Piso 2'},
+  {id:'204a',depto:204,tipo:'V10',cant:1,lugar:'Dormitorio',  piso:'Piso 2'},
+  {id:'205a',depto:205,tipo:'V10',cant:1,lugar:'Dormitorio',  piso:'Piso 2'},
+  {id:'206a',depto:206,tipo:'V10',cant:1,lugar:'Dormitorio',  piso:'Piso 2'},
+  {id:'207a',depto:207,tipo:'V10',cant:1,lugar:'Dormitorio',  piso:'Piso 2'},
+  {id:'208a',depto:208,tipo:'V10',cant:1,lugar:'Dormitorio',  piso:'Piso 2'},
+  {id:'209a',depto:209,tipo:'V10',cant:1,lugar:'Dormitorio',  piso:'Piso 2'},
+  {id:'210a',depto:210,tipo:'V10',cant:1,lugar:'Dormitorio',  piso:'Piso 2'},
+  {id:'211a',depto:211,tipo:'V10',cant:1,lugar:'Dormitorio',  piso:'Piso 2'},
+  {id:'212a',depto:212,tipo:'V10',cant:1,lugar:'Dormitorio',  piso:'Piso 2'},
+  {id:'213a',depto:213,tipo:'V33',cant:1,lugar:'Dormitorio',  piso:'Piso 2'},
+  {id:'214a',depto:214,tipo:'V10',cant:1,lugar:'Dormitorio',  piso:'Piso 2'},
+  {id:'215a',depto:215,tipo:'V10',cant:1,lugar:'Dormitorio',  piso:'Piso 2'},
+  {id:'216a',depto:216,tipo:'V10',cant:1,lugar:'Dormitorio',  piso:'Piso 2'},
+  {id:'217a',depto:217,tipo:'V10',cant:1,lugar:'Dormitorio',  piso:'Piso 2'},
+  {id:'218a',depto:218,tipo:'V10',cant:1,lugar:'Dormitorio',  piso:'Piso 2'},
+  {id:'219a',depto:219,tipo:'V25',cant:2,lugar:'Dormitorio',  piso:'Piso 2'},
+  {id:'219b',depto:219,tipo:'V26',cant:1,lugar:'Dormitorio',  piso:'Piso 2'},
+  {id:'220a',depto:220,tipo:'V25',cant:1,lugar:'Dormitorio',  piso:'Piso 2'},
+  {id:'220b',depto:220,tipo:'V26',cant:1,lugar:'Dormitorio',  piso:'Piso 2'},
+  {id:'221a',depto:221,tipo:'V25',cant:1,lugar:'Dormitorio',  piso:'Piso 2'},
+  {id:'221b',depto:221,tipo:'V26',cant:1,lugar:'Dormitorio',  piso:'Piso 2'},
+  {id:'222a',depto:222,tipo:'V25',cant:1,lugar:'Dormitorio',  piso:'Piso 2'},
+  {id:'222b',depto:222,tipo:'V26',cant:1,lugar:'Dormitorio',  piso:'Piso 2'},
+  {id:'p2ce1',depto:'P2-CE1',tipo:'V33',cant:1,lugar:'Escalera',piso:'Piso 2',label:'Caja Escala 1'},
+  {id:'p2ce2',depto:'P2-CE2',tipo:'V33',cant:1,lugar:'Escalera',piso:'Piso 2',label:'Caja Escala 2'},
+  {id:'p2asc',depto:'P2-ASC',tipo:'V33',cant:1,lugar:'Ascensor',piso:'Piso 2',label:'Hall Ascensor'},
+  // ── PISO 3 ──────────────────────────────────────────────────────────────
+  {id:'302a',depto:302,tipo:'V30',cant:2,lugar:'Baños',       piso:'Piso 3'},
+  {id:'302b',depto:302,tipo:'V28',cant:2,lugar:'Patio de Luz',piso:'Piso 3'},
+  {id:'302c',depto:302,tipo:'V30',cant:1,lugar:'Patio de Luz',piso:'Piso 3'},
+  {id:'302d',depto:302,tipo:'V31',cant:1,lugar:'Dormitorio',  piso:'Piso 3'},
+  {id:'303a',depto:303,tipo:'V01',cant:1,lugar:'Dormitorio',  piso:'Piso 3'},
+  {id:'304a',depto:304,tipo:'V01',cant:1,lugar:'Dormitorio',  piso:'Piso 3'},
+  {id:'305a',depto:305,tipo:'V01',cant:1,lugar:'Dormitorio',  piso:'Piso 3'},
+  {id:'306a',depto:306,tipo:'V01',cant:1,lugar:'Dormitorio',  piso:'Piso 3'},
+  {id:'307a',depto:307,tipo:'V01',cant:1,lugar:'Dormitorio',  piso:'Piso 3'},
+  {id:'308a',depto:308,tipo:'V01',cant:1,lugar:'Dormitorio',  piso:'Piso 3'},
+  {id:'309a',depto:309,tipo:'V01',cant:1,lugar:'Dormitorio',  piso:'Piso 3'},
+  {id:'310a',depto:310,tipo:'V01',cant:1,lugar:'Dormitorio',  piso:'Piso 3'},
+  {id:'311a',depto:311,tipo:'V01',cant:1,lugar:'Dormitorio',  piso:'Piso 3'},
+  {id:'312a',depto:312,tipo:'V01',cant:1,lugar:'Dormitorio',  piso:'Piso 3'},
+  {id:'313a',depto:313,tipo:'V01',cant:1,lugar:'Dormitorio',  piso:'Piso 3'},
+  {id:'314a',depto:314,tipo:'V01',cant:1,lugar:'Dormitorio',  piso:'Piso 3'},
+  {id:'315a',depto:315,tipo:'V01',cant:1,lugar:'Dormitorio',  piso:'Piso 3'},
+  {id:'316a',depto:316,tipo:'V01',cant:1,lugar:'Dormitorio',  piso:'Piso 3'},
+  {id:'317a',depto:317,tipo:'V01',cant:1,lugar:'Dormitorio',  piso:'Piso 3'},
+  {id:'318a',depto:318,tipo:'V20',cant:1,lugar:'Dormitorio',  piso:'Piso 3'},
+  {id:'319a',depto:319,tipo:'V26',cant:2,lugar:'Dormitorio',  piso:'Piso 3'},
+  {id:'320a',depto:320,tipo:'V26',cant:1,lugar:'Dormitorio',  piso:'Piso 3'},
+  {id:'320b',depto:320,tipo:'V26',cant:1,lugar:'Dormitorio',  piso:'Piso 3'},
+  {id:'321a',depto:321,tipo:'V25',cant:2,lugar:'Dormitorio',  piso:'Piso 3'},
+  {id:'322a',depto:322,tipo:'V25',cant:1,lugar:'Dormitorio',  piso:'Piso 3'},
+  {id:'p3ce1',depto:'P3-CE1',tipo:'V24',cant:1,lugar:'Escalera',piso:'Piso 3',label:'Caja Escala 1'},
+  {id:'p3ce2',depto:'P3-CE2',tipo:'V24',cant:1,lugar:'Escalera',piso:'Piso 3',label:'Caja Escala 2'},
+  {id:'p3asc',depto:'P3-ASC',tipo:'V24',cant:1,lugar:'Ascensor',piso:'Piso 3',label:'Hall Ascensor'},
+  {id:'p3pas',depto:'P3-PAS',tipo:'V27MOD',cant:2,lugar:'Pasillo',piso:'Piso 3',label:'Pasillo'},
+  // ── PISO 4 ──────────────────────────────────────────────────────────────
+  {id:'403a',depto:403,tipo:'V20',cant:1,lugar:'Dormitorio',  piso:'Piso 4'},
+  {id:'404a',depto:404,tipo:'V19',cant:3,lugar:'Dormitorio',  piso:'Piso 4'},
+  {id:'405a',depto:405,tipo:'V19',cant:3,lugar:'Dormitorio',  piso:'Piso 4'},
+  {id:'406a',depto:406,tipo:'V19',cant:3,lugar:'Dormitorio',  piso:'Piso 4'},
+  {id:'407a',depto:407,tipo:'V19',cant:3,lugar:'Dormitorio',  piso:'Piso 4'},
+  {id:'408a',depto:408,tipo:'V19',cant:3,lugar:'Dormitorio',  piso:'Piso 4'},
+  {id:'409a',depto:409,tipo:'V19',cant:3,lugar:'Dormitorio',  piso:'Piso 4'},
+  {id:'410a',depto:410,tipo:'V19',cant:3,lugar:'Dormitorio',  piso:'Piso 4'},
+  {id:'411a',depto:411,tipo:'V19',cant:3,lugar:'Dormitorio',  piso:'Piso 4'},
+  {id:'412a',depto:412,tipo:'V19',cant:3,lugar:'Dormitorio',  piso:'Piso 4'},
+  {id:'413a',depto:413,tipo:'V19',cant:3,lugar:'Dormitorio',  piso:'Piso 4'},
+  {id:'414a',depto:414,tipo:'V19',cant:3,lugar:'Dormitorio',  piso:'Piso 4'},
+  {id:'415a',depto:415,tipo:'V19',cant:3,lugar:'Dormitorio',  piso:'Piso 4'},
+  {id:'416a',depto:416,tipo:'V19',cant:3,lugar:'Dormitorio',  piso:'Piso 4'},
+  {id:'417a',depto:417,tipo:'V19',cant:3,lugar:'Dormitorio',  piso:'Piso 4'},
+  {id:'418a',depto:418,tipo:'V19',cant:3,lugar:'Dormitorio',  piso:'Piso 4'},
+  {id:'419a',depto:419,tipo:'V19',cant:3,lugar:'Dormitorio',  piso:'Piso 4'},
+  {id:'420a',depto:420,tipo:'V22',cant:3,lugar:'Dormitorio',  piso:'Piso 4'},
+  {id:'421a',depto:421,tipo:'V22',cant:1,lugar:'Dormitorio',  piso:'Piso 4'},
+  {id:'422a',depto:422,tipo:'V23',cant:3,lugar:'Dormitorio',  piso:'Piso 4'},
+  {id:'p4ce1',depto:'P4-CE1',tipo:'V20',cant:1,lugar:'Escalera',piso:'Piso 4',label:'Caja Escala 1'},
+  {id:'p4asc',depto:'P4-ASC',tipo:'V20',cant:1,lugar:'Ascensor',piso:'Piso 4',label:'Hall Ascensor'},
+  {id:'p4pas',depto:'P4-PAS',tipo:'V27MOD',cant:2,lugar:'Pasillo',piso:'Piso 4',label:'Pasillo'},
+  // ── PISO 5 ──────────────────────────────────────────────────────────────
+  {id:'503a',depto:503,tipo:'V05',cant:1,lugar:'Dormitorio',  piso:'Piso 5'},
+  {id:'504a',depto:504,tipo:'V11',cant:1,lugar:'Dormitorio',  piso:'Piso 5'},
+  {id:'505a',depto:505,tipo:'V11',cant:1,lugar:'Dormitorio',  piso:'Piso 5'},
+  {id:'506a',depto:506,tipo:'V11',cant:1,lugar:'Dormitorio',  piso:'Piso 5'},
+  {id:'507a',depto:507,tipo:'V11',cant:1,lugar:'Dormitorio',  piso:'Piso 5'},
+  {id:'508a',depto:508,tipo:'V11',cant:1,lugar:'Dormitorio',  piso:'Piso 5'},
+  {id:'509a',depto:509,tipo:'V11',cant:1,lugar:'Dormitorio',  piso:'Piso 5'},
+  {id:'510a',depto:510,tipo:'V11',cant:1,lugar:'Dormitorio',  piso:'Piso 5'},
+  {id:'511a',depto:511,tipo:'V11',cant:1,lugar:'Dormitorio',  piso:'Piso 5'},
+  {id:'512a',depto:512,tipo:'V11',cant:1,lugar:'Dormitorio',  piso:'Piso 5'},
+  {id:'513a',depto:513,tipo:'V11',cant:1,lugar:'Dormitorio',  piso:'Piso 5'},
+  {id:'514a',depto:514,tipo:'V11',cant:1,lugar:'Dormitorio',  piso:'Piso 5'},
+  {id:'515a',depto:515,tipo:'V11',cant:1,lugar:'Dormitorio',  piso:'Piso 5'},
+  {id:'516a',depto:516,tipo:'V11',cant:1,lugar:'Dormitorio',  piso:'Piso 5'},
+  {id:'517a',depto:517,tipo:'V11',cant:1,lugar:'Dormitorio',  piso:'Piso 5'},
+  {id:'518a',depto:518,tipo:'V11',cant:1,lugar:'Dormitorio',  piso:'Piso 5'},
+  {id:'519a',depto:519,tipo:'V13',cant:2,lugar:'Dormitorio',  piso:'Piso 5'},
+  {id:'520a',depto:520,tipo:'V14',cant:1,lugar:'Dormitorio',  piso:'Piso 5'},
+  {id:'521a',depto:521,tipo:'V11',cant:1,lugar:'Dormitorio',  piso:'Piso 5'},
+  {id:'522a',depto:522,tipo:'V13',cant:1,lugar:'Dormitorio',  piso:'Piso 5'},
+  {id:'p5ce1',depto:'P5-CE1',tipo:'V06',cant:1,lugar:'Escalera',piso:'Piso 5',label:'Caja Escala 1'},
+  {id:'p5asc',depto:'P5-ASC',tipo:'V06',cant:1,lugar:'Ascensor',piso:'Piso 5',label:'Hall Ascensor'},
+  {id:'p5pas',depto:'P5-PAS',tipo:'V14',cant:5,lugar:'Pasillo', piso:'Piso 5',label:'Pasillo'},
+  // ── PISO 6 ──────────────────────────────────────────────────────────────
+  {id:'603a',depto:603,tipo:'V16',cant:1,lugar:'Dormitorio',  piso:'Piso 6'},
+  {id:'604a',depto:604,tipo:'V02',cant:1,lugar:'Dormitorio',  piso:'Piso 6'},
+  {id:'605a',depto:605,tipo:'V02',cant:1,lugar:'Dormitorio',  piso:'Piso 6'},
+  {id:'606a',depto:606,tipo:'V02',cant:1,lugar:'Dormitorio',  piso:'Piso 6'},
+  {id:'607a',depto:607,tipo:'V02',cant:1,lugar:'Dormitorio',  piso:'Piso 6'},
+  {id:'608a',depto:608,tipo:'V02',cant:1,lugar:'Dormitorio',  piso:'Piso 6'},
+  {id:'609a',depto:609,tipo:'V02',cant:1,lugar:'Dormitorio',  piso:'Piso 6'},
+  {id:'610a',depto:610,tipo:'V02',cant:1,lugar:'Dormitorio',  piso:'Piso 6'},
+  {id:'611a',depto:611,tipo:'V02',cant:1,lugar:'Dormitorio',  piso:'Piso 6'},
+  {id:'612a',depto:612,tipo:'V02',cant:1,lugar:'Dormitorio',  piso:'Piso 6'},
+  {id:'613a',depto:613,tipo:'V03',cant:1,lugar:'Dormitorio',  piso:'Piso 6'},
+  {id:'614a',depto:614,tipo:'V02',cant:1,lugar:'Dormitorio',  piso:'Piso 6'},
+  {id:'615a',depto:615,tipo:'V02',cant:1,lugar:'Dormitorio',  piso:'Piso 6'},
+  {id:'616a',depto:616,tipo:'V02',cant:1,lugar:'Dormitorio',  piso:'Piso 6'},
+  {id:'617a',depto:617,tipo:'V02',cant:1,lugar:'Dormitorio',  piso:'Piso 6'},
+  {id:'618a',depto:618,tipo:'V03',cant:1,lugar:'Dormitorio',  piso:'Piso 6'},
+  {id:'619a',depto:619,tipo:'V08',cant:2,lugar:'Dormitorio',  piso:'Piso 6'},
+  {id:'620a',depto:620,tipo:'V09',cant:1,lugar:'Dormitorio',  piso:'Piso 6'},
+  {id:'621a',depto:621,tipo:'V09',cant:1,lugar:'Dormitorio',  piso:'Piso 6'},
+  {id:'622a',depto:622,tipo:'V09',cant:1,lugar:'Dormitorio',  piso:'Piso 6'},
+  {id:'p6ce1',depto:'P6-CE1',tipo:'V04',cant:1,lugar:'Escalera',piso:'Piso 6',label:'Caja Escala 1'},
+  {id:'p6asc',depto:'P6-ASC',tipo:'V07',cant:1,lugar:'Ascensor',piso:'Piso 6',label:'Hall Ascensor'},
+  {id:'p6pas',depto:'P6-PAS',tipo:'V17',cant:8,lugar:'Pasillo', piso:'Piso 6',label:'Pasillo'},
+];
+// Estados de instalación (secuenciales)
+const VENT_EST=[
+  {k:'pendiente', l:'Pendiente',    ic:'○',col:'#64748b',bg:'rgba(100,116,139,.12)'},
+  {k:'rasgo',     l:'Rasgo OK',     ic:'●',col:'#38bdf8',bg:'rgba(56,189,248,.15)'},
+  {k:'medida',    l:'Medida OK',    ic:'●',col:'#a855f7',bg:'rgba(168,85,247,.15)'},
+  {k:'transito',  l:'En Tránsito',  ic:'▶',col:'#f59e0b',bg:'rgba(245,158,11,.15)'},
+  {k:'marco',     l:'Marco OK',     ic:'●',col:'#0ea5e9',bg:'rgba(14,165,233,.15)'},
+  {k:'termopanel',l:'Termopanel',   ic:'●',col:'#06b6d4',bg:'rgba(6,182,212,.15)'},
+  {k:'completo',  l:'✓ Completo',   ic:'✓',col:'#22c55e',bg:'rgba(34,197,94,.15)'},
+];
+function ventEstDef(estado){return VENT_EST.find(function(e){return e.k===estado;})||VENT_EST[0];}
+// Pre-compute pisos list and groupings
+var VENT_PISOS=[...new Set(VENT_SCHEDULE.map(function(i){return i.piso;}))].sort();
+function ControlView({saves,onSave,auth,toast}){
+  var canEdit=!auth||auth.role==='Admin'||auth.role==='Jefe Obra'||auth.role==='Supervisor';
+  const[selPiso,setSelPiso]=useState(VENT_PISOS[0]||'Piso 2');
+  const[viewMode,setViewMode]=useState('piso'); // 'piso'|'tipo'|'alertas'
+  const[selDepto,setSelDepto]=useState(null);
+  const[selItemId,setSelItemId]=useState(null);
+  const[itemData,setItemData]=useState(function(){
+    try{return JSON.parse(localStorage.getItem('ctrl_vent_est_v2')||'{}');}catch(e){return{};}
+  });
+  var today=new Date().toISOString().slice(0,10);
+  function saveItemData(nd){setItemData(nd);try{localStorage.setItem('ctrl_vent_est_v2',JSON.stringify(nd));}catch(e){}}
+  function updItem(id,patch){var nd=Object.assign({},itemData);nd[id]=Object.assign({},nd[id]||{},patch);saveItemData(nd);}
+  function getEst(id){return(itemData[id]||{}).estado||'pendiente';}
+  function getED(id){return ventEstDef(getEst(id));}
+  // Agrupar schedule por piso
+  var schedByPiso={};
+  VENT_SCHEDULE.forEach(function(item){if(!schedByPiso[item.piso])schedByPiso[item.piso]=[];schedByPiso[item.piso].push(item);});
+  // Items del piso seleccionado
+  var pisoItems=schedByPiso[selPiso]||[];
+  // Stats globales
+  var nComp=0,nProc=0,nPend=0,nAlert=0;
+  VENT_SCHEDULE.forEach(function(item){
+    var e=getEst(item.id);
+    if(e==='completo')nComp++;else if(e==='pendiente')nPend++;else nProc++;
+    if(e==='transito'){var d=itemData[item.id]||{};if(d.llegada&&!d.llegadaReal){var dias=Math.round((new Date(d.llegada+'T12:00:00')-new Date(today+'T12:00:00'))/86400000);if(dias<=7)nAlert++;}}
+  });
+  // Stats del piso actual
+  var pisoComp=0,pisoProc=0,pisoPend=0;
+  pisoItems.forEach(function(item){var e=getEst(item.id);if(e==='completo')pisoComp++;else if(e==='pendiente')pisoPend++;else pisoProc++;});
+  // Alertas
+  var alertItems=[];
+  VENT_SCHEDULE.forEach(function(item){
+    if(getEst(item.id)!=='transito')return;
+    var d=itemData[item.id]||{};
+    if(!d.llegada||d.llegadaReal)return;
+    var dias=Math.round((new Date(d.llegada+'T12:00:00')-new Date(today+'T12:00:00'))/86400000);
+    if(dias<=7)alertItems.push({item,dias});
+  });
+  alertItems.sort(function(a,b){return a.dias-b.dias;});
+  // Indicador de estado por depto (peor estado = color)
+  function deptoInd(dep,pisoScope){
+    var items=(pisoScope||VENT_SCHEDULE).filter(function(i){return i.depto===dep;});
+    if(!items.length)return null;
+    var allComp=items.every(function(i){return getEst(i.id)==='completo';});
+    if(allComp)return{col:'#22c55e',bg:'rgba(34,197,94,.22)',bdr:'rgba(34,197,94,.55)',ic:'✓'};
+    var anyT=items.some(function(i){return getEst(i.id)==='transito';});
+    if(anyT)return{col:'#f59e0b',bg:'rgba(245,158,11,.18)',bdr:'rgba(245,158,11,.5)',ic:'▶'};
+    var anyWork=items.some(function(i){return getEst(i.id)!=='pendiente';});
+    if(anyWork)return{col:'#38bdf8',bg:'rgba(56,189,248,.15)',bdr:'rgba(56,189,248,.4)',ic:'●'};
+    return{col:'#64748b',bg:'var(--bg2)',bdr:'var(--border)',ic:'○'};
+  }
+  // Render single item row
+  function renderItem(item){
+    var ed=getED(item.id);var isSel=selItemId===item.id;
+    var iD=itemData[item.id]||{};
+    var diasLlegada=iD.llegada&&!iD.llegadaReal?Math.round((new Date(iD.llegada+'T12:00:00')-new Date(today+'T12:00:00'))/86400000):null;
+    var alertIc=diasLlegada!==null?(diasLlegada<0?'🚨':diasLlegada===0?'🔔':diasLlegada<=3?'⚠️':diasLlegada<=7?'📅':''):'';
+    return h('div',{key:item.id,style:{marginBottom:5}},
+      // Header row
+      h('div',{onClick:function(){setSelItemId(isSel?null:item.id);},
+        style:{display:'flex',alignItems:'center',gap:8,padding:'9px 10px',cursor:'pointer',
+          borderRadius:isSel?'8px 8px 0 0':8,
+          border:'1px solid '+(isSel?'var(--accent)':ed.col+'45'),
+          background:isSel?'rgba(0,10,24,.85)':ed.bg,transition:'all .1s'}},
+        h('div',{style:{width:36,height:36,borderRadius:8,display:'flex',flexDirection:'column',alignItems:'center',
+          justifyContent:'center',background:ed.col+'22',flexShrink:0}},
+          h('div',{style:{fontSize:10,fontWeight:800,color:ed.col,lineHeight:1}},item.tipo),
+          h('div',{style:{fontSize:8,color:ed.col,opacity:.7}},item.cant>1?'x'+item.cant:'')),
+        h('div',{style:{flex:1,minWidth:0}},
+          h('div',{style:{fontSize:11,fontWeight:600,color:'var(--text)',lineHeight:1.2}},item.lugar+(item.cant>1?' (×'+item.cant+')':'')),
+          h('div',{style:{fontSize:9,color:'var(--text3)',marginTop:2}},'D'+item.depto+' · '+item.piso)
+        ),
+        alertIc&&h('span',{style:{fontSize:15,flexShrink:0}},alertIc),
+        h('div',{style:{padding:'3px 9px',borderRadius:12,fontSize:10,fontWeight:700,
+          color:ed.col,background:ed.col+'18',border:'1px solid '+ed.col+'40',flexShrink:0,whiteSpace:'nowrap'}},
+          ed.ic+' '+ed.l)
+      ),
+      // Expanded panel
+      isSel&&h('div',{style:{border:'1px solid var(--accent)',borderTop:'none',
+        borderRadius:'0 0 8px 8px',padding:'10px',background:'rgba(0,8,20,.9)'}},
+        // State buttons
+        canEdit&&h('div',{style:{marginBottom:10}},
+          h('div',{style:{fontSize:9,color:'var(--text3)',fontWeight:700,letterSpacing:.5,marginBottom:6,textTransform:'uppercase'}},'ESTADO DEL ÍTEM'),
+          h('div',{style:{display:'flex',gap:4,flexWrap:'wrap'}},
+            VENT_EST.map(function(e){
+              var act=ed.k===e.k;
+              return h('button',{key:e.k,
+                onClick:function(){updItem(item.id,{estado:e.k});toast&&toast(item.tipo+' D'+item.depto+' → '+e.l);},
+                style:{padding:'5px 9px',borderRadius:8,fontSize:10,fontWeight:act?700:400,cursor:'pointer',
+                  border:'1px solid '+(act?e.col:e.col+'40'),
+                  background:act?e.col+'22':'transparent',
+                  color:act?e.col:e.col+'80'}
+              },e.ic+' '+e.l);
+            })
+          )
+        ),
+        // Date fields (medida o transito)
+        (ed.k==='medida'||ed.k==='transito')&&h('div',{style:{background:'var(--bg3)',borderRadius:10,padding:'10px',marginTop:8}},
+          h('div',{style:{fontSize:9,color:'var(--text3)',fontWeight:700,letterSpacing:.5,marginBottom:8,textTransform:'uppercase'}},
+            'FECHAS — '+item.tipo+' ×'+item.cant+' D'+item.depto),
+          h('div',{style:{display:'flex',gap:8,flexWrap:'wrap',marginBottom:8}},
+            h('div',{style:{flex:1,minWidth:130}},
+              h('div',{style:{fontSize:9,color:'var(--text3)',marginBottom:3}},'Fecha toma de medida'),
+              h('input',{type:'date',value:iD.medida||'',
+                onChange:function(ev){updItem(item.id,{medida:ev.target.value});},
+                style:{width:'100%',background:'var(--bg2)',border:'1px solid var(--border)',
+                  borderRadius:6,padding:'5px 8px',color:'var(--text)',fontSize:11,fontFamily:'var(--font)'}})
+            ),
+            h('div',{style:{flex:1,minWidth:130}},
+              h('div',{style:{fontSize:9,color:'var(--text3)',marginBottom:3}},'Fecha llegada a obra'),
+              h('input',{type:'date',value:iD.llegada||'',
+                onChange:function(ev){updItem(item.id,{llegada:ev.target.value});},
+                style:{width:'100%',background:'var(--bg2)',border:'1px solid var(--border)',
+                  borderRadius:6,padding:'5px 8px',color:'var(--text)',fontSize:11,fontFamily:'var(--font)'}})
+            )
+          ),
+          iD.llegada&&(function(){
+            var d=Math.round((new Date(iD.llegada+'T12:00:00')-new Date(today+'T12:00:00'))/86400000);
+            var sc=d<0?'var(--red)':d===0?'var(--blue)':d<=3?'var(--amber)':d<=7?'#a855f7':'var(--green)';
+            return h('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}},
+              !iD.llegadaReal&&h('div',{style:{padding:'5px 10px',borderRadius:8,fontSize:11,fontWeight:700,
+                color:sc,border:'1px solid '+sc+'50',background:sc+'15'}},
+                d<0?'🚨 Vencida '+Math.abs(d)+' días':d===0?'🔔 LLEGA HOY':'📅 Faltan '+d+' día'+(d!==1?'s':'')),
+              iD.llegadaReal
+                ?h('span',{style:{fontSize:11,color:'var(--green)',fontWeight:700}},'✓ Recibida el '+iD.llegadaReal)
+                :canEdit&&h('button',{
+                  onClick:function(){updItem(item.id,{llegadaReal:today,estado:'marco'});toast&&toast('✓ '+item.tipo+' D'+item.depto+' recibida → Marco');},
+                  style:{padding:'5px 12px',borderRadius:8,border:'1px solid var(--green)',
+                    background:'rgba(34,197,94,.1)',color:'var(--green)',fontSize:11,fontWeight:700,cursor:'pointer'}
+                },'✓ Recibida → Marco')
+            );
+          })()
+        )
+      )
+    );
+  }
+  // Agrupar items del piso seleccionado: numerados vs áreas comunes
+  var pisoNumDepts=[];var pisoAreas=[];var pisoDepsMap={};
+  pisoItems.forEach(function(item){
+    if(!pisoDepsMap[item.depto])pisoDepsMap[item.depto]=[];
+    pisoDepsMap[item.depto].push(item);
+    if(typeof item.depto==='number'&&pisoNumDepts.indexOf(item.depto)<0)pisoNumDepts.push(item.depto);
+    else if(typeof item.depto==='string'&&pisoAreas.indexOf(item.depto)<0)pisoAreas.push(item.depto);
+  });
+  pisoNumDepts.sort(function(a,b){return a-b;});
+  // Por tipo global
+  var byTipo={};
+  VENT_SCHEDULE.forEach(function(item){if(!byTipo[item.tipo])byTipo[item.tipo]=[];byTipo[item.tipo].push(item);});
+  // Helper: botón de depto
+  function deptBtn(dep,ind,items){
+    var isSel=selDepto===dep;
+    var lbl=items[0]&&items[0].label?items[0].label:('D'+dep);
+    return h('button',{key:String(dep),
+      onClick:function(){setSelDepto(isSel?null:dep);setSelItemId(null);},
+      style:{padding:'6px 8px',borderRadius:8,border:'1px solid '+(isSel?'var(--accent)':ind.bdr),
+        background:isSel?'rgba(0,200,255,.22)':ind.bg,color:isSel?'var(--accent)':ind.col,
+        fontFamily:'var(--mono)',fontSize:11,fontWeight:700,cursor:'pointer',
+        minWidth:48,textAlign:'center',lineHeight:'1.35',transition:'all .1s',flexShrink:0}
+    },
+      h('div',{style:{fontSize:typeof dep==='number'?12:10}},lbl),
+      h('div',{style:{fontSize:9,opacity:.85}},ind.ic)
+    );
+  }
+  return h('div',{className:'page'},
+    // ── Header y modo ──────────────────────────────────────────────────────
+    h('div',{style:{marginBottom:10}},
+      h('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:8}},
+        h('div',{style:{fontSize:12,fontWeight:700,color:'var(--text)',letterSpacing:.5}},'🪟 CONTROL VENTANAS'),
+        h('div',{style:{flex:1}}),
+        nAlert>0&&h('div',{style:{background:'rgba(239,68,68,.15)',border:'1px solid rgba(239,68,68,.35)',
+          borderRadius:12,padding:'2px 9px',fontSize:10,fontWeight:700,color:'var(--red)'}},'⚠ '+nAlert),
+        [{k:'piso',l:'Por Piso'},{k:'tipo',l:'Por Tipo'},{k:'alertas',l:'🔔'}].map(function(t){
+          var act=viewMode===t.k;
+          return h('button',{key:t.k,
+            onClick:function(){setViewMode(t.k);setSelDepto(null);setSelItemId(null);},
+            style:{padding:'5px 12px',borderRadius:16,fontSize:11,fontWeight:act?700:400,cursor:'pointer',
+              background:act?'var(--accent)':'var(--bg2)',color:act?'var(--bg)':'var(--text2)',
+              border:'1px solid '+(act?'var(--accent)':'var(--border)')}
+          },t.l);
+        })
+      ),
+      // Stats globales compactos
+      h('div',{style:{display:'flex',gap:6}},
+        h('span',{style:{background:'rgba(34,197,94,.12)',color:'var(--green)',padding:'3px 10px',borderRadius:10,fontSize:10,fontWeight:700}},nComp+' ✓'),
+        h('span',{style:{background:'rgba(245,158,11,.12)',color:'var(--amber)',padding:'3px 10px',borderRadius:10,fontSize:10,fontWeight:700}},nProc+' ▶'),
+        h('span',{style:{background:'rgba(100,116,139,.1)',color:'var(--text3)',padding:'3px 10px',borderRadius:10,fontSize:10,fontWeight:700}},nPend+' ○'),
+        h('span',{style:{color:'var(--text3)',fontSize:10,padding:'3px 6px',marginLeft:'auto'}},'Total: '+VENT_SCHEDULE.length+' ítems')
+      )
+    ),
+    // ── ALERTAS ────────────────────────────────────────────────────────────
+    viewMode==='alertas'&&h('div',{style:{display:'flex',flexDirection:'column',gap:5}},
+      alertItems.length===0
+        ?h('div',{style:{textAlign:'center',color:'var(--green)',padding:'30px 0',fontSize:13,fontWeight:600}},'✓ Sin alertas activas')
+        :alertItems.map(function(a){
+          var d=a.dias;
+          var col=d<0?'var(--red)':d===0?'var(--blue)':d<=3?'var(--amber)':'#a855f7';
+          var ic=d<0?'🚨':d===0?'🔔':d<=3?'⚠️':'📅';
+          var msg=d<0?'Vencida '+Math.abs(d)+' días':d===0?'LLEGA HOY':'En '+d+' día'+(d!==1?'s':'');
+          return h('div',{key:a.item.id,style:{background:col+'15',border:'1px solid '+col+'50',
+            borderRadius:10,padding:'9px 12px',display:'flex',alignItems:'center',gap:10}},
+            h('span',{style:{fontSize:18,flexShrink:0}},ic),
+            h('div',{style:{flex:1}},
+              h('div',{style:{fontSize:12,color:col,fontWeight:700}},msg+' — '+a.item.tipo+' x'+a.item.cant+' D'+a.item.depto),
+              h('div',{style:{fontSize:10,color:'var(--text3)',marginTop:1}},a.item.lugar+' · '+a.item.piso)
+            ),
+            canEdit&&d<=3&&h('button',{
+              onClick:function(){updItem(a.item.id,{llegadaReal:today,estado:'marco'});toast&&toast('✓ Recibida');},
+              style:{padding:'5px 10px',borderRadius:8,border:'1px solid '+col,background:col+'22',
+                color:col,fontSize:10,fontWeight:700,cursor:'pointer',flexShrink:0}
+            },'✓ Recibida')
+          );
+        })
+    ),
+    // ── POR TIPO ───────────────────────────────────────────────────────────
+    viewMode==='tipo'&&h('div',{style:{display:'flex',flexDirection:'column',gap:6}},
+      Object.keys(byTipo).sort().map(function(tipo){
+        var items=byTipo[tipo];
+        var comp=items.filter(function(i){return getEst(i.id)==='completo';}).length;
+        var tc=comp===items.length?'var(--green)':comp>0?'var(--amber)':'var(--text3)';
+        var isSel=selDepto===tipo;
+        return h('div',{key:tipo,style:{borderRadius:10,border:'1px solid '+(isSel?'var(--accent)':'var(--border)'),overflow:'hidden'}},
+          h('div',{onClick:function(){setSelDepto(isSel?null:tipo);setSelItemId(null);},
+            style:{padding:'10px 12px',display:'flex',alignItems:'center',gap:10,cursor:'pointer',
+              background:isSel?'rgba(0,10,24,.7)':'var(--card)'}},
+            h('div',{style:{fontSize:16,fontWeight:800,color:'var(--text)',fontFamily:'var(--mono)',minWidth:52}},tipo),
+            h('div',{style:{flex:1,fontSize:10,color:'var(--text2)'}},items.length+' ítems · '+items.reduce(function(s,i){return s+i.cant;},0)+' uds'),
+            h('div',{style:{fontFamily:'var(--mono)',fontSize:12,fontWeight:700,color:tc}},comp+'/'+items.length)
+          ),
+          isSel&&h('div',{style:{padding:'8px 10px',borderTop:'1px solid var(--border)'}},
+            items.map(function(item){return renderItem(item);}))
+        );
+      })
+    ),
+    // ── POR PISO (vista principal) ─────────────────────────────────────────
+    viewMode==='piso'&&h('div',{style:{display:'flex',flexDirection:'column',gap:8}},
+      // Selector de piso
+      h('div',{style:{display:'flex',gap:5,flexWrap:'wrap',marginBottom:4}},
+        VENT_PISOS.map(function(p){
+          var act=selPiso===p;
+          var pit=schedByPiso[p]||[];
+          var pc2=pit.filter(function(i){return getEst(i.id)==='completo';}).length;
+          var col=pc2===pit.length&&pit.length>0?'var(--green)':pc2>0?'var(--amber)':'var(--text3)';
+          return h('button',{key:p,
+            onClick:function(){setSelPiso(p);setSelDepto(null);setSelItemId(null);},
+            style:{padding:'8px 14px',borderRadius:10,fontSize:12,fontWeight:act?700:500,cursor:'pointer',
+              border:'1px solid '+(act?'var(--accent)':'var(--border)'),
+              background:act?'var(--accent)':'var(--bg2)',
+              color:act?'var(--bg)':'var(--text2)',transition:'all .1s',minWidth:64,textAlign:'center'}
+          },
+            h('div',null,p.replace('Piso ','')),
+            h('div',{style:{fontSize:8,color:act?'rgba(0,0,0,.5)':col,marginTop:1}},pc2+'/'+pit.length)
+          );
+        })
+      ),
+      // Stats del piso
+      h('div',{style:{display:'flex',gap:5,marginBottom:2}},
+        h('span',{style:{background:'rgba(34,197,94,.12)',color:'var(--green)',padding:'3px 9px',borderRadius:10,fontSize:10,fontWeight:700}},pisoComp+' completos'),
+        h('span',{style:{background:'rgba(245,158,11,.12)',color:'var(--amber)',padding:'3px 9px',borderRadius:10,fontSize:10,fontWeight:700}},pisoProc+' en proceso'),
+        h('span',{style:{background:'rgba(100,116,139,.1)',color:'var(--text3)',padding:'3px 9px',borderRadius:10,fontSize:10,fontWeight:700}},pisoPend+' pendientes')
+      ),
+      // Departamentos numerados
+      pisoNumDepts.length>0&&h('div',{style:{display:'flex',flexWrap:'wrap',gap:5,paddingTop:4}},
+        pisoNumDepts.map(function(dep){
+          var items=pisoDepsMap[dep]||[];
+          var ind=deptoInd(dep,pisoItems);if(!ind)return null;
+          return deptBtn(dep,ind,items);
+        })
+      ),
+      // Items del depto seleccionado (departamentos numerados)
+      selDepto!=null&&typeof selDepto==='number'&&pisoDepsMap[selDepto]&&
+        h('div',{style:{background:'var(--bg3)',borderRadius:10,padding:'8px 10px'}},
+          h('div',{style:{fontSize:10,fontWeight:700,color:'var(--accent)',marginBottom:8,letterSpacing:.5}},'D'+selDepto+' — '+selPiso),
+          pisoDepsMap[selDepto].map(function(item){return renderItem(item);})
+        ),
+      // Áreas comunes
+      pisoAreas.length>0&&h('div',{style:{marginTop:8}},
+        h('div',{style:{fontSize:9,color:'var(--text3)',fontWeight:700,letterSpacing:.5,marginBottom:6,textTransform:'uppercase'}},'ÁREAS COMUNES'),
+        h('div',{style:{display:'flex',gap:5,flexWrap:'wrap',marginBottom:6}},
+          pisoAreas.map(function(dep){
+            var items=pisoDepsMap[dep]||[];
+            var ind=deptoInd(dep,pisoItems);if(!ind)return null;
+            return deptBtn(dep,ind,items);
+          })
+        ),
+        selDepto!=null&&typeof selDepto==='string'&&pisoDepsMap[selDepto]&&
+          h('div',{style:{background:'var(--bg3)',borderRadius:10,padding:'8px 10px'}},
+            h('div',{style:{fontSize:10,fontWeight:700,color:'var(--accent)',marginBottom:8,letterSpacing:.5}},
+              (pisoDepsMap[selDepto][0]&&pisoDepsMap[selDepto][0].label)||selDepto),
+            pisoDepsMap[selDepto].map(function(item){return renderItem(item);})
+          )
+      )
+    )
+  );
+}
+
 // ── PLAN MAESTRO VIEW ────────────────────────────────────────────────────
 const PM_CSS=`.pm-root{font-family:Arial,sans-serif;font-size:12px;background:var(--bg);color:var(--text);min-height:100%;}
 .pm-root .pm-hdr{background:linear-gradient(135deg,#060b14,#0a1628,#060b14);border-bottom:1px solid var(--border);padding:10px 16px;display:flex;align-items:center;justify-content:space-between;position:relative;}
@@ -8696,10 +9140,11 @@ function App({initialData}){
   const onMatSave=(md)=>save({matData:md});
   const isSupervisor=auth.role==='Supervisor';
   const userResp=isSupervisor?(USER_RESP_MAP[auth.user]||null):null;
-  const SUPR_TABS=['partidas','pisos','programa','asistencia'];
+  const SUPR_TABS=['partidas','pisos','programa','asistencia','control'];
   const navTabs=[
     {id:'dash',icon:'◆',label:'Dashboard'},
     {id:'partidas',icon:'🔍',label:'Partidas'},
+    {id:'control',icon:'🪟',label:'Control'},
     {id:'pisos',icon:'⬢',label:'Pisos'},
     {id:'gantt',icon:'▤',label:'Gantt'},
     {id:'programa',icon:'📅',label:'Plan Pers.'},
@@ -8716,6 +9161,7 @@ function App({initialData}){
   let content;
   if(effectiveTab==='dash')content=h(Dashboard,{progress,ganttTasks:ganttData.tasks||[],weekData,ganttData,saves});
   else if(effectiveTab==='partidas')content=h(PartidasView,{progress,saves,onSave,auth,toast:showToast,userResp});
+  else if(effectiveTab==='control')content=h(ControlView,{saves,onSave,auth,toast:showToast});
   else if(effectiveTab==='pisos')content=h(PisosView,{progress,saves,onSave,auth,toast:showToast,userResp});
   else if(effectiveTab==='gantt')content=h(GanttView,{ganttData,onGanttSave,auth,progress,saves,toast:showToast});
   else if(effectiveTab==='programa')content=h(ProgramaView,{ganttData,saves,onWeekSave,weekData,auth,toast:showToast,userResp});
