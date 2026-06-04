@@ -7452,6 +7452,19 @@ function InformeSemanalView({ganttData,saves,onSave,onGanttSave,reportData,onRep
     return Object.values(groups).sort(function(a,b){return parseInt(a.fn)-parseInt(b.fn)||a.pa[0]-b.pa[0];});
   },[ganttData,saves,wStart,wEnd]);
 
+  // Helper: filtro de especialidad — usa psIds como criterio principal
+  function matchEspecialidad(g,filtR,rk){
+    var psIds=g.taskPsIds;var fn=g.fn_num||parseInt(g.fn)||1;
+    if(psIds&&psIds.length>0){
+      if(psIds.some(function(pid){return PARTIDA_RESP_MAP[fn+'_'+pid]===rk;}))return true;
+    }
+    var planR=PLAN.rl[g.pa[3]]||'';
+    if(planR===filtR){
+      if(!psIds||!psIds.length)return true;
+      return !psIds.every(function(pid){var r=PARTIDA_RESP_MAP[fn+'_'+pid];return r&&r!==rk;});
+    }
+    return false;
+  }
   // ── Período de vista (semana / mes / año) ────────────────────────────────
   const [periodoVista,setPeriodoVista]=useState('semana');
   const [periodoRef,setPeriodoRef]=useState(function(){var d=new Date();return{y:d.getFullYear(),m:d.getMonth()};});
@@ -7497,43 +7510,27 @@ function InformeSemanalView({ganttData,saves,onSave,onGanttSave,reportData,onRep
   },[pendingMove]);
   // ── Mover depto entre meses: ajusta overrides de sus PLAN.pa de ventanas ──
   // Busca TODO lo que hay en agosto para ventanas y lo mueve a julio
-  function fixVentanasAgostoJulio(){
+  // Fix genérico: busca tareas de una especialidad en un mes y las mueve
+  function fixEspecialidadMes(planResp,mesStart,mesEnd,deltaDias){
     if(!onGanttSave){return;}
-    var augStart='2026-08-01',augEnd='2026-08-31';
-    var rk=rl2Resp('subcontrato ventanas');
-    // Encontrar todos los dptos con tareas de ventanas en agosto
-    var tasks=computeRangeTasks(augStart,augEnd);
+    var rk=rl2Resp(planResp);
+    var tasks=computeRangeTasks(mesStart,mesEnd);
     var depsToFix=[];
     tasks.forEach(function(g){
-      var planResp=PLAN.rl[g.pa[3]]||'';
-      if(planResp!=='subcontrato ventanas')return;
-      var ps=g.taskPsIds;
-      var isVentana=(!ps||!ps.length)?false:ps.some(function(pid){return PARTIDA_RESP_MAP[g.fn_num+'_'+pid]===rk;});
-      if(!isVentana)return;
+      if(!matchEspecialidad(g,planResp,rk))return;
       g.deps.forEach(function(d){if(depsToFix.indexOf(d)<0)depsToFix.push(d);});
     });
-    // Si no hay resultado con filtro estricto, buscar sin filtro de partidas
     if(!depsToFix.length){
+      // Fallback: buscar por responsable puro sin psIds
       tasks.forEach(function(g){
-        if((PLAN.rl[g.pa[3]]||'')!=='subcontrato ventanas')return;
+        if((PLAN.rl[g.pa[3]]||'')!==planResp)return;
         g.deps.forEach(function(d){if(depsToFix.indexOf(d)<0)depsToFix.push(d);});
       });
     }
-    // Si aún no hay resultado, buscar cualquier tarea de cualquier responsable en agosto para pisos 5-6
-    if(!depsToFix.length){
-      tasks.forEach(function(g){
-        g.deps.forEach(function(d){
-          if(d>=600&&d<700&&depsToFix.indexOf(d)<0)depsToFix.push(d);
-          if(d>=500&&d<600&&depsToFix.indexOf(d)<0)depsToFix.push(d);
-        });
-      });
-    }
-    if(!depsToFix.length){alert('No se encontraron tareas de ventanas en agosto 2026');return;}
-    // Mover todos esos deptos -35 días (5 semanas, para asegurar que queden en julio)
+    if(!depsToFix.length){alert('No se encontraron tareas de '+planResp+' en ese período');return;}
     var ov=Object.assign({},(ganttData||{}).overrides||{});
     var ds2=(ganttData||{}).dateShift||0;
-    var sdN=d2n(augStart),edN=d2n(augEnd);
-    var moved=0;
+    var sdN=d2n(mesStart),edN=d2n(mesEnd);var moved=0;
     depsToFix.forEach(function(dep){
       PLAN.pa.forEach(function(pa){
         var fi=pa[5];var fase=PLAN.fa[fi];if(!fase)return;
@@ -7543,12 +7540,52 @@ function InformeSemanalView({ganttData,saves,onSave,onGanttSave,reportData,onRep
         var psN=pov&&pov.s!=null?pov.s:fStart+(pa[1]||0);
         var peN=pov&&pov.e!=null?pov.e:fStart+(pa[2]||0);
         if(peN<sdN||psN>edN)return;
-        ov[povKey]=Object.assign({},pov||{},{s:psN-35,e:peN-35});
-        moved++;
+        ov[povKey]=Object.assign({},pov||{},{s:psN+deltaDias,e:peN+deltaDias});moved++;
       });
     });
     onGanttSave(Object.assign({},ganttData,{overrides:ov}));
-    alert('✓ Corregidos: D'+depsToFix.join(', D')+'\n('+moved+' entradas movidas -35 días a julio)');
+    alert('✓ D'+depsToFix.join(', D')+'\n('+moved+' entradas movidas '+deltaDias+' días)');
+  }
+  // Ventanas: mover todo lo de agosto → julio (-35 días)
+  function fixVentanasAgostoJulio(){fixEspecialidadMes('subcontrato ventanas','2026-05-01','2026-08-31',-35);}
+  // Fix pintura Piso 6 — itera semana a semana (igual que computeRangeTasks)
+  function fixPinturaSepAgosto(){
+    if(!onGanttSave||!ganttData)return 0;
+    var ov=Object.assign({},(ganttData||{}).overrides||{});
+    var ds2=(ganttData||{}).dateShift||0;
+    var finAgosto=d2n('2026-08-31');
+    var piso6Set={};
+    [603,604,605,606,607,608,609,610,611,612,613,614,615,616,617,618,619,620,621,622]
+      .forEach(function(d){piso6Set[d]=true;});
+    var moved=0;var seen={};
+    // Recorrer semana a semana sep1-oct15 — igual que hace computeRangeTasks
+    var cur=new Date('2026-09-01T12:00:00');
+    while(cur.toISOString().slice(0,10)<='2026-10-15'){
+      var wS=cur.toISOString().slice(0,10);
+      var wE=new Date(cur.getTime()+5*864e5).toISOString().slice(0,10);
+      var sdN=d2n(wS),edN=d2n(wE);
+      PLAN.pa.forEach(function(pa){
+        var fi=pa[5];var fase=PLAN.fa[fi];if(!fase)return;
+        var dep=PLAN.de[fase.di];if(!dep)return;
+        if(!piso6Set[dep.d]&&!piso6Set[Number(dep.d)])return; // solo Piso 6
+        var fov=ov['fase_'+fi];
+        var fStart=fov&&fov.s!=null?fov.s:(fase.s+ds2);
+        var povKey='pa_'+fi+'_'+pa[0];
+        if(seen[povKey])return;
+        var pov=ov[povKey];
+        var psN=pov&&pov.s!=null?pov.s:fStart+(pa[1]||0);
+        var peN=pov&&pov.e!=null?pov.e:fStart+(pa[2]||0);
+        if(peN<sdN||psN>edN)return; // no overlaps week
+        seen[povKey]=true;
+        if(peN<=finAgosto)return; // ya ok
+        var delta=peN-finAgosto;
+        ov[povKey]=Object.assign({},pov||{},{s:psN-delta,e:finAgosto});
+        moved++;
+      });
+      cur.setDate(cur.getDate()+7);
+    }
+    if(moved>0)onGanttSave(Object.assign({},ganttData,{overrides:ov}));
+    return moved;
   }
   function moverDeptMes(dep,mesStartStr,mesEndStr,deltaDias){
     if(!onGanttSave){return;}
@@ -7591,7 +7628,7 @@ function InformeSemanalView({ganttData,saves,onSave,onGanttSave,reportData,onRep
           byM[mk].wks.push(wk);
         });
       });
-      Object.keys(byM).sort().forEach(function(mk){
+      Object.keys(byM).sort(function(a,b){var ap=a.split('-');var bp=b.split('-');return(parseInt(ap[0])-parseInt(bp[0]))||(parseInt(ap[1])-parseInt(bp[1]));}).forEach(function(mk){
         var mo=byM[mk];
         var ds=new Date(mo.y,mo.m,1).toISOString().slice(0,10);
         var de=new Date(mo.y,mo.m+1,0).toISOString().slice(0,10);
@@ -7606,11 +7643,11 @@ function InformeSemanalView({ganttData,saves,onSave,onGanttSave,reportData,onRep
     var cMap={};
     rCols.forEach(function(col){
       col.wks.forEach(function(wk){
+        // Pintura: ignorar semanas de septiembre en adelante
+        if(esFiltrado&&filtResp==='subcontrato pintura'&&wk.start>='2026-09-01')return;
         var tasks=computeRangeTasks(wk.start,wk.end);
         var ft=esFiltrado?tasks.filter(function(g){
-          if((PLAN.rl[g.pa[3]]||'')!==filtResp)return false;
-          var ps=g.taskPsIds;if(ps&&ps.length>0)return ps.some(function(pid){return PARTIDA_RESP_MAP[g.fn_num+'_'+pid]===rk2;});
-          return true;
+          return matchEspecialidad(g,filtResp,rk2);
         }):tasks;
         ft.forEach(function(g){
           g.deps.forEach(function(d){
@@ -7806,21 +7843,27 @@ function InformeSemanalView({ganttData,saves,onSave,onGanttSave,reportData,onRep
     // Recolectar datos por semana
     var weekData=[];var allDeptsSet={};
     weeksList.forEach(function(wk){
+      // Pintura: nada de septiembre en adelante
+      if(esFiltrado&&filtResp==='subcontrato pintura'&&wk.start>='2026-09-01')return;
       var tasks=computeRangeTasks(wk.start,wk.end);
       var ft=esFiltrado?tasks.filter(function(g){
-        if((PLAN.rl[g.pa[3]]||'')!==filtResp)return false;
-        var ps=g.taskPsIds;if(ps&&ps.length>0)return ps.some(function(pid){return PARTIDA_RESP_MAP[g.fn_num+'_'+pid]===rk;});
-        return true;
+        return matchEspecialidad(g,filtResp,rk);
       }):tasks;
       var deptInfo={};
-      ft.forEach(function(g){g.deps.forEach(function(d){allDeptsSet[d]=true;if(!deptInfo[d])deptInfo[d]={pcts:[],avg:0};deptInfo[d].pcts.push(g.depPcts[d]||0);});});
+      ft.forEach(function(g){g.deps.forEach(function(d){
+        allDeptsSet[d]=true;if(!deptInfo[d])deptInfo[d]={pcts:[],avg:0};deptInfo[d].pcts.push(g.depPcts[d]||0);
+      });});
       Object.keys(deptInfo).forEach(function(d){var ps=deptInfo[d].pcts;deptInfo[d].avg=Math.round(ps.reduce(function(s,v){return s+v;},0)/ps.length);});
       weekData.push({wk:wk,deptInfo:deptInfo});
     });
     // Agrupar por mes si es vista año
     var cols=[]; // [{label1,label2,deptInfoAgg}]
     if(isAnio){
+      // Pre-inicializar LOS 12 MESES del año para que siempre aparezcan todos
+      // (incluye meses vacíos al final = resto del año)
+      var ganttYear=weeksList.length?parseInt(weeksList[0].start.slice(0,4)):new Date().getFullYear();
       var byMonth={};
+      for(var _mi=0;_mi<12;_mi++){byMonth[ganttYear+'-'+_mi]={m:_mi,y:ganttYear,depts:{}};}
       weekData.forEach(function(wd){
         var d=new Date(wd.wk.start+'T12:00:00');var mk=d.getFullYear()+'-'+d.getMonth();
         if(!byMonth[mk])byMonth[mk]={m:d.getMonth(),y:d.getFullYear(),depts:{}};
@@ -7829,7 +7872,11 @@ function InformeSemanalView({ganttData,saves,onSave,onGanttSave,reportData,onRep
           byMonth[mk].depts[dep].pcts.push(wd.deptInfo[dep].avg);
         });
       });
-      Object.keys(byMonth).sort().forEach(function(mk){
+      Object.keys(byMonth).sort(function(a,b){
+        // Sort numérico por año-mes para que '2026-10' (Nov) vaya después de '2026-9' (Oct)
+        var ap=a.split('-');var bp=b.split('-');
+        return (parseInt(ap[0])-parseInt(bp[0]))||( parseInt(ap[1])-parseInt(bp[1]));
+      }).forEach(function(mk){
         var mo=byMonth[mk];
         Object.keys(mo.depts).forEach(function(d){var ps=mo.depts[d].pcts;mo.depts[d].avg=Math.round(ps.reduce(function(s,v){return s+v;},0)/ps.length);});
         var ds=new Date(mo.y,mo.m,1).toISOString().slice(0,10);
@@ -7843,8 +7890,15 @@ function InformeSemanalView({ganttData,saves,onSave,onGanttSave,reportData,onRep
     }
     // ── Leer estados de áreas comunes desde ControlView (localStorage) ────
     var itemDataGA={};try{itemDataGA=JSON.parse(localStorage.getItem('ctrl_vent_est_v2')||'{}');}catch(e){}
-    var EST_IDX_GA={pendiente:0,rasgo:1,medida:2,transito:3,marco:4,termopanel:5,completo:6};
-    function areaEstPct(id){var est=(itemDataGA[id]||{}).estado||'pendiente';return Math.round((EST_IDX_GA[est]||0)/6*100);}
+    var EST_IDX_GA={pendiente:0,rasgo:1,medida:2,transito:3,instalando:4,completo:5};
+    function areaEstPct(id){
+      var d=itemDataGA[id]||{};
+      var est=d.estado||'pendiente';
+      // Si hay instalación en curso, usar promedio de sub-etapas
+      var instPct=Math.round(((d.marco||0)+(d.termopanel||0)+(d.quinc||0))/3);
+      if(instPct>0)return instPct;
+      return Math.round((EST_IDX_GA[est]||0)/5*100);
+    }
     // Áreas comunes agrupadas por piso y depto string (CE1, CE2, ASC, PAS)
     var areasByPiso={};
     VENT_SCHEDULE.forEach(function(it){
@@ -8158,10 +8212,9 @@ function InformeSemanalView({ganttData,saves,onSave,onGanttSave,reportData,onRep
     y+=6;doc.setLineWidth(0.3);doc.line(margin,y,pw-margin,y);y+=4;
     weeksList.forEach(function(wk){
       var tasks=computeRangeTasks(wk.start,wk.end);
+      var rk_=rl2Resp(filtResp);
       var ftasks=esFiltrado?tasks.filter(function(g){
-        if((PLAN.rl[g.pa[3]]||'')!==filtResp)return false;
-        var rk=rl2Resp(filtResp);var psIds=g.taskPsIds;
-        if(psIds&&psIds.length>0)return psIds.some(function(pid){return PARTIDA_RESP_MAP[g.fn_num+'_'+pid]===rk;});
+        return matchEspecialidad(g,filtResp,rk_);
         return true;
       }):tasks;
       if(!ftasks.length)return;
@@ -8187,7 +8240,11 @@ function InformeSemanalView({ganttData,saves,onSave,onGanttSave,reportData,onRep
         doc.setTextColor(0,0,0);y+=5;
         // Fila 2: badges de dptos con % individual
         var bW=16,bH=6,bGap=2,bx=margin+8;
-        g.deps.slice(0,20).forEach(function(d){
+        g.deps.filter(function(d){
+          // Pintura: excluir Piso 6 en septiembre o posterior
+          if(esFiltrado&&filtResp==='subcontrato pintura'&&Number(d)>=603&&Number(d)<=622&&wk.start>='2026-09-01')return false;
+          return true;
+        }).slice(0,20).forEach(function(d){
           if(bx+bW>pw-margin-20){bx=margin+8;y+=bH+2;if(y>248){doc.addPage();y=16;}}
           var dPct=g.depPcts&&g.depPcts[d]!=null?g.depPcts[d]:null;
           var clr2=pctRGB(dPct!=null?dPct:0);
@@ -8221,6 +8278,12 @@ function InformeSemanalView({ganttData,saves,onSave,onGanttSave,reportData,onRep
   const [hideEditDone,setHideEditDone]=useState(false);
   // Resetear panel de edición al cambiar semana (cualquier vía: botones, picker)
   useEffect(function(){setEditDep(null);setEditTask(null);},[wStart]);
+  // ── Fix pintura P6: se aplica al cargar ganttData. Es idempotente:
+  //    si ya está corregido → moved=0 → no llama onGanttSave → no loop ──────
+  useEffect(function(){
+    if(!onGanttSave||!ganttData||!PLAN||!PLAN.pa)return;
+    fixPinturaSepAgosto();
+  },[ganttData]);
   function quickSave(depNum,pid,pct,fk){
     fk=fk||'f3';
     var sv=Object.assign({},saves[depNum]||{});
@@ -8328,22 +8391,24 @@ function InformeSemanalView({ganttData,saves,onSave,onGanttSave,reportData,onRep
   // Tareas filtradas
   const filtTasks=useMemo(function(){
     if(filtResp==='all')return weekTasks;
-    var respKey=rl2Resp(filtResp); // ej: "subcontrato ventanas" → "sucto.ventanas"
+    var respKey=rl2Resp(filtResp);
     return weekTasks.filter(function(g){
-      // 1. El responsable del Gantt task debe coincidir con el filtro
-      var ri=g.pa[3];
-      if((PLAN.rl[ri]||'')!==filtResp)return false;
-      // 2. Si el task tiene partidas mapeadas (psIds), al menos una debe
-      //    pertenecer realmente a esa especialidad según PARTIDA_RESP_MAP
-      var psIds=g.taskPsIds;
+      var ri=g.pa[3];var planResp=PLAN.rl[ri]||'';
+      var psIds=g.taskPsIds;var fn=g.fn_num;
+      // Criterio 1: las partidas mapeadas pertenecen a esta especialidad
       if(psIds&&psIds.length>0){
-        var fn=g.fn_num;
-        return psIds.some(function(pid){
-          return PARTIDA_RESP_MAP[fn+'_'+pid]===respKey;
-        });
+        if(psIds.some(function(pid){return PARTIDA_RESP_MAP[fn+'_'+pid]===respKey;}))return true;
       }
-      // Sin psIds: confiar solo en el responsable del Gantt
-      return true;
+      // Criterio 2: el responsable del Gantt coincide Y no hay psIds que contradigan
+      if(planResp===filtResp){
+        // Verificar que no haya psIds que apunten a OTRA especialidad
+        if(!psIds||!psIds.length)return true;
+        var allOther=psIds.every(function(pid){
+          var r=PARTIDA_RESP_MAP[fn+'_'+pid];return r&&r!==respKey;
+        });
+        return !allOther; // si todas apuntan a otra esp. → excluir; si hay ambigüedad → incluir
+      }
+      return false;
     });
   },[weekTasks,filtResp]);
 
@@ -8841,18 +8906,6 @@ function InformeSemanalView({ganttData,saves,onSave,onGanttSave,reportData,onRep
       )
     ),
 
-    // ── ALERTA: fix rápido ventanas agosto ────────────────────────────────
-    periodoVista!=='semana'&&esFiltrado&&filtResp==='subcontrato ventanas'&&onGanttSave&&
-      h('div',{style:{background:'rgba(239,68,68,.1)',border:'1px solid rgba(239,68,68,.3)',
-        borderRadius:10,padding:'10px 14px',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}},
-        h('div',{style:{fontSize:12,fontWeight:700,color:'var(--red)',flex:1}},
-          '⚠ ¿Hay departamentos de ventanas en agosto que deberían estar en julio?'),
-        h('button',{
-          onClick:function(){fixVentanasAgostoJulio();},
-          style:{padding:'7px 16px',borderRadius:8,border:'none',
-            background:'var(--red)',color:'#fff',fontSize:11,fontWeight:700,cursor:'pointer',flexShrink:0}
-        },'✓ Mover todo agosto → julio (auto-detectar)')
-      ),
 
     // ── GANTT INTERACTIVO (Reprogramar) ───────────────────────────────────
     periodoVista!=='semana'&&reprMode&&h('div',{style:{display:'flex',flexDirection:'column',gap:8}},
@@ -8897,15 +8950,19 @@ function InformeSemanalView({ganttData,saves,onSave,onGanttSave,reportData,onRep
 
     // ── VISTA MENSUAL ──────────────────────────────────────────────────────
     periodoVista==='mes'&&!reprMode&&(function(){
+      // Pintura: si el mes seleccionado es septiembre o posterior → sin tareas
+      if(esFiltrado&&filtResp==='subcontrato pintura'&&periodoRef.m>=8){
+        return h('div',{style:{textAlign:'center',color:'var(--text3)',padding:'30px',fontSize:12,fontStyle:'italic'}},
+          'Pintura finaliza en agosto — no hay tareas planificadas para este mes');
+      }
       var weeks=getMonthWeeks(periodoRef.y,periodoRef.m);
       var fColor={'1':'var(--blue)','2':'var(--purple)','3':'var(--green)','4':'var(--amber)'};
       return h('div',{style:{display:'flex',flexDirection:'column',gap:8}},
         weeks.map(function(wk){
           var tasks=computeRangeTasks(wk.start,wk.end);
+          var rk_m=rl2Resp(filtResp);
           var ftasks=esFiltrado?tasks.filter(function(g){
-            if((PLAN.rl[g.pa[3]]||'')!==filtResp)return false;
-            var rk=rl2Resp(filtResp);var psIds=g.taskPsIds;
-            if(psIds&&psIds.length>0)return psIds.some(function(pid){return PARTIDA_RESP_MAP[g.fn_num+'_'+pid]===rk;});
+            return matchEspecialidad(g,filtResp,rk_m);
             return true;
           }):tasks;
           var sLabel='S'+semNum_(wk.start)+' · '+wk.start.split('-').reverse().slice(0,2).join('/')+' – '+wk.end.split('-').reverse().slice(0,2).join('/');
@@ -8934,7 +8991,11 @@ function InformeSemanalView({ganttData,saves,onSave,onGanttSave,reportData,onRep
                     h('div',{style:{fontSize:9,color:'var(--text3)'}},'Resp: '+resp),
                     // Fila 3: badges de dptos con botones de movimiento (solo Admin)
                     h('div',{style:{display:'flex',gap:4,flexWrap:'wrap'}},
-                      g.deps.slice(0,16).map(function(d){
+                      g.deps.filter(function(d){
+                        // Pintura: excluir Piso 6 en septiembre o posterior
+                        if(esFiltrado&&filtResp==='subcontrato pintura'&&Number(d)>=603&&Number(d)<=622&&wk.start>='2026-09-01')return false;
+                        return true;
+                      }).slice(0,16).map(function(d){
                         var dPct=g.depPcts&&g.depPcts[d]!=null?g.depPcts[d]:null;
                         var dc=dPct>=100?'var(--green)':dPct>=51?'#f97316':dPct>=1?'#ca8a04':'var(--accent)';
                         var db=dPct>=100?'rgba(34,197,94,.15)':dPct>=51?'rgba(249,115,22,.15)':dPct>=1?'rgba(202,138,4,.15)':'rgba(14,165,233,.12)';
@@ -8983,11 +9044,22 @@ function InformeSemanalView({ganttData,saves,onSave,onGanttSave,reportData,onRep
         h('div',{style:{fontSize:10,color:'var(--text3)',marginBottom:4,textAlign:'center'}},'Haz clic en un mes para ver el detalle · Filtra por especialidad arriba'),
         h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6}},
           meses.map(function(m){
+            // Pintura: nada después de agosto (mes 7 = agosto)
+            if(esFiltrado&&filtResp==='subcontrato pintura'&&m>=8){
+              return h('button',{key:m,onClick:function(){},
+                style:{background:'var(--bg2)',border:'1px solid rgba(100,116,139,.2)',
+                  borderRadius:10,padding:'10px 8px',textAlign:'left',cursor:'default',opacity:.5}},
+                h('div',{style:{fontSize:11,fontWeight:700,color:'var(--text)',marginBottom:2}},
+                  ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'][m]),
+                h('div',{style:{fontSize:9,color:'var(--text3)'}},'Sin tareas')
+              );
+            }
             var weeks=getMonthWeeks(periodoRef.y,m);
             var allTasks={};
             weeks.forEach(function(wk){
               var tasks=computeRangeTasks(wk.start,wk.end);
-              var ft=esFiltrado?tasks.filter(function(g){return(PLAN.rl[g.pa[3]]||'')===filtResp;}):tasks;
+              var rk_a=rl2Resp(filtResp);
+              var ft=esFiltrado?tasks.filter(function(g){return matchEspecialidad(g,filtResp,rk_a);}):tasks;
               ft.forEach(function(g){var k=g.pa[0]+'_'+g.fn;if(!allTasks[k])allTasks[k]=g;});
             });
             var taskArr=Object.values(allTasks);
@@ -9559,7 +9631,8 @@ const VENT_SCHEDULE=[
   {id:'p3ce1',depto:'P3-CE1',tipo:'V24',cant:1,lugar:'Escalera',piso:'Piso 3',label:'Caja Escala 1'},
   {id:'p3ce2',depto:'P3-CE2',tipo:'V24',cant:1,lugar:'Escalera',piso:'Piso 3',label:'Caja Escala 2'},
   {id:'p3asc',depto:'P3-ASC',tipo:'V24',cant:1,lugar:'Ascensor',piso:'Piso 3',label:'Hall Ascensor'},
-  {id:'p3pas',depto:'P3-PAS',tipo:'V27MOD',cant:2,lugar:'Pasillo',piso:'Piso 3',label:'Pasillo'},
+  {id:'p3pas_v27', depto:'P3-PAS',tipo:'V27',   cant:16,lugar:'Pasillo',piso:'Piso 3',label:'Pasillo'},
+  {id:'p3pas_v27m',depto:'P3-PAS',tipo:'V27MOD',cant:2, lugar:'Pasillo',piso:'Piso 3',label:'Pasillo'},
   // ── PISO 4 ──────────────────────────────────────────────────────────────
   {id:'403a',depto:403,tipo:'V20',cant:1,lugar:'Dormitorio',  piso:'Piso 4'},
   {id:'404a',depto:404,tipo:'V19',cant:3,lugar:'Dormitorio',  piso:'Piso 4'},
@@ -9583,7 +9656,8 @@ const VENT_SCHEDULE=[
   {id:'422a',depto:422,tipo:'V23',cant:3,lugar:'Dormitorio',  piso:'Piso 4'},
   {id:'p4ce1',depto:'P4-CE1',tipo:'V20',cant:1,lugar:'Escalera',piso:'Piso 4',label:'Caja Escala 1'},
   {id:'p4asc',depto:'P4-ASC',tipo:'V20',cant:1,lugar:'Ascensor',piso:'Piso 4',label:'Hall Ascensor'},
-  {id:'p4pas',depto:'P4-PAS',tipo:'V27MOD',cant:2,lugar:'Pasillo',piso:'Piso 4',label:'Pasillo'},
+  {id:'p4pas_v21', depto:'P4-PAS',tipo:'V21',   cant:16,lugar:'Pasillo',piso:'Piso 4',label:'Pasillo'},
+  {id:'p4pas_v21m',depto:'P4-PAS',tipo:'V21MOD',cant:2, lugar:'Pasillo',piso:'Piso 4',label:'Pasillo'},
   // ── PISO 5 ──────────────────────────────────────────────────────────────
   {id:'503a',depto:503,tipo:'V05',cant:1,lugar:'Dormitorio',  piso:'Piso 5'},
   {id:'504a',depto:504,tipo:'V11',cant:1,lugar:'Dormitorio',  piso:'Piso 5'},
@@ -9607,7 +9681,8 @@ const VENT_SCHEDULE=[
   {id:'522a',depto:522,tipo:'V13',cant:1,lugar:'Dormitorio',  piso:'Piso 5'},
   {id:'p5ce1',depto:'P5-CE1',tipo:'V06',cant:1,lugar:'Escalera',piso:'Piso 5',label:'Caja Escala 1'},
   {id:'p5asc',depto:'P5-ASC',tipo:'V06',cant:1,lugar:'Ascensor',piso:'Piso 5',label:'Hall Ascensor'},
-  {id:'p5pas',depto:'P5-PAS',tipo:'V14',cant:5,lugar:'Pasillo', piso:'Piso 5',label:'Pasillo'},
+  {id:'p5pas_v13',depto:'P5-PAS',tipo:'V13',cant:1,lugar:'Pasillo',piso:'Piso 5',label:'Pasillo'},
+  {id:'p5pas_v14',depto:'P5-PAS',tipo:'V14',cant:5,lugar:'Pasillo',piso:'Piso 5',label:'Pasillo'},
   // ── PISO 6 ──────────────────────────────────────────────────────────────
   {id:'603a',depto:603,tipo:'V16',cant:1,lugar:'Dormitorio',  piso:'Piso 6'},
   {id:'604a',depto:604,tipo:'V02',cant:1,lugar:'Dormitorio',  piso:'Piso 6'},
@@ -9631,21 +9706,47 @@ const VENT_SCHEDULE=[
   {id:'622a',depto:622,tipo:'V09',cant:1,lugar:'Dormitorio',  piso:'Piso 6'},
   {id:'p6ce1',depto:'P6-CE1',tipo:'V04',cant:1,lugar:'Escalera',piso:'Piso 6',label:'Caja Escala 1'},
   {id:'p6asc',depto:'P6-ASC',tipo:'V07',cant:1,lugar:'Ascensor',piso:'Piso 6',label:'Hall Ascensor'},
-  {id:'p6pas',depto:'P6-PAS',tipo:'V17',cant:8,lugar:'Pasillo', piso:'Piso 6',label:'Pasillo'},
+  {id:'p6pas_v17',depto:'P6-PAS',tipo:'V17',cant:1,lugar:'Pasillo',piso:'Piso 6',label:'Pasillo'},
+  {id:'p6pas_v18',depto:'P6-PAS',tipo:'V18',cant:8,lugar:'Pasillo',piso:'Piso 6',label:'Pasillo'},
 ];
 // Estados de instalación (secuenciales)
+// Estados lineales (flujo principal)
 const VENT_EST=[
-  {k:'pendiente', l:'Pendiente',    ic:'○',col:'#64748b',bg:'rgba(100,116,139,.12)'},
-  {k:'rasgo',     l:'Rasgo OK',     ic:'●',col:'#38bdf8',bg:'rgba(56,189,248,.15)'},
-  {k:'medida',    l:'Medida OK',    ic:'●',col:'#a855f7',bg:'rgba(168,85,247,.15)'},
-  {k:'transito',  l:'En Tránsito',  ic:'▶',col:'#f59e0b',bg:'rgba(245,158,11,.15)'},
-  {k:'marco',     l:'Marco OK',     ic:'●',col:'#0ea5e9',bg:'rgba(14,165,233,.15)'},
-  {k:'termopanel',l:'Termopanel',   ic:'●',col:'#06b6d4',bg:'rgba(6,182,212,.15)'},
-  {k:'completo',  l:'✓ Completo',   ic:'✓',col:'#22c55e',bg:'rgba(34,197,94,.15)'},
+  {k:'pendiente',  l:'Pendiente',    ic:'○',col:'#0ea5e9',bg:'rgba(14,165,233,.12)'},   // celeste
+  {k:'rasgo',      l:'Rasgo OK',     ic:'●',col:'#eab308',bg:'rgba(234,179,8,.15)'},    // amarillo
+  {k:'medida',     l:'Medida OK',    ic:'●',col:'#ec4899',bg:'rgba(236,72,153,.15)'},   // rosado
+  {k:'transito',   l:'En Tránsito',  ic:'▶',col:'#f97316',bg:'rgba(249,115,22,.15)'},  // naranja
+  {k:'instalando', l:'Instalando',   ic:'⚙',col:'#92400e',bg:'rgba(146,64,14,.15)'},   // café (fase instalación)
+  {k:'completo',   l:'✓ Completo',   ic:'✓',col:'#22c55e',bg:'rgba(34,197,94,.15)'},   // verde
 ];
+// Colores de las sub-etapas de instalación (paralelas)
+const INST_ETAPAS={
+  marco:      {l:'Marco',      col:'#78350f',bg:'rgba(120,53,15,.2)',  ic:'🔲'},
+  termopanel: {l:'Termopanel', col:'#1d4ed8',bg:'rgba(29,78,216,.2)', ic:'🪟'},
+  quinc:      {l:'Quincallería',col:'#6d28d9',bg:'rgba(109,40,217,.2)',ic:'🔩'},
+};
 function ventEstDef(estado){return VENT_EST.find(function(e){return e.k===estado;})||VENT_EST[0];}
 // Pre-compute pisos list and groupings
 var VENT_PISOS=[...new Set(VENT_SCHEDULE.map(function(i){return i.piso;}))].sort();
+// Expandir items con cant>1 en unidades independientes
+var VENT_SCHEDULE_EXP=(function(){
+  var out=[];
+  VENT_SCHEDULE.forEach(function(item){
+    if(item.cant<=1){out.push(item);}
+    else{
+      for(var u=1;u<=item.cant;u++){
+        out.push(Object.assign({},item,{
+          id:item.id+'_u'+u,
+          cant:1,
+          _unidad:u,
+          _totalUnidad:item.cant,
+          _origId:item.id
+        }));
+      }
+    }
+  });
+  return out;
+})();
 function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
   var canEdit=!auth||auth.role==='Admin'||auth.role==='Jefe Obra'||auth.role==='Supervisor';
   const[selPiso,setSelPiso]=useState(VENT_PISOS[0]||'Piso 2');
@@ -9747,69 +9848,83 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
     toast&&toast('✓ Reprogramados '+deps.length+' dptos ('+moved+' entradas)');
   }
 
-  // ── Leer estado desde saves (Pisos/Partidas) para un depto ───────────────
-  // Mapeo: id:'7'=rasgos, id:'10'=medida, id:'38'=instalacion ventanas
+  // ── Nuevos EST_ORDER (6 estados lineales + sub-estados paralelos) ────────
+  var EST_ORDER={pendiente:0,rasgo:1,medida:2,transito:3,instalando:4,completo:5};
+
+  // ── Calcular estado efectivo de un item (incluye sub-estados paralelos) ──
+  function calcEst(id,nd){
+    var data=(nd||itemData)[id]||{};
+    var stored=data.estado||'pendiente';
+    var marcoPct=data.marco||0;
+    var termoPct=data.termopanel||0;
+    var quincPct=data.quinc||0;
+    var entregaC=data.entregaCalidad;
+    var llegadaR=data.llegadaReal;
+    // Si hay instalación en curso o llegó
+    if(llegadaR||(marcoPct>0)||(termoPct>0)||(quincPct>0)){
+      if(marcoPct>=100&&termoPct>=100&&quincPct>=100&&entregaC)return 'completo';
+      return 'instalando';
+    }
+    return stored;
+  }
+
+  // ── Leer estado desde saves ──────────────────────────────────────────────
   function estIdxFromSaves(dep){
     if(typeof dep!=='number')return 0;
     var sv=saves[dep]||{};var f1=sv.f1||{};var lk=_D.lf1||{};
     function gv(pid){return f1[pid]!=null?f1[pid]:(lk[dep]?lk[dep][pid]||0:0);}
-    if(gv('38')>=100)return 6; // completo
-    if(gv('38')>=50) return 5; // termopanel
-    if(gv('38')>0)   return 4; // marco
-    if(gv('10')>=100)return 3; // transito (medida completa)
-    if(gv('10')>0)   return 2; // medida parcial
+    if(gv('38')>=100)return 5; // completo
+    if(gv('38')>0)   return 4; // instalando
+    if(gv('10')>=100)return 3; // transito
+    if(gv('10')>0)   return 2; // medida
     if(gv('7')>=100) return 1; // rasgo
     return 0;
   }
 
-  // ── getEst: máximo entre Control y Pisos/Partidas ───────────────────────
+  // ── getEst: estado efectivo del item ────────────────────────────────────
   function getEst(id){
-    var stored=(itemData[id]||{}).estado||'pendiente';
-    var storedIdx=EST_ORDER[stored]||0;
-    var item=VENT_SCHEDULE.find(function(i){return i.id===id;});
-    if(!item)return stored;
-    var savesIdx=estIdxFromSaves(item.depto);
-    var maxIdx=Math.max(storedIdx,savesIdx);
-    return VENT_EST[maxIdx]?VENT_EST[maxIdx].k:'pendiente';
+    var effState=calcEst(id);
+    var effIdx=EST_ORDER[effState]||0;
+    var item=VENT_SCHEDULE_EXP.find(function(i){return i.id===id;});
+    if(item){var savesIdx=estIdxFromSaves(item.depto);effIdx=Math.max(effIdx,savesIdx);}
+    return VENT_EST[effIdx]?VENT_EST[effIdx].k:effState;
   }
   function getED(id){return ventEstDef(getEst(id));}
 
-  // ── updItem: guarda en Control Y sincroniza saves de Pisos/Partidas ──────
+  // ── updItem: guarda y sincroniza con Pisos/Partidas ──────────────────────
   function updItem(id,patch){
     var nd=Object.assign({},itemData);
     nd[id]=Object.assign({},nd[id]||{},patch);
     saveItemData(nd);
-    // Sincronizar saves solo si cambia el estado
-    if(!patch.estado)return;
-    var it=VENT_SCHEDULE.find(function(i){return i.id===id;});
+    var it=VENT_SCHEDULE_EXP.find(function(i){return i.id===id;});
     if(!it||typeof it.depto!=='number')return;
     var dep=it.depto;
-    var depItems=VENT_SCHEDULE.filter(function(i){return i.depto===dep;});
+    var depItems=VENT_SCHEDULE_EXP.filter(function(i){return i.depto===dep;});
     var total=depItems.length;if(!total)return;
-    var rCnt=0,mCnt=0,iCnt=0;
+    var rCnt=0,mCnt=0,instSum=0;
     depItems.forEach(function(di){
-      var est=(nd[di.id]||{}).estado||'pendiente';
-      var idx=EST_ORDER[est]||0;
-      if(idx>=1)rCnt++; // rasgo+
-      if(idx>=2)mCnt++; // medida+
-      if(idx>=6)iCnt++; // completo
+      var d=nd[di.id]||{};var est=d.estado||'pendiente';
+      var eff=calcEst(di.id,nd);
+      if(EST_ORDER[eff]>=1)rCnt++;
+      if(EST_ORDER[eff]>=2)mCnt++;
+      // % instalación = promedio de marco+termopanel+quinc
+      instSum+=Math.round(((d.marco||0)+(d.termopanel||0)+(d.quinc||0))/3);
     });
     var sv=Object.assign({},saves[dep]||{});
     sv.f1=Object.assign({},sv.f1||{});
-    sv.f1['7'] =Math.round(rCnt/total*100); // Rasgos albañilería ventanas
-    sv.f1['10']=Math.round(mCnt/total*100); // Toma de medidas ventanas
-    sv.f1['38']=Math.round(iCnt/total*100); // Instalación de ventanas
+    sv.f1['7'] =Math.round(rCnt/total*100);
+    sv.f1['10']=Math.round(mCnt/total*100);
+    sv.f1['38']=Math.round(instSum/total);
     onSave(dep,sv);
-    toast&&toast('✓ Sincronizado con Pisos y Partidas');
   }
-  // Agrupar schedule por piso
+  // Agrupar schedule EXPANDIDO por piso (unidades independientes)
   var schedByPiso={};
-  VENT_SCHEDULE.forEach(function(item){if(!schedByPiso[item.piso])schedByPiso[item.piso]=[];schedByPiso[item.piso].push(item);});
+  VENT_SCHEDULE_EXP.forEach(function(item){if(!schedByPiso[item.piso])schedByPiso[item.piso]=[];schedByPiso[item.piso].push(item);});
   // Items del piso seleccionado
   var pisoItems=schedByPiso[selPiso]||[];
-  // Stats globales
+  // Stats globales (sobre unidades individuales)
   var nComp=0,nProc=0,nPend=0,nAlert=0;
-  VENT_SCHEDULE.forEach(function(item){
+  VENT_SCHEDULE_EXP.forEach(function(item){
     var e=getEst(item.id);
     if(e==='completo')nComp++;else if(e==='pendiente')nPend++;else nProc++;
     if(e==='transito'){var d=itemData[item.id]||{};if(d.llegada&&!d.llegadaReal){var dias=Math.round((new Date(d.llegada+'T12:00:00')-new Date(today+'T12:00:00'))/86400000);if(dias<=7)nAlert++;}}
@@ -9819,7 +9934,7 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
   pisoItems.forEach(function(item){var e=getEst(item.id);if(e==='completo')pisoComp++;else if(e==='pendiente')pisoPend++;else pisoProc++;});
   // Alertas
   var alertItems=[];
-  VENT_SCHEDULE.forEach(function(item){
+  VENT_SCHEDULE_EXP.forEach(function(item){
     if(getEst(item.id)!=='transito')return;
     var d=itemData[item.id]||{};
     if(!d.llegada||d.llegadaReal)return;
@@ -9827,9 +9942,9 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
     if(dias<=7)alertItems.push({item,dias});
   });
   alertItems.sort(function(a,b){return a.dias-b.dias;});
-  // Indicador de estado por depto (peor estado = color)
+  // Indicador de estado por depto (peor estado = color) - usa unidades expandidas
   function deptoInd(dep,pisoScope){
-    var items=(pisoScope||VENT_SCHEDULE).filter(function(i){return i.depto===dep;});
+    var items=(pisoScope||VENT_SCHEDULE_EXP).filter(function(i){return i.depto===dep;});
     if(!items.length)return null;
     var allComp=items.every(function(i){return getEst(i.id)==='completo';});
     if(allComp)return{col:'#22c55e',bg:'rgba(34,197,94,.22)',bdr:'rgba(34,197,94,.55)',ic:'✓'};
@@ -9855,9 +9970,12 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
         h('div',{style:{width:36,height:36,borderRadius:8,display:'flex',flexDirection:'column',alignItems:'center',
           justifyContent:'center',background:ed.col+'22',flexShrink:0}},
           h('div',{style:{fontSize:10,fontWeight:800,color:ed.col,lineHeight:1}},item.tipo),
-          h('div',{style:{fontSize:8,color:ed.col,opacity:.7}},item.cant>1?'x'+item.cant:'')),
+          item._totalUnidad>1
+            ?h('div',{style:{fontSize:9,color:ed.col,fontWeight:700}},'#'+item._unidad+'/'+item._totalUnidad)
+            :null),
         h('div',{style:{flex:1,minWidth:0}},
-          h('div',{style:{fontSize:11,fontWeight:600,color:'var(--text)',lineHeight:1.2}},item.lugar+(item.cant>1?' (×'+item.cant+')':'')),
+          h('div',{style:{fontSize:11,fontWeight:600,color:'var(--text)',lineHeight:1.2}},
+            item.lugar+(item._totalUnidad>1?' — Unidad #'+item._unidad+' de '+item._totalUnidad:'')),
           h('div',{style:{fontSize:9,color:'var(--text3)',marginTop:2}},'D'+item.depto+' · '+item.piso)
         ),
         alertIc&&h('span',{style:{fontSize:15,flexShrink:0}},alertIc),
@@ -9867,57 +9985,105 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
       ),
       // Expanded panel
       isSel&&h('div',{style:{border:'1px solid var(--accent)',borderTop:'none',
-        borderRadius:'0 0 8px 8px',padding:'10px',background:'rgba(0,8,20,.9)'}},
-        // State buttons
-        canEdit&&h('div',{style:{marginBottom:10}},
-          h('div',{style:{fontSize:9,color:'var(--text3)',fontWeight:700,letterSpacing:.5,marginBottom:6,textTransform:'uppercase'}},'ESTADO DEL ÍTEM'),
+        borderRadius:'0 0 8px 8px',padding:'10px',background:'rgba(0,8,20,.9)',display:'flex',flexDirection:'column',gap:10}},
+        // ── Flujo lineal: estados hasta tránsito ───────────────────────────
+        canEdit&&h('div',null,
+          h('div',{style:{fontSize:9,color:'var(--text3)',fontWeight:700,letterSpacing:.5,marginBottom:6,textTransform:'uppercase'}},'ESTADO PRINCIPAL'),
           h('div',{style:{display:'flex',gap:4,flexWrap:'wrap'}},
-            VENT_EST.map(function(e){
+            VENT_EST.filter(function(e){return e.k!=='instalando'&&e.k!=='completo';}).map(function(e){
               var act=ed.k===e.k;
               return h('button',{key:e.k,
-                onClick:function(){updItem(item.id,{estado:e.k});toast&&toast(item.tipo+' D'+item.depto+' → '+e.l);},
+                onClick:function(){updItem(item.id,{estado:e.k});toast&&toast(item.tipo+' #'+(item._unidad||'')+'→ '+e.l);},
                 style:{padding:'5px 9px',borderRadius:8,fontSize:10,fontWeight:act?700:400,cursor:'pointer',
                   border:'1px solid '+(act?e.col:e.col+'40'),
-                  background:act?e.col+'22':'transparent',
-                  color:act?e.col:e.col+'80'}
+                  background:act?e.col+'22':'transparent',color:act?e.col:e.col+'80'}
               },e.ic+' '+e.l);
             })
           )
         ),
-        // Date fields (medida o transito)
-        (ed.k==='medida'||ed.k==='transito')&&h('div',{style:{background:'var(--bg3)',borderRadius:10,padding:'10px',marginTop:8}},
-          h('div',{style:{fontSize:9,color:'var(--text3)',fontWeight:700,letterSpacing:.5,marginBottom:8,textTransform:'uppercase'}},
-            'FECHAS — '+item.tipo+' ×'+item.cant+' D'+item.depto),
-          h('div',{style:{display:'flex',gap:8,flexWrap:'wrap',marginBottom:8}},
-            h('div',{style:{flex:1,minWidth:130}},
-              h('div',{style:{fontSize:9,color:'var(--text3)',marginBottom:3}},'Fecha toma de medida'),
+        // ── Fechas (medida y tránsito) ─────────────────────────────────────
+        h('div',{style:{background:'var(--bg3)',borderRadius:8,padding:'8px 10px'}},
+          h('div',{style:{display:'flex',gap:8,flexWrap:'wrap',marginBottom:6}},
+            h('div',{style:{flex:1,minWidth:120}},
+              h('div',{style:{fontSize:9,color:'var(--text3)',marginBottom:3}},'📏 Fecha medida'),
               h('input',{type:'date',value:iD.medida||'',
                 onChange:function(ev){updItem(item.id,{medida:ev.target.value});},
                 style:{width:'100%',background:'var(--bg2)',border:'1px solid var(--border)',
-                  borderRadius:6,padding:'5px 8px',color:'var(--text)',fontSize:11,fontFamily:'var(--font)'}})
+                  borderRadius:6,padding:'4px 7px',color:'var(--text)',fontSize:11,fontFamily:'var(--font)'}})
             ),
-            h('div',{style:{flex:1,minWidth:130}},
-              h('div',{style:{fontSize:9,color:'var(--text3)',marginBottom:3}},'Fecha llegada a obra'),
+            h('div',{style:{flex:1,minWidth:120}},
+              h('div',{style:{fontSize:9,color:'var(--text3)',marginBottom:3}},'🚛 Fecha llegada'),
               h('input',{type:'date',value:iD.llegada||'',
                 onChange:function(ev){updItem(item.id,{llegada:ev.target.value});},
                 style:{width:'100%',background:'var(--bg2)',border:'1px solid var(--border)',
-                  borderRadius:6,padding:'5px 8px',color:'var(--text)',fontSize:11,fontFamily:'var(--font)'}})
+                  borderRadius:6,padding:'4px 7px',color:'var(--text)',fontSize:11,fontFamily:'var(--font)'}})
             )
           ),
           iD.llegada&&(function(){
             var d=Math.round((new Date(iD.llegada+'T12:00:00')-new Date(today+'T12:00:00'))/86400000);
             var sc=d<0?'var(--red)':d===0?'var(--blue)':d<=3?'var(--amber)':d<=7?'#a855f7':'var(--green)';
             return h('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}},
-              !iD.llegadaReal&&h('div',{style:{padding:'5px 10px',borderRadius:8,fontSize:11,fontWeight:700,
+              !iD.llegadaReal&&h('div',{style:{padding:'4px 8px',borderRadius:7,fontSize:10,fontWeight:700,
                 color:sc,border:'1px solid '+sc+'50',background:sc+'15'}},
-                d<0?'🚨 Vencida '+Math.abs(d)+' días':d===0?'🔔 LLEGA HOY':'📅 Faltan '+d+' día'+(d!==1?'s':'')),
+                d<0?'🚨 Vencida '+Math.abs(d)+'d':d===0?'🔔 HOY':'📅 '+d+'d'),
               iD.llegadaReal
-                ?h('span',{style:{fontSize:11,color:'var(--green)',fontWeight:700}},'✓ Recibida el '+iD.llegadaReal)
+                ?h('span',{style:{fontSize:10,color:'var(--green)',fontWeight:700}},'✓ Recibida '+iD.llegadaReal)
                 :canEdit&&h('button',{
-                  onClick:function(){updItem(item.id,{llegadaReal:today,estado:'marco'});toast&&toast('✓ '+item.tipo+' D'+item.depto+' recibida → Marco');},
-                  style:{padding:'5px 12px',borderRadius:8,border:'1px solid var(--green)',
-                    background:'rgba(34,197,94,.1)',color:'var(--green)',fontSize:11,fontWeight:700,cursor:'pointer'}
-                },'✓ Recibida → Marco')
+                  onClick:function(){updItem(item.id,{llegadaReal:today});toast&&toast('✓ Recibida');},
+                  style:{padding:'4px 10px',borderRadius:7,border:'1px solid var(--green)',
+                    background:'rgba(34,197,94,.1)',color:'var(--green)',fontSize:10,fontWeight:700,cursor:'pointer'}
+                },'✓ Marcar recibida')
+            );
+          })()
+        ),
+        // ── Sub-etapas paralelas con % (Marco, Termopanel, Quincallería) ──
+        (iD.llegadaReal||ed.k==='instalando'||ed.k==='transito')&&h('div',{style:{background:'var(--bg3)',borderRadius:8,padding:'8px 10px'}},
+          h('div',{style:{fontSize:9,color:'var(--text3)',fontWeight:700,letterSpacing:.5,marginBottom:8,textTransform:'uppercase'}},'INSTALACIÓN — ETAPAS PARALELAS'),
+          // Helper de render de etapa
+          (function(){
+            function etapaRow(key,label,col,icon){
+              var pct=iD[key]||0;
+              var barW=pct+'%';
+              return h('div',{style:{marginBottom:8}},
+                h('div',{style:{display:'flex',alignItems:'center',gap:6,marginBottom:4}},
+                  h('span',{style:{fontSize:12}}),
+                  h('span',{style:{fontSize:10,fontWeight:700,color:col,flex:1}},icon+' '+label),
+                  h('span',{style:{fontFamily:'var(--mono)',fontSize:13,fontWeight:800,color:pct>=100?'var(--green)':pct>0?col:'var(--text3)'}},pct+'%')
+                ),
+                // Barra de progreso
+                h('div',{style:{height:6,background:'var(--bg2)',borderRadius:3,marginBottom:5,overflow:'hidden'}},
+                  h('div',{style:{height:'100%',width:barW,background:pct>=100?'var(--green)':col,borderRadius:3,transition:'width .2s'}})
+                ),
+                // Botones %
+                canEdit&&h('div',{style:{display:'flex',gap:4,flexWrap:'wrap'}},
+                  [0,25,50,75,100].map(function(v){
+                    var act=pct===v;
+                    return h('button',{key:v,
+                      onClick:function(){var p={};p[key]=v;updItem(item.id,p);},
+                      style:{flex:1,padding:'5px 0',borderRadius:7,fontSize:11,fontWeight:act?700:400,
+                        border:'1px solid '+(act?col:'var(--border)'),
+                        background:act?col+'22':'var(--bg2)',
+                        color:act?col:'var(--text3)',cursor:'pointer',minWidth:36}
+                    },v+'%');
+                  })
+                )
+              );
+            }
+            return h('div',null,
+              etapaRow('marco','Marco','#92400e','🔲'),
+              etapaRow('termopanel','Termopanel','#1d4ed8','🪟'),
+              etapaRow('quinc','Quincallería','#6d28d9','🔩'),
+              // Entrega a Calidad
+              h('div',{style:{marginTop:6,paddingTop:6,borderTop:'1px solid var(--border)',display:'flex',alignItems:'center',gap:8}},
+                h('span',{style:{fontSize:10,fontWeight:700,color:'var(--text)',flex:1}},'📋 Entrega a Calidad'),
+                canEdit&&h('button',{
+                  onClick:function(){updItem(item.id,{entregaCalidad:!iD.entregaCalidad});},
+                  style:{padding:'5px 14px',borderRadius:7,fontSize:11,fontWeight:700,cursor:'pointer',
+                    border:'1px solid '+(iD.entregaCalidad?'var(--green)':'var(--border)'),
+                    background:iD.entregaCalidad?'rgba(34,197,94,.2)':'var(--bg2)',
+                    color:iD.entregaCalidad?'var(--green)':'var(--text3)'}
+                },iD.entregaCalidad?'✓ Entregado':'○ Pendiente')
+              )
             );
           })()
         )
@@ -9935,7 +10101,7 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
   pisoNumDepts.sort(function(a,b){return a-b;});
   // Por tipo global
   var byTipo={};
-  VENT_SCHEDULE.forEach(function(item){if(!byTipo[item.tipo])byTipo[item.tipo]=[];byTipo[item.tipo].push(item);});
+  VENT_SCHEDULE_EXP.forEach(function(item){if(!byTipo[item.tipo])byTipo[item.tipo]=[];byTipo[item.tipo].push(item);});
   // Helper: botón de depto
   function deptBtn(dep,ind,items){
     var isSel=selDepto===dep;
@@ -9974,7 +10140,7 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
         h('span',{style:{background:'rgba(34,197,94,.12)',color:'var(--green)',padding:'3px 10px',borderRadius:10,fontSize:10,fontWeight:700}},nComp+' ✓'),
         h('span',{style:{background:'rgba(245,158,11,.12)',color:'var(--amber)',padding:'3px 10px',borderRadius:10,fontSize:10,fontWeight:700}},nProc+' ▶'),
         h('span',{style:{background:'rgba(100,116,139,.1)',color:'var(--text3)',padding:'3px 10px',borderRadius:10,fontSize:10,fontWeight:700}},nPend+' ○'),
-        h('span',{style:{color:'var(--text3)',fontSize:10,padding:'3px 6px',marginLeft:'auto'}},'Total: '+VENT_SCHEDULE.length+' ítems')
+        h('span',{style:{color:'var(--text3)',fontSize:10,padding:'3px 6px',marginLeft:'auto'}},'Total: '+VENT_SCHEDULE_EXP.length+' unidades')
       )
     ),
     // ── ALERTAS ────────────────────────────────────────────────────────────
