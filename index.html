@@ -4722,7 +4722,7 @@ function CubicView({saves,cubicData,onCubicSave,auth,toast}){
 }
 
 
-function LogisticaView({logData,onLogSave,auth,toast}){
+function LogisticaView({logData,onLogSave,bodegaData,onBodegaSave,auth,toast}){
   var today=new Date();
   var[yr,setYr]=useState(today.getFullYear());
   var[mo,setMo]=useState(today.getMonth());
@@ -4732,8 +4732,14 @@ function LogisticaView({logData,onLogSave,auth,toast}){
   var[draftTruck,setDraftTruck]=useState({camion:'',hora:'',materiales:[]});
   var[draftMat,setDraftMat]=useState({name:'',qty:'',ud:'un'});
   var[newUnit,setNewUnit]=useState('');
-  var[editMat,setEditMat]=useState(null); // {ei:entryIdx, mi:matIdx}
+  var[editMat,setEditMat]=useState(null);
   var[editMatDraft,setEditMatDraft]=useState({name:'',qty:'',ud:'un'});
+  // ── FLUJO ACOPIO NOCTURNO ──
+  var[hubTab,setHubTab]=useState('hub');
+  var[showHubForm,setShowHubForm]=useState(false);
+  var[hubFormData,setHubFormData]=useState({name:'',qty:'',ud:'un',proveedor:''});
+  var[fleteQtys,setFleteQtys]=useState({});
+  var[fleteDraft,setFleteDraft]=useState({hora:'19:00',nota:''});
   // ── STOCK ──
   var ofiCamRef=useRef(null);
   var ofiFileRef=useRef(null);
@@ -4987,6 +4993,69 @@ function LogisticaView({logData,onLogSave,auth,toast}){
     setImportModal(null);
     toast&&toast('✓ '+cnt+' material'+(cnt!==1?'es':'')+' importado'+(cnt!==1?'s':''));
   }
+
+  // ── FLUJO ACOPIO: datos y funciones ─────────────────────────────────────
+  var fletes=logData['__fletes']||[];
+
+  function addHubMat(){
+    if(!hubFormData.name.trim()||!Number(hubFormData.qty)){toast&&toast('⚠ Nombre y cantidad requeridos');return;}
+    addStockMat('ofi',hubFormData.name.trim(),Number(hubFormData.qty),hubFormData.ud||'un');
+    setShowHubForm(false);
+    setHubFormData({name:'',qty:'',ud:'un',proveedor:''});
+    toast&&toast('✓ Material ingresado al Hub');
+  }
+
+  function generarFlete(){
+    var items=[];
+    (stockOfi.mats||[]).forEach(function(m,i){
+      var q=Number(fleteQtys[i])||0;
+      if(q>0&&q<=(m.qty||0))items.push({name:m.name,qty:q,ud:m.ud||'un'});
+    });
+    if(!items.length){toast&&toast('⚠ Selecciona al menos un material y una cantidad válida');return;}
+    var flete={id:'F'+Date.now(),fecha:todayStr,hora:fleteDraft.hora||'19:00',nota:fleteDraft.nota||'',items:items,creadoEn:Date.now()};
+    onLogSave(Object.assign({},logData,{'__fletes':fletes.concat([flete])}));
+    setFleteQtys({});setFleteDraft({hora:'19:00',nota:''});
+    setHubTab('obra');
+    toast&&toast('🚚 Flete generado — pendiente recepción en obra');
+  }
+
+  function eliminarFlete(fleteId){
+    onLogSave(Object.assign({},logData,{'__fletes':fletes.filter(function(f){return f.id!==fleteId;})}));
+    toast&&toast('Flete eliminado');
+  }
+
+  function confirmarEnObra(fleteId){
+    var flete=fletes.find(function(f){return f.id===fleteId;});
+    if(!flete)return;
+    // 1. Descontar del stock_ofi
+    var so=Object.assign({},logData['__stock_ofi']||{mats:[],guides:[]});
+    var mo2=(so.mats||[]).slice();
+    flete.items.forEach(function(item){
+      var mi=mo2.findIndex(function(m){return m.name===item.name&&m.ud===item.ud;});
+      if(mi>=0)mo2[mi]=Object.assign({},mo2[mi],{qty:Math.max(0,(mo2[mi].qty||0)-item.qty)});
+    });
+    // 2. Quitar flete de tránsito
+    var nf=fletes.filter(function(f){return f.id!==fleteId;});
+    // 3. Sumar al stock bodega obra (bodegaData.stock — usa nombre/unidad/stockActual)
+    var bd=bodegaData||{stock:[],guias:[],vales:[]};
+    var bs=(bd.stock||[]).slice();
+    flete.items.forEach(function(item){
+      var bi=bs.findIndex(function(m){return m.nombre===item.name&&m.unidad===item.ud;});
+      if(bi>=0){bs[bi]=Object.assign({},bs[bi],{stockActual:(bs[bi].stockActual||0)+item.qty});}
+      else{bs.push({id:'hub_'+Date.now()+'_'+Math.random().toString(36).slice(2),
+        nombre:item.name,unidad:item.ud||'un',stockActual:item.qty,stockMinimo:0,ubicacion:'Hub Acopio'});}
+    });
+    // 4. Guardar guía automática en bodegaData
+    var gAuto={id:'G_hub_'+Date.now(),nGuia:'AUTO-HUB-'+fleteId.slice(-6),
+      proveedor:'Hub Oficina Central',fecha:flete.fecha,recibidoPor:'',estado:'Verificado',
+      items:flete.items.map(function(it){return{matId:'',matNombre:it.name,unidad:it.ud,cant:it.qty};}),
+      nota:'Flete nocturno '+flete.hora+(flete.nota?' — '+flete.nota:'')};
+    var bg=(bd.guias||[]).slice();bg.unshift(gAuto);
+    onBodegaSave&&onBodegaSave(Object.assign({},bd,{stock:bs,guias:bg}));
+    onLogSave(Object.assign({},logData,{'__stock_ofi':Object.assign({},so,{mats:mo2}),'__fletes':nf}));
+    toast&&toast('✓ Recepción confirmada — Bodega obra actualizada');
+  }
+
   if(showUnits&&isAdmin){
     return h('div',{className:'page'},
       h('div',{className:'flex aic jb mb10'},
@@ -5290,6 +5359,225 @@ function LogisticaView({logData,onLogSave,auth,toast}){
       style:{display:'none'},onChange:function(e){handleGuideFile('bod',e.target.files&&e.target.files[0]);e.target.value=''}}),
     h('input',{ref:bodFileRef,type:'file',accept:'image/*,application/pdf',
       style:{display:'none'},onChange:function(e){handleGuideFile('bod',e.target.files&&e.target.files[0]);e.target.value=''}}),
+    // ── FLUJO ACOPIO NOCTURNO ────────────────────────────────────────────────
+    h('div',{style:{background:'var(--card)',border:'1px solid rgba(6,182,212,.35)',borderRadius:14,marginTop:14,overflow:'hidden'}},
+      // Header fijo
+      h('div',{style:{padding:'10px 14px',background:'rgba(6,182,212,.07)',borderBottom:'1px solid rgba(6,182,212,.18)',display:'flex',alignItems:'center',gap:8}},
+        h('span',{style:{fontSize:18}},'🌙'),
+        h('div',{style:{flex:1}},
+          h('div',{style:{fontSize:12,fontWeight:800,letterSpacing:'.08em',color:'#67e8f9'}},
+            'ACOPIO NOCTURNO — EDIFICIO VICTORIA'),
+          h('div',{style:{fontSize:10,color:'var(--text3)'}},
+            'Hub Oficina → Despacho 19:00 → Recepción Obra')
+        ),
+        fletes.length>0&&h('div',{style:{background:'rgba(249,115,22,.2)',border:'1px solid rgba(249,115,22,.5)',borderRadius:20,padding:'2px 8px',fontSize:10,fontWeight:700,color:'#fb923c'}},
+          fletes.length+' en tránsito')
+      ),
+      // Tabs
+      h('div',{style:{display:'flex',background:'var(--bg2)',borderBottom:'1px solid var(--border)'}},
+        [{k:'hub',icon:'🏢',label:'Hub Oficina'},{k:'despacho',icon:'🚚',label:'Despacho'},{k:'obra',icon:'📦',label:'En Obra'+(fletes.length?' ('+fletes.length+')':'')}].map(function(t){
+          var sel=hubTab===t.k;
+          return h('button',{key:t.k,onClick:function(){setHubTab(t.k);},
+            style:{flex:1,padding:'9px 4px',border:'none',borderBottom:sel?'2px solid #22d3ee':'2px solid transparent',
+              cursor:'pointer',background:'transparent',color:sel?'#22d3ee':'var(--text3)',
+              fontWeight:sel?700:400,fontSize:11,letterSpacing:'.04em',transition:'all .15s'}},
+            t.icon+' '+t.label);
+        })
+      ),
+      // ── TAB HUB ──
+      hubTab==='hub'&&h('div',{style:{padding:'12px 14px'}},
+        stockOfi.mats.length===0&&!showHubForm&&h('div',{style:{textAlign:'center',padding:'20px 0',color:'var(--text3)',fontSize:12}},
+          'Sin materiales en Hub. Registra las llegadas de proveedores.'),
+        stockOfi.mats.length>0&&h('div',{style:{marginBottom:10}},
+          h('div',{style:{fontSize:9,fontWeight:700,letterSpacing:'.08em',color:'var(--text3)',marginBottom:6,textTransform:'uppercase'}},
+            'STOCK EN OFICINA CENTRAL — '+stockOfi.mats.length+' ítem'+(stockOfi.mats.length!==1?'s':'')),
+          stockOfi.mats.map(function(m,mi){
+            return h('div',{key:mi,style:{display:'flex',alignItems:'center',gap:8,padding:'7px 0',borderBottom:mi<stockOfi.mats.length-1?'1px solid rgba(6,182,212,.08)':'none'}},
+              h('div',{style:{flex:1}},
+                h('div',{style:{fontSize:12,color:'var(--text)',fontWeight:600}},m.name),
+                h('div',{style:{fontSize:10,color:'var(--text3)',marginTop:1}},'Proveedor · Hub')
+              ),
+              h('span',{style:{fontSize:13,fontFamily:'var(--mono)',fontWeight:800,color:'#22d3ee'}},
+                (m.qty||0)+' '+(m.ud||'un')),
+              canEdit&&h('button',{onClick:function(){deleteStockMat('ofi',mi);},
+                style:{background:'rgba(239,68,68,.1)',border:'1px solid rgba(239,68,68,.2)',borderRadius:5,
+                  color:'var(--red)',cursor:'pointer',fontSize:10,padding:'2px 7px',flexShrink:0}},'✕')
+            );
+          })
+        ),
+        showHubForm&&h('div',{style:{background:'var(--bg2)',borderRadius:10,padding:'12px',marginBottom:10,border:'1px solid rgba(6,182,212,.2)'}},
+          h('div',{style:{fontSize:10,fontWeight:700,color:'#22d3ee',letterSpacing:'.08em',marginBottom:10,textTransform:'uppercase'}},'📥 Registrar ingreso al Hub'),
+          h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:8}},
+            h('div',null,
+              h('label',{style:{fontSize:9,fontWeight:700,color:'var(--text3)',letterSpacing:'.06em',display:'block',marginBottom:3,textTransform:'uppercase'}},'Material'),
+              h('input',{type:'text',autoFocus:true,placeholder:'Nombre del material',value:hubFormData.name,
+                onChange:function(e){setHubFormData(Object.assign({},hubFormData,{name:e.target.value}));},
+                onKeyDown:function(e){if(e.key==='Enter')addHubMat();},
+                style:{width:'100%',background:'var(--bg3)',border:'1px solid rgba(6,182,212,.3)',borderRadius:7,
+                  padding:'7px 9px',color:'var(--text)',fontSize:12,outline:'none',boxSizing:'border-box'}})
+            ),
+            h('div',null,
+              h('label',{style:{fontSize:9,fontWeight:700,color:'var(--text3)',letterSpacing:'.06em',display:'block',marginBottom:3,textTransform:'uppercase'}},'Proveedor'),
+              h('input',{type:'text',placeholder:'Nombre proveedor',value:hubFormData.proveedor,
+                onChange:function(e){setHubFormData(Object.assign({},hubFormData,{proveedor:e.target.value}));},
+                style:{width:'100%',background:'var(--bg3)',border:'1px solid var(--border)',borderRadius:7,
+                  padding:'7px 9px',color:'var(--text)',fontSize:12,outline:'none',boxSizing:'border-box'}})
+            )
+          ),
+          h('div',{style:{display:'grid',gridTemplateColumns:'1fr 80px',gap:8,marginBottom:10}},
+            h('div',null,
+              h('label',{style:{fontSize:9,fontWeight:700,color:'var(--text3)',letterSpacing:'.06em',display:'block',marginBottom:3,textTransform:'uppercase'}},'Cantidad'),
+              h('input',{type:'number',placeholder:'0',min:'0',value:hubFormData.qty,
+                onChange:function(e){setHubFormData(Object.assign({},hubFormData,{qty:e.target.value}));},
+                style:{width:'100%',background:'var(--bg3)',border:'1px solid var(--border)',borderRadius:7,
+                  padding:'7px 9px',color:'var(--text)',fontSize:12,outline:'none',boxSizing:'border-box'}})
+            ),
+            h('div',null,
+              h('label',{style:{fontSize:9,fontWeight:700,color:'var(--text3)',letterSpacing:'.06em',display:'block',marginBottom:3,textTransform:'uppercase'}},'Unidad'),
+              h('select',{value:hubFormData.ud,
+                onChange:function(e){setHubFormData(Object.assign({},hubFormData,{ud:e.target.value}));},
+                style:{width:'100%',background:'var(--bg3)',border:'1px solid var(--border)',borderRadius:7,
+                  padding:'7px 4px',color:'var(--text)',fontSize:12,outline:'none',boxSizing:'border-box'}},
+                UNITS.map(function(u){return h('option',{key:u,value:u},u);}))
+            )
+          ),
+          h('div',{style:{display:'flex',gap:8}},
+            h('button',{onClick:addHubMat,
+              style:{flex:1,padding:'9px 0',borderRadius:8,background:'#06b6d4',border:'none',
+                color:'#fff',fontSize:12,fontWeight:700,cursor:'pointer'}},'✓ Guardar en Hub'),
+            h('button',{onClick:function(){setShowHubForm(false);},
+              style:{padding:'9px 14px',borderRadius:8,border:'1px solid var(--border)',
+                background:'transparent',color:'var(--text3)',fontSize:12,cursor:'pointer'}},'Cancelar')
+          )
+        ),
+        canEdit&&!showHubForm&&h('button',{onClick:function(){setShowHubForm(true);},
+          style:{width:'100%',padding:'9px 0',borderRadius:9,border:'1px dashed rgba(6,182,212,.4)',
+            background:'transparent',color:'#22d3ee',cursor:'pointer',fontSize:12,fontWeight:600,
+            letterSpacing:'.04em',marginTop:stockOfi.mats.length>0?8:0}},
+          '+ Registrar llegada de proveedor')
+      ),
+      // ── TAB DESPACHO ──
+      hubTab==='despacho'&&h('div',{style:{padding:'12px 14px'}},
+        stockOfi.mats.length===0
+          ?h('div',{style:{textAlign:'center',padding:'24px 0',color:'var(--text3)',fontSize:12}},
+            '⚠ Sin stock en Hub. Primero registra materiales en "Hub Oficina".')
+          :h('div',null,
+            h('div',{style:{fontSize:10,color:'var(--text3)',marginBottom:10,lineHeight:1.5}},
+              'Selecciona las cantidades a despachar esta noche a la obra:'),
+            h('div',{style:{marginBottom:12}},
+              stockOfi.mats.map(function(m,mi){
+                var max=m.qty||0;
+                var cur=Number(fleteQtys[mi])||0;
+                return h('div',{key:mi,style:{display:'flex',alignItems:'center',gap:8,padding:'7px 0',
+                  borderBottom:mi<stockOfi.mats.length-1?'1px solid rgba(6,182,212,.08)':'none'}},
+                  h('div',{style:{flex:1}},
+                    h('div',{style:{fontSize:12,color:'var(--text)',fontWeight:600}},m.name),
+                    h('div',{style:{fontSize:10,color:'var(--text3)'}},
+                      'Disponible: '+max+' '+(m.ud||'un'))
+                  ),
+                  h('input',{type:'number',min:'0',max:max,placeholder:'0',
+                    value:fleteQtys[mi]||'',
+                    onChange:function(e){
+                      var v=Math.min(Number(e.target.value)||0,max);
+                      setFleteQtys(Object.assign({},fleteQtys,{[mi]:v||''}));
+                    },
+                    style:{width:68,background:'var(--bg2)',border:'1px solid '+(cur>0?'rgba(6,182,212,.6)':'var(--border)'),
+                      borderRadius:7,padding:'6px 8px',color:cur>0?'#22d3ee':'var(--text)',
+                      fontSize:13,fontWeight:700,fontFamily:'var(--mono)',outline:'none',textAlign:'right'}}),
+                  h('span',{style:{fontSize:11,color:'var(--text3)',flexShrink:0,width:28}},m.ud||'un')
+                );
+              })
+            ),
+            h('div',{style:{display:'grid',gridTemplateColumns:'1fr 80px',gap:8,marginBottom:12}},
+              h('div',null,
+                h('label',{style:{fontSize:9,fontWeight:700,color:'var(--text3)',letterSpacing:'.06em',display:'block',marginBottom:3,textTransform:'uppercase'}},'Nota (opcional)'),
+                h('input',{type:'text',placeholder:'Ej: Primer camión de cemento',value:fleteDraft.nota,
+                  onChange:function(e){setFleteDraft(Object.assign({},fleteDraft,{nota:e.target.value}));},
+                  style:{width:'100%',background:'var(--bg3)',border:'1px solid var(--border)',borderRadius:7,
+                    padding:'7px 9px',color:'var(--text)',fontSize:12,outline:'none',boxSizing:'border-box'}})
+              ),
+              h('div',null,
+                h('label',{style:{fontSize:9,fontWeight:700,color:'var(--text3)',letterSpacing:'.06em',display:'block',marginBottom:3,textTransform:'uppercase'}},'Hora'),
+                h('input',{type:'time',value:fleteDraft.hora,
+                  onChange:function(e){setFleteDraft(Object.assign({},fleteDraft,{hora:e.target.value}));},
+                  style:{width:'100%',background:'var(--bg3)',border:'1px solid rgba(249,115,22,.3)',borderRadius:7,
+                    padding:'7px 4px',color:'#fb923c',fontSize:12,outline:'none',boxSizing:'border-box',fontWeight:700}})
+              )
+            ),
+            (function(){
+              var selItems=Object.keys(fleteQtys).filter(function(k){return Number(fleteQtys[k])>0;});
+              return h('div',null,
+                selItems.length>0&&h('div',{style:{background:'rgba(249,115,22,.1)',border:'1px solid rgba(249,115,22,.25)',
+                  borderRadius:8,padding:'8px 10px',marginBottom:10}},
+                  h('div',{style:{fontSize:9,fontWeight:700,color:'#fb923c',letterSpacing:'.08em',marginBottom:5,textTransform:'uppercase'}},'RESUMEN FLETE'),
+                  selItems.map(function(k){
+                    var m=stockOfi.mats[parseInt(k)];
+                    return m?h('div',{key:k,style:{fontSize:11,color:'var(--text)',display:'flex',justifyContent:'space-between',padding:'2px 0'}},
+                      h('span',null,m.name),
+                      h('span',{style:{fontFamily:'var(--mono)',fontWeight:700,color:'#fb923c'}},fleteQtys[k]+' '+m.ud)
+                    ):null;
+                  })
+                ),
+                h('button',{onClick:generarFlete,disabled:selItems.length===0,
+                  style:{width:'100%',padding:'11px 0',borderRadius:10,
+                    background:selItems.length>0?'linear-gradient(135deg,#f97316,#fb923c)':'var(--bg2)',
+                    border:'none',color:selItems.length>0?'#fff':'var(--text3)',
+                    fontSize:13,fontWeight:800,cursor:selItems.length>0?'pointer':'not-allowed',
+                    letterSpacing:'.06em',boxShadow:selItems.length>0?'0 4px 16px rgba(249,115,22,.35)':'none'}},
+                  '🚚 Generar Despacho Nocturno')
+              );
+            })()
+          )
+      ),
+      // ── TAB EN OBRA ──
+      hubTab==='obra'&&h('div',{style:{padding:'12px 14px'}},
+        fletes.length===0
+          ?h('div',{style:{textAlign:'center',padding:'30px 0',color:'var(--text3)',fontSize:12}},
+            h('div',{style:{fontSize:28,marginBottom:8}},'📭'),
+            'Sin fletes en tránsito.',
+            h('div',{style:{fontSize:10,marginTop:4}},'Genera un despacho desde la pestaña "Despacho".'))
+          :h('div',{style:{display:'flex',flexDirection:'column',gap:10}},
+            fletes.map(function(flete){
+              return h('div',{key:flete.id,style:{background:'var(--bg2)',borderRadius:12,overflow:'hidden',
+                border:'1px solid rgba(249,115,22,.3)'}},
+                h('div',{style:{padding:'10px 14px',background:'rgba(249,115,22,.07)',
+                  borderBottom:'1px solid rgba(249,115,22,.15)',display:'flex',alignItems:'center',gap:8}},
+                  h('span',{style:{fontSize:16}},'🚚'),
+                  h('div',{style:{flex:1}},
+                    h('div',{style:{fontSize:12,fontWeight:700,color:'#fb923c'}},
+                      'Flete '+flete.hora+' — '+flete.fecha),
+                    flete.nota&&h('div',{style:{fontSize:10,color:'var(--text3)',marginTop:1}},flete.nota)
+                  ),
+                  canEdit&&h('button',{onClick:function(){if(confirm('¿Eliminar este flete?'))eliminarFlete(flete.id);},
+                    style:{background:'rgba(239,68,68,.1)',border:'1px solid rgba(239,68,68,.2)',
+                      borderRadius:5,color:'var(--red)',cursor:'pointer',fontSize:10,padding:'2px 7px'}},'✕')
+                ),
+                h('div',{style:{padding:'8px 14px'}},
+                  flete.items.map(function(it,ii){
+                    return h('div',{key:ii,style:{display:'flex',justifyContent:'space-between',
+                      padding:'5px 0',borderBottom:ii<flete.items.length-1?'1px solid rgba(255,255,255,.04)':'none',
+                      fontSize:12}},
+                      h('span',{style:{color:'var(--text)'}},it.name),
+                      h('span',{style:{fontFamily:'var(--mono)',fontWeight:700,color:'#22d3ee'}},
+                        it.qty+' '+it.ud)
+                    );
+                  })
+                ),
+                canEdit&&h('button',{
+                  onClick:function(){
+                    if(confirm('¿Confirmar recepción en obra? Esto actualizará el inventario de Bodega automáticamente.'))
+                      confirmarEnObra(flete.id);
+                  },
+                  style:{width:'100%',padding:'11px 0',borderRadius:'0 0 12px 12px',
+                    background:'linear-gradient(135deg,#16a34a,#22c55e)',border:'none',
+                    color:'#fff',fontSize:13,fontWeight:800,cursor:'pointer',
+                    letterSpacing:'.04em',boxShadow:'0 -1px 0 rgba(255,255,255,.1) inset'}},
+                  '✓ Confirmar Recepción en Obra — Actualizar Bodega')
+              );
+            })
+          )
+      )
+    ),
     // ── STOCK OFICINA CENTRAL ─────────────────────────────────────────────
     h('div',{style:{background:'var(--card)',border:'1px solid rgba(14,165,233,.3)',
       borderRadius:12,marginTop:14,overflow:'hidden'}},
@@ -11485,7 +11773,7 @@ function App({initialData}){
   else if(effectiveTab==='programa')content=h(ProgramaView,{ganttData,saves,onSave,onWeekSave,weekData,auth,toast:showToast,userResp});
   else if(effectiveTab==='rendimiento')content=h(RendimientoView,{progress,saves,rendData,onRendSave,auth,toast:showToast});
   else if(effectiveTab==='cubic')content=h(CubicView,{saves,cubicData,onCubicSave,auth,toast:showToast});
-  else if(effectiveTab==='logistica')content=h(LogisticaView,{logData,onLogSave,auth,toast:showToast});
+  else if(effectiveTab==='logistica')content=h(LogisticaView,{logData,onLogSave,bodegaData,onBodegaSave,auth,toast:showToast});
   else if(effectiveTab==='bodega')content=h(BodegaView,{bodegaData,onBodegaSave,auth,toast:showToast});
   else if(effectiveTab==='materiales')content=h(MatView,{saves,matData,onMatSave,auth,toast:showToast});
   else if(effectiveTab==='asistencia')content=h(AsistenciaView,{asistData,onAsistSave,orgData,onOrgSave,auth,toast:showToast});
