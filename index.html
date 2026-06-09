@@ -98,7 +98,7 @@ input,select,textarea{font-family:var(--font);outline:none}
 .bc-btn:hover{color:var(--blue)}
 .bc-sep{color:var(--border);margin:0 2px}
 /* MAIN */
-.main{flex:1;overflow-y:auto;overflow-x:hidden;position:relative;z-index:1;min-height:0}.main-gantt{overflow:hidden!important}
+.main{flex:1;overflow-y:auto;overflow-x:hidden;position:relative;min-height:0}.main-gantt{overflow:hidden!important}
 .page{padding:14px;animation:fadeIn .18s ease}
 @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
 /* LOGIN */
@@ -3500,13 +3500,14 @@ function ProgramaView({ganttData,saves,onSave,onWeekSave,weekData,auth,toast,use
 
     // ── MODAL: Partidas de departamento seleccionado ──
     selectedEntDep&&h('div',{
-      style:{position:'fixed',inset:0,background:'rgba(0,0,0,.72)',zIndex:1000,
+      style:{position:'fixed',top:0,left:0,right:0,bottom:0,background:'rgba(0,0,0,.72)',zIndex:1000,
         display:'flex',alignItems:'flex-start',justifyContent:'center',
-        padding:'16px 12px',overflowY:'auto'},
+        padding:'60px 12px 20px',overflowY:'auto',WebkitOverflowScrolling:'touch'},
       onClick:function(e){if(e.target===e.currentTarget)setSelectedEntDep(null);}},
       h('div',{style:{background:'var(--bg2)',border:'1px solid rgba(34,197,94,.35)',
-        borderRadius:14,width:'100%',maxWidth:640,maxHeight:'90vh',
-        display:'flex',flexDirection:'column',overflow:'hidden'}},
+        borderRadius:14,width:'100%',maxWidth:640,flexShrink:0,
+        maxHeight:'calc(100vh - 32px)',display:'flex',flexDirection:'column',
+        overflow:'hidden'}},
         // Header
         h('div',{style:{padding:'14px 18px',borderBottom:'1px solid var(--border)',flexShrink:0}},
           h('div',{style:{display:'flex',alignItems:'center',gap:10,marginBottom:8}},
@@ -3531,7 +3532,7 @@ function ProgramaView({ganttData,saves,onSave,onWeekSave,weekData,auth,toast,use
             hideModalDone?'▶ Ver completadas también':'✓ Ocultar partidas al 100%')
         ),
         // Body scrollable
-        h('div',{style:{overflowY:'auto',padding:'14px 18px',flex:1}},
+        h('div',{style:{overflowY:'auto',WebkitOverflowScrolling:'touch',padding:'14px 18px',flex:1,minHeight:0}},
           (function(){
             var depNum=selectedEntDep.dep.d;
             var sv=saves&&saves[depNum]||{};
@@ -3656,9 +3657,9 @@ function ProgramaView({ganttData,saves,onSave,onWeekSave,weekData,auth,toast,use
     ),
     // ── MODAL INFORME PDF ──
     showReportModal&&(totalVencidas>0||totalEntregasSemana>0)&&h('div',{
-      style:{position:'fixed',inset:0,background:'rgba(0,0,0,.78)',zIndex:1100,
+      style:{position:'fixed',top:0,left:0,right:0,bottom:0,background:'rgba(0,0,0,.78)',zIndex:1100,
         display:'flex',alignItems:'flex-start',justifyContent:'center',
-        padding:'10px 8px',overflowY:'auto'},
+        padding:'60px 8px 16px',overflowY:'auto',WebkitOverflowScrolling:'touch'},
       onClick:function(e){if(e.target===e.currentTarget)setShowReportModal(false);}},
       h('div',{style:{background:'var(--bg2)',borderRadius:14,width:'100%',maxWidth:640,
         display:'flex',flexDirection:'column',maxHeight:'92vh',overflow:'hidden',
