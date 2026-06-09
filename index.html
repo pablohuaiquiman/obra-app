@@ -2764,7 +2764,7 @@ function ReportDeptCard({ent,saves,reportSel,toggleDeptSel,togglePartida,phaseDe
   );
 }
 
-function ProgramaView({ganttData,saves,onWeekSave,weekData,auth,toast,userResp}){
+function ProgramaView({ganttData,saves,onSave,onWeekSave,weekData,auth,toast,userResp}){
   const[filtFase,sff]=useState('all');
   const[filtResp,sfr]=useState('all');
   const[showEntregas,setShowEntregas]=useState(false);
@@ -2977,6 +2977,79 @@ function ProgramaView({ganttData,saves,onWeekSave,weekData,auth,toast,userResp})
     var sv=saves[dn]||{};
     var c=(sv[ph.fk]||{})[p.id];
     return c!=null?c:(ph.lf[dn]?ph.lf[dn][p.id]||0:0);
+  }
+  var canEdit=!auth||auth.role==='Admin'||auth.role==='Jefe Obra'||auth.role==='Supervisor';
+  function setPartidaVal(dn,fk,pid,val){
+    if(!onSave)return;
+    var sv=Object.assign({},saves[dn]||{});
+    sv[fk]=Object.assign({},sv[fk]||{});
+    sv[fk][pid]=val;
+    onSave(dn,sv);
+    toast&&toast('✓ Guardado');
+  }
+  function generarPDFDepto(ent,hideDone){
+    if(typeof jspdf==='undefined'){toast&&toast('Error: jsPDF no disponible');return;}
+    var doc=new jspdf.jsPDF({orientation:'portrait',unit:'mm',format:'letter'});
+    var pw=216,pph=279,margin=14,y=20;
+    var cw=pw-margin*2;
+    var _td=new Date();
+    var today=_td.getFullYear()+'-'+String(_td.getMonth()+1).padStart(2,'0')+'-'+String(_td.getDate()).padStart(2,'0');
+    var dn=ent.dep.d;
+    try{doc.addImage(_LOGO,'PNG',margin,y-6,28,8);}catch(e){}
+    doc.setFontSize(13);doc.setFont('helvetica','bold');doc.setTextColor(10,20,60);
+    doc.text('INFORME DE PARTIDAS — DEPTO '+dn,pw/2,y,{align:'center'});
+    y+=5;
+    doc.setFontSize(9);doc.setFont('helvetica','normal');doc.setTextColor(80,80,80);
+    doc.text((ent.dep.n||'')+(ent.pisoName?' · '+ent.pisoName:''),pw/2,y,{align:'center'});
+    doc.text('Fecha: '+today,pw-margin,y-5,{align:'right'});
+    y+=4;
+    if(hideDone){
+      doc.setFontSize(8);doc.setFont('helvetica','italic');doc.setTextColor(160,100,20);
+      doc.text('(Se omiten partidas al 100%)',pw/2,y,{align:'center'});
+      y+=4;
+    }
+    doc.setDrawColor(180,180,200);doc.setLineWidth(.4);doc.line(margin,y,pw-margin,y);
+    y+=6;
+    function chkP(need){if(y+need>pph-16){doc.addPage();y=16;}}
+    _PHASE_DEFS.forEach(function(ph){
+      var visParts=ph.ps.filter(function(p){return !hideDone||Math.round(_getV(dn,ph,p))<100;});
+      if(!visParts.length)return;
+      chkP(10);
+      doc.setFillColor(ph.rgb[0],ph.rgb[1],ph.rgb[2]);doc.rect(margin,y,cw,7,'F');
+      doc.setFontSize(9);doc.setFont('helvetica','bold');doc.setTextColor(255,255,255);
+      doc.text('▸ '+ph.label,margin+3,y+5);
+      y+=9;
+      visParts.forEach(function(p){
+        chkP(7);
+        var v=Math.round(_getV(dn,ph,p));
+        var isDone=v>=100;var isPartial=v>0&&v<100;
+        doc.setFillColor(isDone?245:250,isDone?255:250,isDone?248:255);
+        doc.rect(margin+4,y-.5,cw-4,6.5,'F');
+        doc.setFontSize(7);doc.setFont('helvetica','bold');
+        doc.setTextColor(isDone?22:isPartial?180:150,isDone?163:isPartial?100:150,isDone?74:isPartial?20:150);
+        doc.text(isDone?'✓':isPartial?'▶':'○',margin+5.5,y+4);
+        var nm=p.name.replace(/^F[1-4] /i,'');
+        if(nm.length>68)nm=nm.substring(0,66)+'...';
+        doc.setFontSize(8);doc.setFont('helvetica',isDone?'italic':'normal');
+        doc.setTextColor(isDone?140:30,isDone?140:30,isDone?140:30);
+        doc.text(nm,margin+10,y+4);
+        doc.setFont('helvetica','bold');
+        doc.setTextColor(isDone?22:isPartial?180:160,isDone?163:isPartial?100:160,isDone?74:isPartial?20:160);
+        doc.text(v+'%',pw-margin-3,y+4,{align:'right'});
+        y+=7;
+      });
+      y+=3;
+    });
+    var nPg2=doc.getNumberOfPages();
+    for(var pg2=1;pg2<=nPg2;pg2++){
+      doc.setPage(pg2);
+      doc.setFontSize(7.5);doc.setFont('helvetica','normal');doc.setTextColor(160,160,160);
+      doc.text('Pág. '+pg2+' / '+nPg2,pw-margin,pph-8,{align:'right'});
+      doc.text('Edificio Victoria — Control de Obra',margin,pph-8);
+    }
+    var fname='depto-'+dn+'-'+today+'.pdf';
+    doc.save(fname);
+    toast&&toast('PDF generado: '+fname);
   }
   function togglePartida(dn,fk,pid,val){
     setReportSel(function(prev){
@@ -3265,26 +3338,30 @@ function ProgramaView({ganttData,saves,onWeekSave,weekData,auth,toast,userResp})
         h('span',{style:{fontSize:10,fontWeight:400,color:'var(--text3)',marginLeft:'auto'}},
           totalVencidas+' depto'+(totalVencidas>1?'s':''))
       ),
-      // Agrupar por fecha de entrega programada (solo pendientes)
+      // Agrupar por piso, ordenado de menor a mayor piso; dentro de cada piso por días de atraso desc
       (function(){
-        var byDate={};
+        var byPiso={};
         vencidasPendientes.forEach(function(ent){
-          if(!byDate[ent.eDate])byDate[ent.eDate]=[];
-          byDate[ent.eDate].push(ent);
+          var k=ent.pisoName||'Sin piso';
+          if(!byPiso[k])byPiso[k]=[];
+          byPiso[k].push(ent);
         });
-        return Object.keys(byDate).map(function(eDate){
-          var ents=byDate[eDate];
-          var dateLabel=new Date(eDate+'T12:00:00').toLocaleDateString('es-CL',{day:'2-digit',month:'short',year:'2-digit'});
-          var diasStr=ents[0].diasAtraso;
-          return h('div',{key:eDate,style:{marginBottom:12}},
-            h('div',{style:{display:'flex',alignItems:'center',gap:6,marginBottom:6}},
-              h('span',{style:{background:'var(--red)',color:'#fff',
-                borderRadius:4,padding:'1px 6px',fontSize:9,fontWeight:700}},dateLabel),
-              h('span',{style:{fontSize:9,color:'var(--red)',fontWeight:600}},
-                diasStr+' día'+(diasStr!==1?'s':'')+' de atraso'),
-              h('span',{style:{background:'rgba(239,68,68,.15)',color:'var(--red)',
-                borderRadius:8,padding:'0 6px',fontSize:10,fontWeight:700}},
-                ents.length+' dpto'+(ents.length>1?'s':''))
+        var pisoKeys=Object.keys(byPiso).sort(function(a,b){
+          var na=parseInt(a.replace(/[^\d]/g,''))||0;
+          var nb=parseInt(b.replace(/[^\d]/g,''))||0;
+          return na-nb;
+        });
+        return pisoKeys.map(function(pisoName){
+          var ents=byPiso[pisoName].slice().sort(function(a,b){return b.diasAtraso-a.diasAtraso;});
+          var maxDias=ents[0].diasAtraso;
+          return h('div',{key:pisoName,style:{marginBottom:14}},
+            h('div',{style:{display:'flex',alignItems:'center',gap:6,marginBottom:8,
+              padding:'5px 10px',borderRadius:7,
+              background:'rgba(239,68,68,.1)',border:'1px solid rgba(239,68,68,.28)'}},
+              h('span',{style:{fontSize:11,fontWeight:800,color:'var(--red)',
+                letterSpacing:'.06em',flex:1}},pisoName.toUpperCase()+' — '+ents.length+' dpto'+(ents.length>1?'s':'')+' vencido'+(ents.length>1?'s':'')+' acumulado'+(ents.length>1?'s':'')),
+              h('span',{style:{fontSize:9,color:'rgba(239,68,68,.8)',fontWeight:600,whiteSpace:'nowrap'}},
+                maxDias+' día'+(maxDias!==1?'s':'')+' máx.')
             ),
             h('div',{style:{display:'flex',flexWrap:'wrap',gap:6}},
               ents.map(function(ent,ei){
@@ -3309,8 +3386,8 @@ function ProgramaView({ganttData,saves,onWeekSave,weekData,auth,toast,userResp})
                       fontWeight:700,color:pctCol}},pct+'%')
                   ),
                   h('div',{style:{fontSize:10,color:'var(--text2)',marginBottom:2}},ent.dep.n),
-                  h('div',{style:{fontSize:9,color:'var(--text3)',marginBottom:5}},ent.pisoName),
-                  // Barra F3
+                  h('div',{style:{fontSize:9,color:'var(--text3)',marginBottom:5}},
+                    ent.diasAtraso+' día'+(ent.diasAtraso!==1?'s':'')+' · venció '+ent.eDate),
                   h('div',{style:{height:3,background:'var(--bg3)',borderRadius:2,overflow:'hidden'}},
                     h('div',{style:{height:'100%',borderRadius:2,
                       background:pct>=60?'var(--amber)':'var(--red)',
@@ -3505,20 +3582,35 @@ function ProgramaView({ganttData,saves,onWeekSave,weekData,auth,toast,userResp})
                       var statusColor=isDone?'var(--green)':isPartial?'var(--amber)':'var(--text3)';
                       var bgColor=isDone?'rgba(34,197,94,.08)':isPartial?'rgba(245,158,11,.06)':'var(--bg3)';
                       return h('div',{key:p.id,style:{
-                        display:'flex',alignItems:'center',gap:8,
                         padding:'6px 10px',borderRadius:8,
                         background:bgColor,
                         border:'1px solid '+(isDone?'rgba(34,197,94,.2)':isPartial?'rgba(245,158,11,.2)':'var(--border)')}},
-                        h('span',{style:{fontSize:10,fontWeight:700,color:statusColor,
-                          minWidth:20,textAlign:'center'}},
-                          isDone?'✓':isPartial?'◑':'○'),
-                        h('span',{style:{fontSize:11,color:isDone?'var(--text2)':'var(--text)',
-                          flex:1,textDecoration:isDone?'line-through':'none',
-                          opacity:isDone?.7:1}},
-                          p.name),
-                        h('span',{style:{fontSize:11,fontWeight:700,color:statusColor,
-                          fontFamily:'var(--mono)',minWidth:32,textAlign:'right'}},
-                          v+'%')
+                        h('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:canEdit?4:0}},
+                          h('span',{style:{fontSize:10,fontWeight:700,color:statusColor,
+                            minWidth:20,textAlign:'center'}},
+                            isDone?'✓':isPartial?'◑':'○'),
+                          h('span',{style:{fontSize:11,color:isDone?'var(--text2)':'var(--text)',
+                            flex:1,textDecoration:isDone?'line-through':'none',
+                            opacity:isDone?.7:1}},
+                            p.name),
+                          h('span',{style:{fontSize:11,fontWeight:700,color:statusColor,
+                            fontFamily:'var(--mono)',minWidth:32,textAlign:'right'}},
+                            v+'%')
+                        ),
+                        canEdit&&h('div',{style:{display:'flex',gap:3}},
+                          [0,25,50,75,100].map(function(pct){
+                            var sel=v===pct;
+                            return h('button',{key:pct,
+                              onClick:function(e){e.stopPropagation();setPartidaVal(depNum,ph.key,p.id,pct);},
+                              style:{flex:1,padding:'3px 0',borderRadius:4,cursor:'pointer',
+                                fontSize:9,fontWeight:sel?700:400,
+                                border:'1px solid '+(sel?statusColor:'var(--border)'),
+                                background:sel?bgColor:'var(--bg3)',
+                                color:sel?statusColor:'var(--text3)',
+                                transition:'all .1s'}},
+                              pct+'%')
+                          })
+                        )
                       );
                     });
                   })()
@@ -3528,10 +3620,18 @@ function ProgramaView({ganttData,saves,onWeekSave,weekData,auth,toast,userResp})
           })()
         ),
         // Footer
-        h('div',{style:{padding:'10px 18px',borderTop:'1px solid var(--border)',
-          fontSize:11,color:'var(--text3)',flexShrink:0,display:'flex',justifyContent:'space-between',
-          alignItems:'center'}},
-          h('span',null,'Haz clic fuera o en ✕ para cerrar'),
+        h('div',{style:{padding:'10px 18px',borderTop:'1px solid var(--border)',flexShrink:0}},
+          h('button',{
+            onClick:function(){generarPDFDepto(selectedEntDep,hideModalDone);},
+            style:{width:'100%',padding:'8px 0',borderRadius:8,cursor:'pointer',
+              border:'1px solid rgba(14,165,233,.4)',
+              background:'rgba(14,165,233,.08)',color:'var(--blue)',
+              fontSize:12,fontWeight:700,marginBottom:8,
+              display:'flex',alignItems:'center',justifyContent:'center',gap:6}},
+            '📥 Exportar PDF Depto'+(hideModalDone?' (sin 100%)':'')),
+          h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',
+            fontSize:11,color:'var(--text3)'}},
+            h('span',null,'Haz clic fuera o en ✕ para cerrar'),
           (function(){
             var depNum=selectedEntDep.dep.d;
             var sv=saves&&saves[depNum]||{};
@@ -3550,6 +3650,7 @@ function ProgramaView({ganttData,saves,onWeekSave,weekData,auth,toast,userResp})
               'Avance total: '+pct+'%'
             );
           })()
+          )
         )
       )
     ),
@@ -6110,6 +6211,318 @@ function statusDotColor(s){
 
 function getInitials(nombre){
   return (nombre||'').split(' ').filter(Boolean).slice(0,2).map(function(w){return w[0].toUpperCase();}).join('');
+}
+
+// ── MÓDULO 4: BODEGA ─────────────────────────────────────────────────────
+function BodegaView({bodegaData,onBodegaSave,auth,toast}){
+  var canEdit=!auth||auth.role==='Admin'||auth.role==='Jefe Obra';
+  var bd=bodegaData||{stock:[],guias:[],vales:[]};
+  var stock=bd.stock||[];
+  var guias=bd.guias||[];
+  var vales=bd.vales||[];
+  var _today=(function(){var d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');})();
+  var BUNITS=['un','m²','m³','ml','lt','kg','ton','saco','balde','caja','rollo','plancha','palmeta','tubo','barra','Gl','paquete','palet'];
+  var iSt={width:'100%',padding:'7px 10px',borderRadius:7,border:'1px solid var(--border)',background:'var(--bg3)',color:'var(--text)',fontSize:11,boxSizing:'border-box'};
+  var lSt={fontSize:9,fontWeight:700,color:'var(--text3)',letterSpacing:'.08em',marginBottom:3,display:'block',textTransform:'uppercase'};
+
+  var[subTab,setST]=useState('stock');
+  var[q,setQ]=useState('');
+  var[adjItem,setAdjItem]=useState(null);
+  var[adjDelta,setAdjDelta]=useState('');
+  var[showNewMat,setShowNewMat]=useState(false);
+  var[draftMat,setDraftMat]=useState({nombre:'',unidad:'un',stockActual:'0',stockMinimo:'0',ubicacion:''});
+  var[showGuia,setShowGuia]=useState(false);
+  var[draftGuia,setDraftGuia]=useState({nGuia:'',proveedor:'',fecha:_today,recibidoPor:'',estado:'Verificado',items:[]});
+  var[draftGI,setDraftGI]=useState({matId:'',cant:''});
+  var[showVale,setShowVale]=useState(false);
+  var[draftVale,setDraftVale]=useState({nVale:'',maestro:'',destino:'',fecha:_today,entregadoPor:'',items:[]});
+  var[draftVI,setDraftVI]=useState({matId:'',cant:''});
+  var[stAlerts,setStAlerts]=useState([]);
+
+  function saveBd(patch){onBodegaSave(Object.assign({},bd,patch));}
+  // ── helpers visuales ──
+  function fld(lbl,inp){return h('div',{style:{marginBottom:10}},h('label',{style:lSt},lbl),inp);}
+  function row2(a,b){return h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:10}},a,b);}
+  function lbl2(t,c){return h('div',null,h('label',{style:lSt},t),c);}
+  // ── STOCK ──
+  function saveNewMat(){
+    if(!draftMat.nombre.trim()){toast&&toast('⚠ Ingresa un nombre');return;}
+    saveBd({stock:stock.concat([{id:Date.now()+'',nombre:draftMat.nombre.trim(),unidad:draftMat.unidad,
+      stockActual:Number(draftMat.stockActual)||0,stockMinimo:Number(draftMat.stockMinimo)||0,ubicacion:draftMat.ubicacion}])});
+    setShowNewMat(false);setDraftMat({nombre:'',unidad:'un',stockActual:'0',stockMinimo:'0',ubicacion:''});
+    toast&&toast('✓ Material agregado');
+  }
+  function applyAdj(){
+    if(adjItem===null)return;
+    var delta=Number(adjDelta)||0;if(delta===0){setAdjItem(null);return;}
+    var ns=stock.slice();ns[adjItem.idx]=Object.assign({},ns[adjItem.idx],{stockActual:Math.max(0,ns[adjItem.idx].stockActual+delta)});
+    saveBd({stock:ns});setAdjItem(null);setAdjDelta('');toast&&toast('✓ Stock ajustado');
+  }
+  function deleteMat(idx){if(!confirm('¿Eliminar material?'))return;saveBd({stock:stock.filter(function(_,i){return i!==idx;})});toast&&toast('Material eliminado');}
+  // ── GUÍAS ──
+  function addGI(){
+    if(!draftGI.matId||!Number(draftGI.cant))return;
+    var mat=stock.find(function(m){return m.id===draftGI.matId;});if(!mat)return;
+    setDraftGuia(Object.assign({},draftGuia,{items:draftGuia.items.concat([{matId:mat.id,matNombre:mat.nombre,unidad:mat.unidad,cant:Number(draftGI.cant)}])}));
+    setDraftGI({matId:'',cant:''});
+  }
+  function rmGI(ii){setDraftGuia(Object.assign({},draftGuia,{items:draftGuia.items.filter(function(_,i){return i!==ii;})}));}
+  function saveGuia(){
+    if(!draftGuia.nGuia.trim()||!draftGuia.items.length){toast&&toast('⚠ N° Guía e ítems requeridos');return;}
+    var ng=[Object.assign({},draftGuia,{id:Date.now()+'',nGuia:draftGuia.nGuia.trim()})].concat(guias);
+    var ns=stock.slice();
+    draftGuia.items.forEach(function(it){var idx=ns.findIndex(function(m){return m.id===it.matId;});if(idx>=0)ns[idx]=Object.assign({},ns[idx],{stockActual:ns[idx].stockActual+it.cant});});
+    saveBd({guias:ng,stock:ns});
+    setShowGuia(false);setDraftGuia({nGuia:'',proveedor:'',fecha:_today,recibidoPor:'',estado:'Verificado',items:[]});
+    toast&&toast('✓ Guía registrada y stock actualizado');
+  }
+  // ── VALES ──
+  function addVI(){
+    if(!draftVI.matId||!Number(draftVI.cant))return;
+    var mat=stock.find(function(m){return m.id===draftVI.matId;});if(!mat)return;
+    setDraftVale(Object.assign({},draftVale,{items:draftVale.items.concat([{matId:mat.id,matNombre:mat.nombre,unidad:mat.unidad,cant:Number(draftVI.cant)}])}));
+    setDraftVI({matId:'',cant:''});
+  }
+  function rmVI(ii){setDraftVale(Object.assign({},draftVale,{items:draftVale.items.filter(function(_,i){return i!==ii;})}));setStAlerts([]);}
+  function saveVale(){
+    if(!draftVale.nVale.trim()||!draftVale.items.length){toast&&toast('⚠ N° Vale e ítems requeridos');return;}
+    var alerts=[];
+    draftVale.items.forEach(function(it){var mat=stock.find(function(m){return m.id===it.matId;});if(mat&&mat.stockActual<it.cant)alerts.push(mat.nombre+' (tiene '+mat.stockActual+', pide '+it.cant+' '+mat.unidad+')');});
+    if(alerts.length){setStAlerts(alerts);return;}
+    var nv=[Object.assign({},draftVale,{id:Date.now()+'',nVale:draftVale.nVale.trim()})].concat(vales);
+    var ns=stock.slice();
+    draftVale.items.forEach(function(it){var idx=ns.findIndex(function(m){return m.id===it.matId;});if(idx>=0)ns[idx]=Object.assign({},ns[idx],{stockActual:Math.max(0,ns[idx].stockActual-it.cant)});});
+    saveBd({vales:nv,stock:ns});
+    setShowVale(false);setStAlerts([]);setDraftVale({nVale:'',maestro:'',destino:'',fecha:_today,entregadoPor:'',items:[]});
+    toast&&toast('✓ Vale emitido y stock descontado');
+  }
+  var filtStock=q.trim()?stock.filter(function(m){return m.nombre.toLowerCase().indexOf(q.toLowerCase())>=0;}):stock;
+  var critCount=stock.filter(function(m){return m.stockMinimo>0&&m.stockActual<=m.stockMinimo;}).length;
+  // ── helper: fila de ítems de formulario ──
+  function itemRow(draft,setDraft,onAdd,accentColor){
+    return h('div',null,
+      h('div',{style:{display:'flex',gap:6,marginBottom:6,alignItems:'flex-end'}},
+        h('div',{style:{flex:2}},
+          h('select',{value:draft.matId,onChange:function(e){setDraft(Object.assign({},draft,{matId:e.target.value}));},style:iSt},
+            h('option',{value:''},'— Material —'),
+            stock.map(function(m){var isLow=m.stockMinimo>0&&m.stockActual<=m.stockMinimo;
+              return h('option',{key:m.id,value:m.id},(isLow?'⚠ ':'')+m.nombre+' ('+m.unidad+') — '+m.stockActual);})
+          )
+        ),
+        h('div',{style:{width:72}},
+          h('input',{type:'number',value:draft.cant,onChange:function(e){setDraft(Object.assign({},draft,{cant:e.target.value}));},
+            style:Object.assign({},iSt,{textAlign:'center'}),placeholder:'Cant',min:'1'})
+        ),
+        h('button',{onClick:onAdd,style:{padding:'7px 10px',borderRadius:7,flexShrink:0,
+          border:'1px solid '+accentColor+'55',background:accentColor+'18',
+          color:accentColor,cursor:'pointer',fontSize:12,fontWeight:700}},'➕')
+      )
+    );
+  }
+  function itemTags(items,rmFn,accentColor){
+    if(!items.length)return null;
+    return h('div',{style:{background:accentColor+'0a',borderRadius:7,padding:'8px',marginBottom:8,display:'flex',flexWrap:'wrap',gap:4}},
+      items.map(function(it,ii){
+        return h('span',{key:ii,style:{fontSize:9,background:accentColor+'28',color:accentColor,
+          padding:'2px 8px',borderRadius:5,display:'flex',alignItems:'center',gap:4}},
+          it.matNombre+' x'+it.cant+' '+it.unidad,
+          h('span',{onClick:function(){rmFn(ii);},style:{cursor:'pointer',fontWeight:900,fontSize:10,marginLeft:2}},'×')
+        );
+      })
+    );
+  }
+  // ═══════════════════════════════════════════════════════════
+  return h('div',{className:'page gap10'},
+    // SUB-TABS
+    h('div',{className:'ftabs'},
+      [['stock','📦 Stock'+(critCount>0?' ⚠'+critCount:'')],['guias','📄 Guías'],['vales','📋 Vales']].map(function(p){
+        return h('button',{key:p[0],className:'ftab '+(subTab===p[0]?'on':''),onClick:function(){setST(p[0]);}},p[1]);
+      })
+    ),
+    // ═══════════ PESTAÑA A: STOCK ═══════════
+    subTab==='stock'&&h('div',{style:{display:'flex',flexDirection:'column',gap:8}},
+      h('div',{style:{display:'flex',gap:6}},
+        h('input',{type:'text',value:q,onChange:function(e){setQ(e.target.value);},
+          placeholder:'🔍 Buscar material...',style:Object.assign({},iSt,{flex:1})}),
+        canEdit&&h('button',{onClick:function(){setShowNewMat(true);},
+          style:{padding:'7px 12px',borderRadius:7,border:'1px solid rgba(34,197,94,.4)',
+            background:'rgba(34,197,94,.1)',color:'var(--green)',cursor:'pointer',fontSize:11,fontWeight:700,whiteSpace:'nowrap'}},
+          '➕ Material')
+      ),
+      critCount>0&&h('div',{style:{padding:'7px 12px',borderRadius:7,
+        background:'rgba(239,68,68,.08)',border:'1px solid rgba(239,68,68,.3)',
+        fontSize:11,color:'var(--red)',fontWeight:600}},
+        '⚠ '+critCount+' material'+(critCount>1?'es':'')+' en stock crítico'),
+      filtStock.length===0
+        ?h('div',{style:{textAlign:'center',color:'var(--text3)',padding:'28px 0',fontSize:12}},
+          stock.length===0?'Sin materiales. Pulsa "➕ Material" para agregar.':'Sin resultados.')
+        :filtStock.map(function(mat){
+          var idx=stock.indexOf(mat);
+          var isCrit=mat.stockMinimo>0&&mat.stockActual<=mat.stockMinimo;
+          var isAdj=adjItem&&adjItem.idx===idx;
+          return h('div',{key:mat.id,style:{background:'var(--bg3)',borderRadius:9,padding:'10px 12px',
+            border:'1px solid '+(isCrit?'rgba(239,68,68,.4)':'var(--border)'),
+            borderLeft:'3px solid '+(isCrit?'var(--red)':'var(--blue)')}},
+            h('div',{style:{display:'flex',alignItems:'center',gap:8}},
+              h('div',{style:{flex:1,minWidth:0}},
+                h('div',{style:{fontSize:12,fontWeight:700,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},mat.nombre),
+                h('div',{style:{fontSize:9,color:'var(--text3)',marginTop:1}},mat.unidad+(mat.ubicacion?' · 📍'+mat.ubicacion:''))
+              ),
+              h('div',{style:{textAlign:'right',flexShrink:0,marginRight:6}},
+                h('div',{style:{fontSize:17,fontWeight:800,fontFamily:'var(--mono)',color:isCrit?'var(--red)':'var(--text)'}},mat.stockActual),
+                h('div',{style:{fontSize:9,color:'var(--text3)'}},'/mín '+mat.stockMinimo)
+              ),
+              isCrit&&h('span',{style:{fontSize:8,background:'rgba(239,68,68,.18)',color:'var(--red)',padding:'2px 5px',borderRadius:4,fontWeight:700,flexShrink:0}},'CRÍTICO'),
+              canEdit&&h('button',{onClick:function(){setAdjItem({idx:idx});setAdjDelta('');},
+                style:{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:6,padding:'5px 9px',color:'var(--text3)',cursor:'pointer',fontSize:10,flexShrink:0}},'⊕ Ajustar')
+            ),
+            isAdj&&h('div',{style:{marginTop:8,paddingTop:8,borderTop:'1px solid var(--border)',display:'flex',alignItems:'center',gap:6}},
+              h('span',{style:{fontSize:10,color:'var(--text3)',flex:1}},'Delta (+/−) '+mat.unidad),
+              h('input',{type:'number',value:adjDelta,onChange:function(e){setAdjDelta(e.target.value);},
+                style:Object.assign({},iSt,{width:80,textAlign:'center'}),placeholder:'0'}),
+              h('button',{onClick:applyAdj,style:{padding:'5px 10px',borderRadius:6,border:'1px solid rgba(34,197,94,.4)',background:'rgba(34,197,94,.1)',color:'var(--green)',cursor:'pointer',fontSize:10,fontWeight:700}},'OK'),
+              h('button',{onClick:function(){setAdjItem(null);setAdjDelta('');},style:{padding:'5px 8px',borderRadius:6,border:'1px solid var(--border)',background:'var(--bg3)',color:'var(--text3)',cursor:'pointer',fontSize:10}},'✕'),
+              h('button',{onClick:function(){deleteMat(idx);},style:{padding:'5px 8px',borderRadius:6,border:'1px solid rgba(239,68,68,.3)',background:'rgba(239,68,68,.07)',color:'var(--red)',cursor:'pointer',fontSize:10}},'🗑')
+            )
+          );
+        })
+    ),
+    // ═══════════ PESTAÑA B: GUÍAS ═══════════
+    subTab==='guias'&&h('div',{style:{display:'flex',flexDirection:'column',gap:8}},
+      canEdit&&h('button',{onClick:function(){setShowGuia(true);},
+        style:{padding:'9px 0',borderRadius:8,border:'1px solid rgba(14,165,233,.4)',background:'rgba(14,165,233,.08)',
+          color:'var(--blue)',cursor:'pointer',fontSize:12,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center',gap:6}},
+        '➕ Registrar Guía de Despacho'),
+      guias.length===0
+        ?h('div',{style:{textAlign:'center',color:'var(--text3)',padding:'28px 0',fontSize:12}},'Sin guías registradas.')
+        :guias.map(function(g){
+          var stC=g.estado==='Verificado'?'var(--green)':'var(--amber)';
+          var stB=g.estado==='Verificado'?'rgba(34,197,94,.12)':'rgba(245,158,11,.12)';
+          return h('div',{key:g.id,style:{background:'var(--bg3)',borderRadius:9,padding:'10px 12px',border:'1px solid var(--border)',borderLeft:'3px solid var(--blue)'}},
+            h('div',{style:{display:'flex',alignItems:'center',gap:6,marginBottom:4}},
+              h('span',{style:{fontSize:11,fontWeight:800,color:'var(--blue)',fontFamily:'var(--mono)'}},'Guía #'+g.nGuia),
+              h('span',{style:{fontSize:9,padding:'1px 6px',borderRadius:5,fontWeight:700,background:stB,color:stC}},g.estado),
+              h('span',{style:{marginLeft:'auto',fontSize:9,color:'var(--text3)'}},g.fecha)
+            ),
+            h('div',{style:{fontSize:10,color:'var(--text2)',marginBottom:5}},g.proveedor+(g.recibidoPor?' · Recibe: '+g.recibidoPor:'')),
+            h('div',{style:{display:'flex',flexWrap:'wrap',gap:4}},
+              (g.items||[]).map(function(it,ii){return h('span',{key:ii,style:{fontSize:9,background:'rgba(14,165,233,.1)',color:'var(--blue)',padding:'2px 7px',borderRadius:4,fontWeight:600}},it.matNombre+' x'+it.cant+' '+it.unidad);})
+            )
+          );
+        })
+    ),
+    // ═══════════ PESTAÑA C: VALES ═══════════
+    subTab==='vales'&&h('div',{style:{display:'flex',flexDirection:'column',gap:8}},
+      canEdit&&h('button',{onClick:function(){setShowVale(true);},
+        style:{padding:'9px 0',borderRadius:8,border:'1px solid rgba(168,85,247,.4)',background:'rgba(168,85,247,.08)',
+          color:'var(--purple)',cursor:'pointer',fontSize:12,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center',gap:6}},
+        '➕ Crear Vale de Consumo'),
+      vales.length===0
+        ?h('div',{style:{textAlign:'center',color:'var(--text3)',padding:'28px 0',fontSize:12}},'Sin vales emitidos.')
+        :vales.map(function(v){
+          return h('div',{key:v.id,style:{background:'var(--bg3)',borderRadius:9,padding:'10px 12px',border:'1px solid var(--border)',borderLeft:'3px solid var(--purple)'}},
+            h('div',{style:{display:'flex',alignItems:'center',gap:6,marginBottom:4}},
+              h('span',{style:{fontSize:11,fontWeight:800,color:'var(--purple)',fontFamily:'var(--mono)'}},'Vale '+v.nVale),
+              v.destino&&h('span',{style:{fontSize:9,background:'rgba(168,85,247,.12)',color:'var(--purple)',padding:'1px 6px',borderRadius:5,fontWeight:700}},'→ '+v.destino),
+              h('span',{style:{marginLeft:'auto',fontSize:9,color:'var(--text3)'}},v.fecha)
+            ),
+            h('div',{style:{fontSize:10,color:'var(--text2)',marginBottom:5}},v.maestro+(v.entregadoPor?' · Entrega: '+v.entregadoPor:'')),
+            h('div',{style:{display:'flex',flexWrap:'wrap',gap:4}},
+              (v.items||[]).map(function(it,ii){return h('span',{key:ii,style:{fontSize:9,background:'rgba(168,85,247,.1)',color:'var(--purple)',padding:'2px 7px',borderRadius:4,fontWeight:600}},it.matNombre+' x'+it.cant+' '+it.unidad);})
+            )
+          );
+        })
+    ),
+    // ═══════════ MODAL: NUEVO MATERIAL ═══════════
+    showNewMat&&h('div',{style:{position:'fixed',inset:0,background:'rgba(0,0,0,.72)',zIndex:1200,
+      display:'flex',alignItems:'center',justifyContent:'center',padding:'16px'},
+      onClick:function(e){if(e.target===e.currentTarget)setShowNewMat(false);}},
+      h('div',{style:{background:'var(--bg2)',borderRadius:14,width:'100%',maxWidth:400,padding:'18px',border:'1px solid var(--border)'}},
+        h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}},
+          h('span',{style:{fontSize:13,fontWeight:700,color:'var(--text)'}},'📦 Nuevo Material'),
+          h('button',{onClick:function(){setShowNewMat(false);},style:{background:'none',border:'none',color:'var(--text3)',cursor:'pointer',fontSize:16}},'✕')
+        ),
+        fld('Nombre',h('input',{type:'text',value:draftMat.nombre,
+          onChange:function(e){setDraftMat(Object.assign({},draftMat,{nombre:e.target.value}));},
+          style:iSt,placeholder:'Ej: Pintura látex blanca'})),
+        row2(
+          lbl2('Unidad',h('select',{value:draftMat.unidad,onChange:function(e){setDraftMat(Object.assign({},draftMat,{unidad:e.target.value}));},style:iSt},
+            BUNITS.map(function(u){return h('option',{key:u,value:u},u);}))),
+          lbl2('Ubicación',h('input',{type:'text',value:draftMat.ubicacion,
+            onChange:function(e){setDraftMat(Object.assign({},draftMat,{ubicacion:e.target.value}));},
+            style:iSt,placeholder:'Ej: Estante A1'}))
+        ),
+        row2(
+          lbl2('Stock Actual',h('input',{type:'number',value:draftMat.stockActual,
+            onChange:function(e){setDraftMat(Object.assign({},draftMat,{stockActual:e.target.value}));},style:iSt,min:'0'})),
+          lbl2('Stock Mínimo',h('input',{type:'number',value:draftMat.stockMinimo,
+            onChange:function(e){setDraftMat(Object.assign({},draftMat,{stockMinimo:e.target.value}));},style:iSt,min:'0'}))
+        ),
+        h('button',{onClick:saveNewMat,style:{width:'100%',padding:'9px 0',borderRadius:8,cursor:'pointer',fontWeight:700,
+          border:'1px solid rgba(34,197,94,.4)',background:'rgba(34,197,94,.12)',color:'var(--green)',fontSize:12}},
+          '✓ Guardar Material')
+      )
+    ),
+    // ═══════════ MODAL: REGISTRAR GUÍA ═══════════
+    showGuia&&h('div',{style:{position:'fixed',inset:0,background:'rgba(0,0,0,.75)',zIndex:1200,
+      display:'flex',alignItems:'flex-start',justifyContent:'center',padding:'16px',overflowY:'auto'},
+      onClick:function(e){if(e.target===e.currentTarget)setShowGuia(false);}},
+      h('div',{style:{background:'var(--bg2)',borderRadius:14,width:'100%',maxWidth:500,padding:'18px',border:'1px solid rgba(14,165,233,.3)'}},
+        h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}},
+          h('span',{style:{fontSize:13,fontWeight:700,color:'var(--blue)'}},'📄 Registrar Guía de Despacho'),
+          h('button',{onClick:function(){setShowGuia(false);},style:{background:'none',border:'none',color:'var(--text3)',cursor:'pointer',fontSize:16}},'✕')
+        ),
+        row2(
+          lbl2('N° Guía',h('input',{type:'text',value:draftGuia.nGuia,onChange:function(e){setDraftGuia(Object.assign({},draftGuia,{nGuia:e.target.value}));},style:iSt,placeholder:'001234'})),
+          lbl2('Fecha',h('input',{type:'date',value:draftGuia.fecha,onChange:function(e){setDraftGuia(Object.assign({},draftGuia,{fecha:e.target.value}));},style:iSt}))
+        ),
+        fld('Proveedor',h('input',{type:'text',value:draftGuia.proveedor,onChange:function(e){setDraftGuia(Object.assign({},draftGuia,{proveedor:e.target.value}));},style:iSt,placeholder:'Nombre del proveedor'})),
+        row2(
+          lbl2('Recibido por',h('input',{type:'text',value:draftGuia.recibidoPor,onChange:function(e){setDraftGuia(Object.assign({},draftGuia,{recibidoPor:e.target.value}));},style:iSt})),
+          lbl2('Estado',h('select',{value:draftGuia.estado,onChange:function(e){setDraftGuia(Object.assign({},draftGuia,{estado:e.target.value}));},style:iSt},
+            h('option',{value:'Verificado'},'✓ Verificado'),h('option',{value:'Con Observación'},'⚠ Con Observación')))
+        ),
+        h('div',{style:{fontSize:9,fontWeight:700,color:'var(--text3)',letterSpacing:'.08em',marginBottom:6,textTransform:'uppercase'}},'Materiales recibidos'),
+        stock.length===0
+          ?h('div',{style:{fontSize:10,color:'var(--amber)',marginBottom:8,fontWeight:600}},'⚠ Agrega materiales en la pestaña Stock primero')
+          :h('div',null,itemRow(draftGI,setDraftGI,addGI,'var(--blue)'),itemTags(draftGuia.items,rmGI,'var(--blue)')),
+        h('button',{onClick:saveGuia,style:{width:'100%',padding:'9px 0',borderRadius:8,cursor:'pointer',fontWeight:700,
+          border:'1px solid rgba(14,165,233,.4)',background:'rgba(14,165,233,.1)',color:'var(--blue)',fontSize:12}},
+          '✓ Guardar Guía y Actualizar Stock')
+      )
+    ),
+    // ═══════════ MODAL: CREAR VALE ═══════════
+    showVale&&h('div',{style:{position:'fixed',inset:0,background:'rgba(0,0,0,.75)',zIndex:1200,
+      display:'flex',alignItems:'flex-start',justifyContent:'center',padding:'16px',overflowY:'auto'},
+      onClick:function(e){if(e.target===e.currentTarget){setShowVale(false);setStAlerts([]);}}},
+      h('div',{style:{background:'var(--bg2)',borderRadius:14,width:'100%',maxWidth:500,padding:'18px',border:'1px solid rgba(168,85,247,.3)'}},
+        h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}},
+          h('span',{style:{fontSize:13,fontWeight:700,color:'var(--purple)'}},'📋 Crear Vale de Consumo'),
+          h('button',{onClick:function(){setShowVale(false);setStAlerts([]);},style:{background:'none',border:'none',color:'var(--text3)',cursor:'pointer',fontSize:16}},'✕')
+        ),
+        stAlerts.length>0&&h('div',{style:{background:'rgba(239,68,68,.1)',border:'1px solid rgba(239,68,68,.4)',borderRadius:8,padding:'8px 12px',marginBottom:12}},
+          h('div',{style:{fontSize:11,fontWeight:700,color:'var(--red)',marginBottom:4}},'⚠ Stock insuficiente:'),
+          stAlerts.map(function(a,i){return h('div',{key:i,style:{fontSize:10,color:'var(--red)'}},a);})
+        ),
+        row2(
+          lbl2('N° Vale',h('input',{type:'text',value:draftVale.nVale,onChange:function(e){setDraftVale(Object.assign({},draftVale,{nVale:e.target.value}));},style:iSt,placeholder:'V-001'})),
+          lbl2('Fecha',h('input',{type:'date',value:draftVale.fecha,onChange:function(e){setDraftVale(Object.assign({},draftVale,{fecha:e.target.value}));},style:iSt}))
+        ),
+        row2(
+          lbl2('Maestro / Subcontrato',h('input',{type:'text',value:draftVale.maestro,onChange:function(e){setDraftVale(Object.assign({},draftVale,{maestro:e.target.value}));},style:iSt})),
+          lbl2('Destino (Depto)',h('input',{type:'text',value:draftVale.destino,onChange:function(e){setDraftVale(Object.assign({},draftVale,{destino:e.target.value}));},style:iSt,placeholder:'D209'}))
+        ),
+        fld('Entregado por (bodeguero)',h('input',{type:'text',value:draftVale.entregadoPor,onChange:function(e){setDraftVale(Object.assign({},draftVale,{entregadoPor:e.target.value}));},style:iSt})),
+        h('div',{style:{fontSize:9,fontWeight:700,color:'var(--text3)',letterSpacing:'.08em',marginBottom:6,textTransform:'uppercase'}},'Materiales despachados'),
+        stock.length===0
+          ?h('div',{style:{fontSize:10,color:'var(--amber)',marginBottom:8,fontWeight:600}},'⚠ Sin materiales en stock')
+          :h('div',null,itemRow(draftVI,setDraftVI,addVI,'var(--purple)'),itemTags(draftVale.items,rmVI,'var(--purple)')),
+        h('button',{onClick:saveVale,style:{width:'100%',padding:'9px 0',borderRadius:8,cursor:'pointer',fontWeight:700,
+          border:'1px solid rgba(168,85,247,.4)',background:'rgba(168,85,247,.1)',color:'var(--purple)',fontSize:12}},
+          '✓ Emitir Vale y Descontar Stock')
+      )
+    )
+  );
 }
 
 // ── Nodo individual del árbol ──────────────────────────────
@@ -9798,12 +10211,13 @@ const VENT_SCHEDULE=[
 // Estados de instalación (secuenciales)
 // Estados lineales (flujo principal)
 const VENT_EST=[
-  {k:'pendiente',  l:'Pendiente',    ic:'○',col:'#0ea5e9',bg:'rgba(14,165,233,.12)'},   // celeste
-  {k:'rasgo',      l:'Rasgo OK',     ic:'●',col:'#eab308',bg:'rgba(234,179,8,.15)'},    // amarillo
-  {k:'medida',     l:'Medida OK',    ic:'●',col:'#ec4899',bg:'rgba(236,72,153,.15)'},   // rosado
-  {k:'transito',   l:'En Tránsito',  ic:'▶',col:'#f97316',bg:'rgba(249,115,22,.15)'},  // naranja
-  {k:'instalando', l:'Instalando',   ic:'⚙',col:'#92400e',bg:'rgba(146,64,14,.15)'},   // café (fase instalación)
-  {k:'completo',   l:'✓ Completo',   ic:'✓',col:'#22c55e',bg:'rgba(34,197,94,.15)'},   // verde
+  {k:'pendiente',  l:'Pendiente',        ic:'○',col:'#0ea5e9',bg:'rgba(14,165,233,.12)'},  // celeste
+  {k:'rasgo',      l:'Rasgo OK',         ic:'●',col:'#eab308',bg:'rgba(234,179,8,.15)'},   // amarillo
+  {k:'medida',     l:'Medida OK',        ic:'●',col:'#ec4899',bg:'rgba(236,72,153,.15)'},  // rosado
+  {k:'transito',   l:'En Tránsito',      ic:'▶',col:'#f97316',bg:'rgba(249,115,22,.15)'}, // naranja
+  {k:'enobra',     l:'Ventana en Obra',  ic:'●',col:'#06b6d4',bg:'rgba(6,182,212,.15)'},  // cian
+  {k:'instalando', l:'Instalando',       ic:'⚙',col:'#92400e',bg:'rgba(146,64,14,.15)'},  // café
+  {k:'completo',   l:'✓ Completo',       ic:'✓',col:'#22c55e',bg:'rgba(34,197,94,.15)'},  // verde
 ];
 // Colores de las sub-etapas de instalación (paralelas)
 const INST_ETAPAS={
@@ -9934,8 +10348,8 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
     toast&&toast('✓ Reprogramados '+deps.length+' dptos ('+moved+' entradas)');
   }
 
-  // ── Nuevos EST_ORDER (6 estados lineales + sub-estados paralelos) ────────
-  var EST_ORDER={pendiente:0,rasgo:1,medida:2,transito:3,instalando:4,completo:5};
+  // ── EST_ORDER (7 estados lineales + sub-estados paralelos) ────────────────
+  var EST_ORDER={pendiente:0,rasgo:1,medida:2,transito:3,enobra:4,instalando:5,completo:6};
 
   // ── Calcular estado efectivo de un item (incluye sub-estados paralelos) ──
   function calcEst(id,nd){
@@ -9946,11 +10360,14 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
     var quincPct=data.quinc||0;
     var entregaC=data.entregaCalidad;
     var llegadaR=data.llegadaReal;
-    // Si hay instalación en curso o llegó
-    if(llegadaR||(marcoPct>0)||(termoPct>0)||(quincPct>0)){
+    // Instalación en curso → auto-avanzar a instalando / completo
+    if(marcoPct>0||termoPct>0||quincPct>0){
       if(marcoPct>=100&&termoPct>=100&&quincPct>=100&&entregaC)return 'completo';
       return 'instalando';
     }
+    // Material recibido pero sin instalación: promover a enobra si estado aún es pre-llegada
+    var preArrival={pendiente:1,rasgo:1,medida:1,transito:1};
+    if(llegadaR&&preArrival[stored])return 'enobra';
     return stored;
   }
 
@@ -9959,8 +10376,8 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
     if(typeof dep!=='number')return 0;
     var sv=saves[dep]||{};var f1=sv.f1||{};var lk=_D.lf1||{};
     function gv(pid){return f1[pid]!=null?f1[pid]:(lk[dep]?lk[dep][pid]||0:0);}
-    if(gv('38')>=100)return 5; // completo
-    if(gv('38')>0)   return 4; // instalando
+    if(gv('38')>=100)return 6; // completo
+    if(gv('38')>0)   return 5; // instalando
     if(gv('10')>=100)return 3; // transito
     if(gv('10')>0)   return 2; // medida
     if(gv('7')>=100) return 1; // rasgo
@@ -10123,7 +10540,16 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
           })()
         ),
         // ── Sub-etapas paralelas con % (Marco, Termopanel, Quincallería) ──
-        (iD.llegadaReal||ed.k==='instalando'||ed.k==='transito')&&h('div',{style:{background:'var(--bg3)',borderRadius:8,padding:'8px 10px'}},
+        (EST_ORDER[ed.k]>=3)&&h('div',{style:{background:'var(--bg3)',borderRadius:8,padding:'8px 10px',position:'relative'}},
+          ed.k==='transito'&&h('div',{style:{
+            position:'absolute',inset:0,borderRadius:8,
+            background:'rgba(0,0,0,0.45)',zIndex:10,
+            display:'flex',alignItems:'center',justifyContent:'center',padding:'0 12px',
+            pointerEvents:'all'
+          }},
+            h('span',{style:{fontSize:10,color:'var(--text2)',textAlign:'center',lineHeight:1.4}},
+              'Esperando recepción: El material debe estar en obra para registrar avances de instalación')
+          ),
           h('div',{style:{fontSize:9,color:'var(--text3)',fontWeight:700,letterSpacing:.5,marginBottom:8,textTransform:'uppercase'}},'INSTALACIÓN — ETAPAS PARALELAS'),
           // Helper de render de etapa
           (function(){
@@ -11007,7 +11433,7 @@ function App({initialData}){
   const[toastMsg,showToast]=useToast();
   const[showBackupMenu,setShowBackupMenu]=useState(false);
   const backupInputRef=useRef(null);
-  const{auth,tab='dash',saves={},ganttData={},weekData={},rendData={},cubicData={},logData={},matData={}}=state;
+  const{auth,tab='dash',saves={},ganttData={},weekData={},rendData={},cubicData={},logData={},matData={},bodegaData={}}=state;
   // useMemo DEBE ir antes del early return para no violar las Reglas de Hooks
   const progress=React.useMemo(function(){return calculateAllProgress(saves);},[saves]);
   if(!auth)return h(Login,{onLogin:(a)=>save({auth:a})});
@@ -11020,6 +11446,7 @@ function App({initialData}){
   const onRendSave=(rd)=>save({rendData:rd});
   const onCubicSave=(cd)=>save({cubicData:cd});
   const onLogSave=(ld)=>save({logData:ld});
+  const onBodegaSave=(bd)=>save({bodegaData:bd});
   const asistData=state.asistData||{};
   const stData=state.stData||{};
   const onAsistSave=(ad)=>save({asistData:ad});
@@ -11041,6 +11468,7 @@ function App({initialData}){
     {id:'cubic',icon:'📦',label:'Cúbic'},
     {id:'logistica',icon:'🚛',label:'Logíst.'},
     {id:'materiales',icon:'🧱',label:'Mater.'},
+    {id:'bodega',icon:'🏪',label:'Bodega'},
       {id:'asistencia',icon:'👥',label:'Asist.'},
     {id:'sobretiempo',icon:'⏱',label:'S.Tiempo'},
     {id:'informe',icon:'📄',label:'Informe'},
@@ -11053,10 +11481,11 @@ function App({initialData}){
   else if(effectiveTab==='control')content=h(ControlView,{saves,onSave,ganttData,onGanttSave,auth,toast:showToast});
   else if(effectiveTab==='pisos')content=h(PisosView,{progress,saves,onSave,auth,toast:showToast,userResp});
   else if(effectiveTab==='gantt')content=h(GanttView,{ganttData,onGanttSave,auth,progress,saves,toast:showToast});
-  else if(effectiveTab==='programa')content=h(ProgramaView,{ganttData,saves,onWeekSave,weekData,auth,toast:showToast,userResp});
+  else if(effectiveTab==='programa')content=h(ProgramaView,{ganttData,saves,onSave,onWeekSave,weekData,auth,toast:showToast,userResp});
   else if(effectiveTab==='rendimiento')content=h(RendimientoView,{progress,saves,rendData,onRendSave,auth,toast:showToast});
   else if(effectiveTab==='cubic')content=h(CubicView,{saves,cubicData,onCubicSave,auth,toast:showToast});
   else if(effectiveTab==='logistica')content=h(LogisticaView,{logData,onLogSave,auth,toast:showToast});
+  else if(effectiveTab==='bodega')content=h(BodegaView,{bodegaData,onBodegaSave,auth,toast:showToast});
   else if(effectiveTab==='materiales')content=h(MatView,{saves,matData,onMatSave,auth,toast:showToast});
   else if(effectiveTab==='asistencia')content=h(AsistenciaView,{asistData,onAsistSave,orgData,onOrgSave,auth,toast:showToast});
   else if(effectiveTab==='sobretiempo')content=h(SobretiempoView,{asistData,stData,onStSave,auth,toast:showToast});
