@@ -6106,11 +6106,23 @@ function MatView({saves,matData,onMatSave,auth,toast}){
   var[subTab,setSubTab]=useState('detalle'); // 'detalle' | 'lista'
   var[editKey,setEditKey]=useState(null);
   var[draft,setDraft]=useState({qty:'',ud:'un'});
+  var[searchQ,setSearchQ]=useState('');
   var isAdmin=auth&&(auth.role==='Admin'||auth.role==='Jefe Obra');
   var UNITS=['un','kg','lt','m²','m³','ml','caja','saco','rollo','plancha','palmeta','balde','tubo','barra','paquete','palet','galón'];
   var TOTAL_DEPTOS=102;
 
-  var partidas=fase==='1'?_D.ps:fase==='2'?_D.ps2:fase==='3'?_D.ps3:(_D.ps4||[]);
+  // Partidas habilitadas para visualizar en esta vista, por fase
+  var ALLOWED_IDS={
+    '1':['16','28','32','33','34','37','40','41','46','47','51','52','53','54','57','59','60','67','68','69','73','74'],
+    '2':['13','22','23','29','35','37','38','42','43','44','46','47'],
+    '3':['1','2','3','4','5','6','7','8','16','17','19','20','21','23','24','26','28']
+  };
+  function filterPartidas(arr,fk){
+    var allowed=ALLOWED_IDS[fk];
+    return allowed?arr.filter(function(p){return allowed.indexOf(String(p.id))>=0;}):arr;
+  }
+
+  var partidas=filterPartidas(fase==='1'?_D.ps:fase==='2'?_D.ps2:fase==='3'?_D.ps3:(_D.ps4||[]),fase);
   var fkey='f'+fase;
 
   // Calcula deptos completados para una partida dada
@@ -6126,13 +6138,25 @@ function MatView({saves,matData,onMatSave,auth,toast}){
   function getMat(pid){
     var k=fkey+'_'+pid;
     var m=matData[k]||{};
-    return {qty:parseFloat(m.qty)||0, ud:m.ud||'un'};
+    return {qty:parseFloat(m.qty)||0, ud:m.ud||'un', bodega:parseFloat(m.bodega)||0, ordenCompra:parseFloat(m.ordenCompra)||0};
   }
 
   function saveMat(pid,patch){
     var k=fkey+'_'+pid;
     onMatSave(Object.assign({},matData,{[k]:Object.assign({},matData[k]||{},patch)}));
     toast&&toast('✓ Guardado');
+  }
+
+  // Guarda bodega/orden de compra sin toast (se escribe en cada cambio)
+  function saveStock(pid,field,val){
+    var k=fkey+'_'+pid;
+    var patch={};patch[field]=val;
+    onMatSave(Object.assign({},matData,{[k]:Object.assign({},matData[k]||{},patch)}));
+  }
+
+  // Faltante real = lo necesario para terminar - lo que hay en bodega - lo que viene en orden de compra
+  function calcFaltanteReal(necesario,m){
+    return Math.max(0,necesario-(m.bodega||0)-(m.ordenCompra||0));
   }
 
   function startEdit(pid){
@@ -6150,21 +6174,23 @@ function MatView({saves,matData,onMatSave,auth,toast}){
   function buildLista(){
     var rows=[];
     [[_D.ps,'1'],[_D.ps2,'2'],[_D.ps3,'3'],[((_D.ps4)||[]),'4']].forEach(function(pair){
-      var ps=pair[0];var f=pair[1];var fk='f'+f;
+      var ps=filterPartidas(pair[0],pair[1]);var f=pair[1];var fk='f'+f;
       ps.forEach(function(p){
-        var m=matData[fk+'_'+p.id]||{};
-        var qty=parseFloat(m.qty)||0;
+        var raw=matData[fk+'_'+p.id]||{};
+        var qty=parseFloat(raw.qty)||0;
         if(qty===0)return;
+        var m={bodega:parseFloat(raw.bodega)||0,ordenCompra:parseFloat(raw.ordenCompra)||0};
         var comp=0;
         Object.keys(saves).forEach(function(dep){
           var pct=((saves[dep]||{})[fk]||{});
           if((pct[p.id]||0)>=100)comp++;
         });
         var pend=TOTAL_DEPTOS-comp;
-        var faltante=qty*pend;
+        var necesario=qty*pend;
+        var faltante=calcFaltanteReal(necesario,m);
         if(faltante<=0)return;
-        rows.push({fase:'F'+f,nom:p.name,qty:qty,ud:m.ud||'un',comp:comp,pend:pend,
-          consumido:qty*comp,faltante:faltante,key:fk+'_'+p.id});
+        rows.push({fase:'F'+f,nom:p.name,qty:qty,ud:raw.ud||'un',comp:comp,pend:pend,
+          consumido:qty*comp,bodega:m.bodega,ordenCompra:m.ordenCompra,necesario:necesario,faltante:faltante,key:fk+'_'+p.id});
       });
     });
     rows.sort(function(a,b){return b.faltante-a.faltante;});
@@ -6179,11 +6205,15 @@ function MatView({saves,matData,onMatSave,auth,toast}){
       configuradas++;
       var comp=completados(p.id);
       totConsumo+=m.qty*comp;
-      totFaltante+=m.qty*(TOTAL_DEPTOS-comp);
+      totFaltante+=calcFaltanteReal(m.qty*(TOTAL_DEPTOS-comp),m);
     }
   });
 
   var lista=subTab==='lista'?buildLista():[];
+
+  var partidasShown=searchQ.trim()===''?partidas:partidas.filter(function(p){
+    return p.name.toLowerCase().includes(searchQ.toLowerCase())||String(p.id).includes(searchQ);
+  });
 
   return h('div',{className:'page'},
     // ── HEADER ──
@@ -6207,8 +6237,8 @@ function MatView({saves,matData,onMatSave,auth,toast}){
     subTab==='detalle'&&h('div',null,
       // ── Fase tabs ──
       h('div',{className:'ftabs',style:{marginBottom:12}},
-        [['1','F1 ('+_D.ps.length+'p)'],['2','F2 ('+_D.ps2.length+'p)'],
-         ['3','F3 ('+_D.ps3.length+'p)'],['4','F4 ('+((_D.ps4||[]).length)+'p)']].map(function(it){
+        [['1','F1 ('+filterPartidas(_D.ps,'1').length+'p)'],['2','F2 ('+filterPartidas(_D.ps2,'2').length+'p)'],
+         ['3','F3 ('+filterPartidas(_D.ps3,'3').length+'p)'],['4','F4 ('+((_D.ps4||[]).length)+'p)']].map(function(it){
           return h('button',{key:it[0],className:'ftab'+(fase===it[0]?' on':''),
             onClick:function(){setFase(it[0]);setEditKey(null);}},it[1]);
         })
@@ -6229,84 +6259,131 @@ function MatView({saves,matData,onMatSave,auth,toast}){
         h('span',{style:{background:'rgba(14,165,233,.15)',color:'var(--blue)',borderRadius:4,padding:'2px 6px',fontSize:9,fontWeight:700}},'ADMIN'),
         'Haz click en una fila para configurar cantidad por depto'
       ),
+      h('div',{className:'search-wrap',style:{marginBottom:10}},
+        h('span',{className:'search-icon'},'🔍'),
+        h('input',{value:searchQ,onChange:function(e){setSearchQ(e.target.value);},
+          placeholder:'Buscar partida...',
+          style:{background:'transparent',border:'none',outline:'none',color:'var(--text)',
+            fontSize:13,width:'100%'}
+        })
+      ),
       // ── Tabla partidas ──
       h('div',{style:{background:'var(--card)',border:'1px solid var(--border)',borderRadius:10,overflow:'hidden'}},
-        h('div',{style:{display:'grid',gridTemplateColumns:'1fr 90px 70px 80px 80px 80px',
-          gap:0,background:'var(--bg2)',padding:'7px 12px',
+        h('div',{style:{display:'grid',gridTemplateColumns:'1fr 50px 40px 38px 52px 58px',
+          gap:0,background:'var(--bg2)',padding:'7px 10px',
           borderBottom:'1px solid var(--border)',fontSize:9,fontWeight:700,
-          letterSpacing:'.07em',color:'var(--text3)',textTransform:'uppercase'}},
-          ['Partida','Cant/Depto','Unidad','Completados','Consumido','Faltante'].map(function(h2,i){
-            return h('div',{key:i,style:{textAlign:i>2?'right':'left'}},h2);
+          letterSpacing:'.06em',color:'var(--text3)',textTransform:'uppercase'}},
+          ['Partida','Cant/D','Unid.','Compl.','Consumo','Necesario'].map(function(h2,i){
+            return h('div',{key:i,style:{textAlign:i>0?'right':'left'}},h2);
           })
         ),
-        partidas.map(function(p,i){
+        partidasShown.map(function(p,i){
           var k=fkey+'_'+p.id;
           var m=getMat(p.id);
           var comp=completados(p.id);
           var pend=TOTAL_DEPTOS-comp;
           var isEditing=editKey===k;
           var hasQty=m.qty>0;
+          var necesario=hasQty&&pend>0?m.qty*pend:0;
+          var faltanteReal=calcFaltanteReal(necesario,m);
           return h('div',{key:p.id,
-            onClick:isAdmin&&!isEditing?function(){startEdit(p.id);}:undefined,
             style:{
-              display:'grid',gridTemplateColumns:'1fr 90px 70px 80px 80px 80px',
-              gap:0,padding:'8px 12px',
-              borderBottom:i<partidas.length-1?'1px solid var(--border)':'none',
+              padding:'8px 10px',
+              borderBottom:i<partidasShown.length-1?'1px solid var(--border)':'none',
               background:isEditing?'rgba(14,165,233,.06)':i%2===0?'transparent':'rgba(255,255,255,.015)',
-              cursor:isAdmin&&!isEditing?'pointer':'default',
               transition:'background .1s'
             }},
-            // Nombre
-            h('div',{style:{fontSize:12,color:'var(--text)',display:'flex',alignItems:'center',gap:6}},
-              h('span',{style:{fontSize:10,fontFamily:'var(--mono)',color:'var(--text3)',flexShrink:0}},p.id),
-              h('span',{style:{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},p.name)
-            ),
-            // Cant/Depto — editable
-            h('div',{style:{textAlign:'right',display:'flex',justifyContent:'flex-end',alignItems:'center'}},
-              isEditing
-                ?h('input',{type:'number',autoFocus:true,value:draft.qty,min:0,step:'any',
-                    onChange:function(e){setDraft(Object.assign({},draft,{qty:e.target.value}));},
-                    onKeyDown:function(e){if(e.key==='Enter')commitEdit(p.id);if(e.key==='Escape')setEditKey(null);},
-                    style:{width:72,background:'var(--bg2)',border:'1px solid var(--blue)',borderRadius:5,
-                      padding:'3px 5px',color:'var(--text)',fontSize:11,textAlign:'right',outline:'none'}
-                  })
-                :h('span',{style:{fontSize:12,fontFamily:'var(--mono)',color:hasQty?'var(--text)':'var(--text3)'}},
-                    hasQty?m.qty:'—')
-            ),
-            // Unidad — editable
-            h('div',{style:{textAlign:'right',display:'flex',justifyContent:'flex-end',alignItems:'center'}},
-              isEditing
-                ?h('select',{value:draft.ud,
-                    onChange:function(e){setDraft(Object.assign({},draft,{ud:e.target.value}));},
-                    style:{width:64,background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:5,
-                      padding:'3px 2px',color:'var(--text2)',fontSize:11,outline:'none'}
-                  },UNITS.map(function(u){return h('option',{key:u,value:u},u);}))
-                :h('span',{style:{fontSize:11,color:'var(--text2)'}},hasQty?m.ud:'—')
-            ),
-            // Completados
-            h('div',{style:{textAlign:'right',fontSize:12,fontFamily:'var(--mono)',
-              color:comp>0?'var(--green)':'var(--text3)',display:'flex',alignItems:'center',justifyContent:'flex-end'}},
-              comp>0?comp+' dpto':'0'
-            ),
-            // Consumido
-            h('div',{style:{textAlign:'right',fontSize:12,fontFamily:'var(--mono)',
-              color:hasQty&&comp>0?'var(--green)':'var(--text3)',display:'flex',alignItems:'center',justifyContent:'flex-end'}},
-              hasQty&&comp>0?(m.qty*comp).toFixed(1):'—'
-            ),
-            // Faltante
-            h('div',{style:{textAlign:'right',display:'flex',alignItems:'center',justifyContent:'flex-end',gap:6}},
-              hasQty&&pend>0
-                ?h('span',{style:{fontSize:12,fontFamily:'var(--mono)',color:'var(--amber)',fontWeight:600}},
-                    (m.qty*pend).toFixed(1))
-                :h('span',{style:{fontSize:12,fontFamily:'var(--mono)',color:'var(--text3)'}},'—'),
-              isEditing&&h('div',{style:{display:'flex',gap:4,marginLeft:4}},
-                h('button',{onClick:function(e){e.stopPropagation();commitEdit(p.id);},
-                  style:{padding:'3px 8px',borderRadius:5,border:'none',background:'var(--blue)',
-                    color:'#fff',fontSize:10,cursor:'pointer',fontWeight:700}},'✓'),
-                h('button',{onClick:function(e){e.stopPropagation();setEditKey(null);},
-                  style:{padding:'3px 6px',borderRadius:5,border:'1px solid var(--border)',
-                    background:'transparent',color:'var(--text3)',fontSize:10,cursor:'pointer'}},'✕')
+            // Fila principal
+            h('div',{
+              onClick:isAdmin&&!isEditing?function(){startEdit(p.id);}:undefined,
+              style:{display:'grid',gridTemplateColumns:'1fr 50px 40px 38px 52px 58px',gap:0,
+                alignItems:'center',cursor:isAdmin&&!isEditing?'pointer':'default'}
+            },
+              // Nombre
+              h('div',{style:{fontSize:12,color:'var(--text)',display:'flex',alignItems:'center',gap:6,minWidth:0,overflow:'hidden'}},
+                h('span',{style:{fontSize:10,fontFamily:'var(--mono)',color:'var(--text3)',flexShrink:0}},p.id),
+                h('span',{style:{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',minWidth:0}},p.name)
+              ),
+              // Cant/Depto — editable
+              h('div',{style:{textAlign:'right',display:'flex',justifyContent:'flex-end',alignItems:'center'}},
+                isEditing
+                  ?h('input',{type:'number',autoFocus:true,value:draft.qty,min:0,step:'any',
+                      onChange:function(e){setDraft(Object.assign({},draft,{qty:e.target.value}));},
+                      onKeyDown:function(e){if(e.key==='Enter')commitEdit(p.id);if(e.key==='Escape')setEditKey(null);},
+                      style:{width:56,background:'var(--bg2)',border:'1px solid var(--blue)',borderRadius:5,
+                        padding:'3px 4px',color:'var(--text)',fontSize:11,textAlign:'right',outline:'none'}
+                    })
+                  :h('span',{style:{fontSize:12,fontFamily:'var(--mono)',color:hasQty?'var(--text)':'var(--text3)'}},
+                      hasQty?m.qty:'—')
+              ),
+              // Unidad — editable
+              h('div',{style:{textAlign:'right',display:'flex',justifyContent:'flex-end',alignItems:'center'}},
+                isEditing
+                  ?h('select',{value:draft.ud,
+                      onChange:function(e){setDraft(Object.assign({},draft,{ud:e.target.value}));},
+                      style:{width:46,background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:5,
+                        padding:'3px 0',color:'var(--text2)',fontSize:10,outline:'none'}
+                    },UNITS.map(function(u){return h('option',{key:u,value:u},u);}))
+                  :h('span',{style:{fontSize:11,color:'var(--text2)'}},hasQty?m.ud:'—')
+              ),
+              // Completados
+              h('div',{style:{textAlign:'right',fontSize:12,fontFamily:'var(--mono)',
+                color:comp>0?'var(--green)':'var(--text3)'}},
+                comp
+              ),
+              // Consumido
+              h('div',{style:{textAlign:'right',fontSize:12,fontFamily:'var(--mono)',
+                color:hasQty&&comp>0?'var(--green)':'var(--text3)'}},
+                hasQty&&comp>0?(m.qty*comp).toFixed(1):'—'
+              ),
+              // Necesario
+              h('div',{style:{textAlign:'right',fontSize:12,fontFamily:'var(--mono)',
+                color:hasQty&&pend>0?'var(--amber)':'var(--text3)',fontWeight:hasQty&&pend>0?600:400}},
+                hasQty&&pend>0?necesario.toFixed(1):'—'
               )
+            ),
+            // Fila secundaria: control de stock (Bodega / O.Compra / Faltante)
+            h('div',{style:{display:'flex',flexWrap:'wrap',alignItems:'center',gap:12,
+              marginTop:6,paddingTop:6,borderTop:'1px dashed var(--border)'}},
+              h('div',{style:{display:'flex',alignItems:'center',gap:5}},
+                h('span',{style:{fontSize:9,color:'var(--text3)',fontWeight:700,letterSpacing:'.05em',textTransform:'uppercase'}},'Bodega'),
+                isAdmin
+                  ?h('input',{type:'number',min:0,step:'any',placeholder:'0',value:m.bodega||'',
+                      onChange:function(e){saveStock(p.id,'bodega',e.target.value);},
+                      style:{width:62,background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:5,
+                        padding:'3px 5px',color:'var(--blue)',fontSize:11,fontFamily:'var(--mono)',fontWeight:700,
+                        textAlign:'right',outline:'none',boxSizing:'border-box'}
+                    })
+                  :h('span',{style:{fontSize:12,fontFamily:'var(--mono)',color:'var(--blue)',fontWeight:700}},m.bodega||0)
+              ),
+              h('div',{style:{display:'flex',alignItems:'center',gap:5}},
+                h('span',{style:{fontSize:9,color:'var(--text3)',fontWeight:700,letterSpacing:'.05em',textTransform:'uppercase'}},'O.Compra'),
+                isAdmin
+                  ?h('input',{type:'number',min:0,step:'any',placeholder:'0',value:m.ordenCompra||'',
+                      onChange:function(e){saveStock(p.id,'ordenCompra',e.target.value);},
+                      style:{width:62,background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:5,
+                        padding:'3px 5px',color:'var(--purple)',fontSize:11,fontFamily:'var(--mono)',fontWeight:700,
+                        textAlign:'right',outline:'none',boxSizing:'border-box'}
+                    })
+                  :h('span',{style:{fontSize:12,fontFamily:'var(--mono)',color:'var(--purple)',fontWeight:700}},m.ordenCompra||0)
+              ),
+              h('div',{style:{display:'flex',alignItems:'center',gap:5,marginLeft:'auto'}},
+                h('span',{style:{fontSize:9,color:'var(--text3)',fontWeight:700,letterSpacing:'.05em',textTransform:'uppercase'}},'Faltante'),
+                !hasQty
+                  ?h('span',{style:{fontSize:12,fontFamily:'var(--mono)',color:'var(--text3)'}},'—')
+                  :faltanteReal>0
+                    ?h('span',{style:{fontSize:12,fontFamily:'var(--mono)',color:'var(--red)',fontWeight:700}},faltanteReal.toFixed(1))
+                    :h('span',{style:{fontSize:11,fontFamily:'var(--mono)',color:'var(--green)',fontWeight:700}},'OK')
+              )
+            ),
+            // Botones de edición
+            isEditing&&h('div',{style:{display:'flex',gap:6,marginTop:6,justifyContent:'flex-end'}},
+              h('button',{onClick:function(e){e.stopPropagation();commitEdit(p.id);},
+                style:{padding:'4px 12px',borderRadius:5,border:'none',background:'var(--blue)',
+                  color:'#fff',fontSize:11,cursor:'pointer',fontWeight:700}},'✓ Guardar'),
+              h('button',{onClick:function(e){e.stopPropagation();setEditKey(null);},
+                style:{padding:'4px 10px',borderRadius:5,border:'1px solid var(--border)',
+                  background:'transparent',color:'var(--text3)',fontSize:11,cursor:'pointer'}},'✕ Cancelar')
             )
           );
         })
@@ -6339,8 +6416,8 @@ function MatView({saves,matData,onMatSave,auth,toast}){
                 background:i%2===0?'transparent':'rgba(255,255,255,.015)'
               }},
                 h('div',{style:{fontSize:10,fontFamily:'var(--mono)',color:'var(--text3)',display:'flex',alignItems:'center'}},row.fase),
-                h('div',{style:{fontSize:12,color:'var(--text)',display:'flex',alignItems:'center',overflow:'hidden'}},
-                  h('span',{style:{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},row.nom)
+                h('div',{style:{fontSize:12,color:'var(--text)',display:'flex',alignItems:'center',overflow:'hidden',minWidth:0}},
+                  h('span',{style:{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',minWidth:0}},row.nom)
                 ),
                 h('div',{style:{textAlign:'right',fontSize:12,fontFamily:'var(--mono)',color:'var(--green)',display:'flex',alignItems:'center',justifyContent:'flex-end'}},
                   row.consumido.toFixed(1)),
@@ -6466,6 +6543,89 @@ function importBackup(file,onSuccess,onError){
 // ══════════════════════════════════════════════════════════════
 
 var TEAM_COLORS=['#0ea5e9','#a855f7','#22c55e','#f59e0b','#06b6d4','#f97316','#14b8a6','#ef4444','#3b82f6','#ec4899'];
+
+// Clave de comparación de nombres: ignora acentos, mayúsculas, espacios, puntos y orden de palabras
+function nameKey(s){
+  return (s||'').toString().normalize('NFD').replace(/[̀-ͯ]/g,'')
+    .toUpperCase().replace(/[^A-Z]/g,'').split('').sort().join('');
+}
+
+// Plantilla de organigrama del Edificio Victoria — el orden define el orden visual de las tarjetas/equipos
+var ORG_TEMPLATE=[
+  // ── Plana Administrativa ──
+  {nombre:'CASTRO ESPINOZA HECTOR',parent:null},
+  {nombre:'RIVERA ROMERO CARLOS ALBERTO',parent:'CASTRO ESPINOZA HECTOR'},
+  {nombre:'MORA MUÑOZ BENJAMIN BENITO',parent:'CASTRO ESPINOZA HECTOR'},
+  {nombre:'RETAMALES MORENO GABRIELA ELENA',parent:'CASTRO ESPINOZA HECTOR'},
+  {nombre:'CARCAMO ALVAREZ JORDY NICOLAS',parent:'RETAMALES MORENO GABRIELA ELENA'},
+  // ── 2. Jefe de Terreno (Pablo Huaiquiman) ──
+  {nombre:'HUAIQUIMAN HERRERA PABLO ORLANDO',parent:null},
+  // ── 2.1 Aseo ──
+  {nombre:'MONTECINOS MUÑOZ ANA MARIA',parent:'HUAIQUIMAN HERRERA PABLO ORLANDO'},
+  // ── 2.2 Bodega ──
+  {nombre:'VARGAS MORA JUAN CARLOS',parent:'HUAIQUIMAN HERRERA PABLO ORLANDO'},
+  {nombre:'FIGUEROA MOLINA ALDO AGUSTIN',parent:'VARGAS MORA JUAN CARLOS'},
+  // ── 2.3 Seguridad / Portería ──
+  {nombre:'ORTIZ SEGURA FERNANDA JEAQUELINE',parent:'HUAIQUIMAN HERRERA PABLO ORLANDO'},
+  // ── 2.4 Mantenimiento ──
+  {nombre:'PADILLA ZAMBRANO JULIO CESAR',parent:'HUAIQUIMAN HERRERA PABLO ORLANDO'},
+  // ── 2.5 Trazado 1 (Nilo Rojas) ──
+  {nombre:'NILO ROJAS RODRIGO ANIBAL',parent:'HUAIQUIMAN HERRERA PABLO ORLANDO'},
+  {nombre:'SARE CONDOR LEIDY ELIZABETH',parent:'NILO ROJAS RODRIGO ANIBAL'},
+  // ── 2.6 Trazado 2 (Oliva Aravena) ──
+  {nombre:'OLIVA ARAVENA CRISTIAN MAURICIO',parent:'HUAIQUIMAN HERRERA PABLO ORLANDO'},
+  {nombre:'SAUREL MYRIL',parent:'OLIVA ARAVENA CRISTIAN MAURICIO'},
+  {nombre:'MUÑOZ LOPEZ JUAN PABLO',parent:'OLIVA ARAVENA CRISTIAN MAURICIO'},
+  // ── 2.7 Jefe de Patio (Ramírez Torres) ──
+  {nombre:'RAMIREZ TORRES LUIS EDUARDO',parent:'HUAIQUIMAN HERRERA PABLO ORLANDO'},
+  {nombre:'BALTAZAR GARCIA SEGUNDO MIGUEL',parent:'RAMIREZ TORRES LUIS EDUARDO'},
+  {nombre:'FLORES OBREGON JHONNY WILLIAMS',parent:'RAMIREZ TORRES LUIS EDUARDO'},
+  {nombre:'CHACON GONZALEZ ROSSELFERNANDO',parent:'RAMIREZ TORRES LUIS EDUARDO'},
+  {nombre:'MEJIA RODRIGUEZ LUIS NOLBERTO',parent:'RAMIREZ TORRES LUIS EDUARDO'},
+  {nombre:'ROSALES RIVAS FORTUNATO',parent:'RAMIREZ TORRES LUIS EDUARDO'},
+  // ── 2.8 Jefe de Obra Gruesa (Jiménez Riveros) ──
+  {nombre:'JIMENEZ RIVEROS IVAN MARCELO',parent:'HUAIQUIMAN HERRERA PABLO ORLANDO'},
+  {nombre:'MENACHO CHONONO JUAN CARLOS',parent:'JIMENEZ RIVEROS IVAN MARCELO'},
+  {nombre:'MEDE JOSEPH BRUNER',parent:'JIMENEZ RIVEROS IVAN MARCELO'},
+  {nombre:'DESIER VOLNY',parent:'JIMENEZ RIVEROS IVAN MARCELO'},
+  {nombre:'RUIZ MANRIQUEZ PEDRO ESTEBAN',parent:'JIMENEZ RIVEROS IVAN MARCELO'},
+  {nombre:'BERRIOS MORALES JOSE ALFREDO',parent:'JIMENEZ RIVEROS IVAN MARCELO'},
+  {nombre:'MEZA VILLEGAS VICTOR ELADIO',parent:'JIMENEZ RIVEROS IVAN MARCELO'},
+  {nombre:'FERNANDEZ SERRANO JOSE CARLOS',parent:'JIMENEZ RIVEROS IVAN MARCELO'},
+  {nombre:'MORE PONTE ANGEL FRANCO',parent:'JIMENEZ RIVEROS IVAN MARCELO'},
+  // ── 2.9 Jefe de Obra Terminaciones (Castro González) ──
+  {nombre:'CASTRO GONZALEZ PAUL ALEXANDER',parent:'HUAIQUIMAN HERRERA PABLO ORLANDO'},
+  {nombre:'HUENAO OSORIO FRANCISCO JAVIER',parent:'CASTRO GONZALEZ PAUL ALEXANDER'},
+  {nombre:'MONTECINOS MUÑOZ CELIA DE LOURDES',parent:'CASTRO GONZALEZ PAUL ALEXANDER'},
+  {nombre:'MONTECINOS MUÑOZ JULIA DEL CARMEN',parent:'CASTRO GONZALEZ PAUL ALEXANDER'},
+  {nombre:'CAQUE REDUCINDO RENSO PAOLO',parent:'CASTRO GONZALEZ PAUL ALEXANDER'},
+  {nombre:'QUEZADA GONZALES PABLO ANDRES',parent:'CASTRO GONZALEZ PAUL ALEXANDER'},
+  {nombre:'ROJAS PAVEZ CINTIA VALESCA',parent:'CASTRO GONZALEZ PAUL ALEXANDER'},
+  // ── 2.10 Supervisor de Terminaciones 1 (Elgueta Rojas) ──
+  {nombre:'ELGUETA ROJAS VALERIA CAROLINE',parent:'HUAIQUIMAN HERRERA PABLO ORLANDO'},
+  {nombre:'ELGUETA ROJAS ANGELA ANDREA',parent:'ELGUETA ROJAS VALERIA CAROLINE'},
+  {nombre:'TORRES GOMEZ ERIKA DEL TRANSITO',parent:'ELGUETA ROJAS VALERIA CAROLINE'},
+  {nombre:'ARAYA AMAR JESUS ANTONIO',parent:'ELGUETA ROJAS VALERIA CAROLINE'},
+  {nombre:'VARGAS VERA VIOLETA ALEJANDRA',parent:'ELGUETA ROJAS VALERIA CAROLINE'},
+  {nombre:'ALVAREZ MALDONADO NELSON ALEJANDRO',parent:'ELGUETA ROJAS VALERIA CAROLINE'},
+  {nombre:'MUÑOZ TRUJILLO JORGE JESUS',parent:'ELGUETA ROJAS VALERIA CAROLINE'},
+  // ── 2.11 Supervisor de Terminaciones 2 (Farías Gutiérrez) ──
+  {nombre:'FARIAS GUTIERREZ ANGELICA DEL CARMEN',parent:'HUAIQUIMAN HERRERA PABLO ORLANDO'},
+  {nombre:'CASTRO FARIAS ALEJANDRA ANGELICA',parent:'FARIAS GUTIERREZ ANGELICA DEL CARMEN'},
+  {nombre:'REYES BARRIOS ELENA CRISTINA',parent:'FARIAS GUTIERREZ ANGELICA DEL CARMEN'},
+  {nombre:'URRA TAPIA CARLOS JOEL',parent:'FARIAS GUTIERREZ ANGELICA DEL CARMEN'},
+  {nombre:'PEÑA GALVEZ RODRIGO ANTONIO',parent:'FARIAS GUTIERREZ ANGELICA DEL CARMEN'},
+  {nombre:'GONZALEZ MAULEN JUAN IGNACIO',parent:'FARIAS GUTIERREZ ANGELICA DEL CARMEN'},
+  // ── 2.12 Supervisor de Terminaciones 3 (Villablanca Marilican) ──
+  {nombre:'VILLABLANCA MARILICAN HANS GABRIEL',parent:'HUAIQUIMAN HERRERA PABLO ORLANDO'},
+  {nombre:'MEJIA ROMAN JUAN DAVID',parent:'VILLABLANCA MARILICAN HANS GABRIEL'},
+  {nombre:'ROZAS ANCATEN JUAN CARLOS',parent:'VILLABLANCA MARILICAN HANS GABRIEL'},
+  {nombre:'MENACHO CHONONO LUIS MIGUEL',parent:'VILLABLANCA MARILICAN HANS GABRIEL'},
+  {nombre:'ARAYA ITURRIAGA LUIS CANDIDO',parent:'VILLABLANCA MARILICAN HANS GABRIEL'},
+  {nombre:'SERNAQUE CHERO JUAN SILVINO',parent:'VILLABLANCA MARILICAN HANS GABRIEL'},
+  {nombre:'DAREUS JEAN DANIEL',parent:'VILLABLANCA MARILICAN HANS GABRIEL'},
+  {nombre:'CARRASCO VALENZUELA CARLOS ALBERTO',parent:'VILLABLANCA MARILICAN HANS GABRIEL'}
+];
 
 function buildOrgTree(nodes){
   var map={};
@@ -6926,6 +7086,23 @@ function OrgBuilderView({orgData,casaW,onSave,onBack,toast}){
   var[q,setQ]=useState('');
   var[saved,setSaved]=useState(false);
 
+  function applyTemplate(){
+    var byKey={};
+    allW.forEach(function(w){byKey[nameKey(w.nombre)]=w;});
+    var nm=Object.assign({},parentMap);
+    var matched=0;
+    ORG_TEMPLATE.forEach(function(t){
+      var w=byKey[nameKey(t.nombre)];
+      if(!w)return;
+      matched++;
+      if(!t.parent){nm[w.rut]='';return;}
+      var pw=byKey[nameKey(t.parent)];
+      nm[w.rut]=pw?pw.id:'';
+    });
+    setParentMap(nm);
+    toast&&toast('✓ Plantilla aplicada: '+matched+'/'+ORG_TEMPLATE.length+' coincidencias. Revisa y guarda.');
+  }
+
   function save(){
     var nodes=allW.map(function(w){
       return{id:w.id,rut:w.rut,nombre:w.nombre,cargo:w.cargo,parentId:parentMap[w.rut]||null};
@@ -6952,6 +7129,9 @@ function OrgBuilderView({orgData,casaW,onSave,onBack,toast}){
     h('div',{style:{background:'rgba(14,165,233,.07)',border:'1px solid rgba(14,165,233,.2)',borderRadius:8,padding:'9px 12px',marginBottom:10,fontSize:11,color:'var(--text2)',lineHeight:1.5}},
       'Asigna un jefe a cada persona. Los que no tengan jefe asignado quedan como ra\xedz del \xe1rbol.'
     ),
+    h('button',{onClick:applyTemplate,style:{width:'100%',padding:'9px 0',borderRadius:8,marginBottom:10,cursor:'pointer',fontWeight:700,
+      border:'1px solid rgba(34,197,94,.4)',background:'rgba(34,197,94,.1)',color:'var(--green)',fontSize:12}},
+      '🏗 Aplicar estructura Edificio Victoria'),
     h('div',{className:'search-wrap',style:{marginBottom:10}},
       h('span',{className:'search-icon'},'🔍'),
       h('input',{value:q,onChange:function(e){setQ(e.target.value);},placeholder:'Buscar trabajador...'})
@@ -6982,6 +7162,75 @@ function OrgBuilderView({orgData,casaW,onSave,onBack,toast}){
   );
 }
 
+// ── Resumen de personal por equipo (Terreno) ────────────────
+var ADMIN_ROOT_KEY=nameKey('CASTRO ESPINOZA HECTOR');
+// Equipo "Jefe de Obra Terminaciones" agrupa visualmente a los 3 Supervisores de Terminaciones
+var TERMINACIONES_LEAD_KEY=nameKey('CASTRO GONZALEZ PAUL ALEXANDER');
+var TERMINACIONES_SUP_KEYS=['ELGUETA ROJAS VALERIA CAROLINE','FARIAS GUTIERREZ ANGELICA DEL CARMEN','VILLABLANCA MARILICAN HANS GABRIEL'].map(nameKey);
+
+function PersonnelSummary({roots,casaW,dayNum}){
+  var pabloRoot=roots.find(function(r){return nameKey(r.nombre)!==ADMIN_ROOT_KEY;});
+  if(!pabloRoot)return null;
+  var equipos=pabloRoot.children||[];
+  function findEq(key){return equipos.find(function(e){return nameKey(e.nombre)===key;});}
+  function tot(node){return node?getTeamStats(node,null,casaW).total:0;}
+
+  var presentesHoy=getTeamStats(pabloRoot,dayNum,casaW).presentes;
+
+  var aseo=findEq(nameKey('MONTECINOS MUÑOZ ANA MARIA'));
+  var bodega=findEq(nameKey('VARGAS MORA JUAN CARLOS'));
+  var mantenimiento=findEq(nameKey('PADILLA ZAMBRANO JULIO CESAR'));
+  var trazado1=findEq(nameKey('NILO ROJAS RODRIGO ANIBAL'));
+  var trazado2=findEq(nameKey('OLIVA ARAVENA CRISTIAN MAURICIO'));
+  var patio=findEq(nameKey('RAMIREZ TORRES LUIS EDUARDO'));
+  var obraGruesa=findEq(nameKey('JIMENEZ RIVEROS IVAN MARCELO'));
+  var castroG=findEq(TERMINACIONES_LEAD_KEY);
+  var elgueta=findEq(nameKey('ELGUETA ROJAS VALERIA CAROLINE'));
+  var farias=findEq(nameKey('FARIAS GUTIERREZ ANGELICA DEL CARMEN'));
+  var villablanca=findEq(nameKey('VILLABLANCA MARILICAN HANS GABRIEL'));
+
+  var castroGTot=tot(castroG),elguetaTot=tot(elgueta),fariasTot=tot(farias),villablancaTot=tot(villablanca);
+  var terminacionesTot=castroGTot+elguetaTot+fariasTot+villablancaTot;
+
+  var badges=[
+    {label:'Aseo',value:tot(aseo)},
+    {label:'Bodega',value:tot(bodega)},
+    {label:'Mantenimiento',value:tot(mantenimiento)},
+    {label:'Trazado',value:tot(trazado1)+tot(trazado2)},
+    {label:'Jefe de Patio',value:tot(patio)},
+    {label:'Obra Gruesa',value:tot(obraGruesa)}
+  ];
+
+  return h('div',{style:{background:'#060d18',border:'1px solid var(--border)',borderRadius:12,padding:'10px 12px',marginBottom:10}},
+    h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',paddingBottom:8,marginBottom:8,borderBottom:'1px solid var(--border)'}},
+      h('div',{style:{fontSize:11,fontWeight:700,letterSpacing:'.06em',color:'var(--text3)',textTransform:'uppercase'}},'Total Personal en Obra'),
+      h('div',{style:{fontSize:18,fontFamily:'var(--mono)',fontWeight:800,color:'var(--green)'}},presentesHoy)
+    ),
+    h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6}},
+      badges.map(function(b,i){
+        return h('div',{key:i,style:{display:'flex',justifyContent:'space-between',alignItems:'center',background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:8,padding:'6px 10px'}},
+          h('div',{style:{fontSize:11,fontWeight:600,color:'var(--text2)'}},b.label),
+          h('div',{style:{fontSize:13,fontFamily:'var(--mono)',fontWeight:700,color:'var(--blue)'}},b.value)
+        );
+      })
+    ),
+    h('div',{style:{marginTop:6,background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 10px'}},
+      h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}},
+        h('div',{style:{fontSize:11,fontWeight:700,color:'var(--text)'}},'Terminaciones (Total)'),
+        h('div',{style:{fontSize:13,fontFamily:'var(--mono)',fontWeight:800,color:'var(--blue)'}},terminacionesTot)
+      ),
+      h('div',{style:{display:'flex',flexDirection:'column',gap:3}},
+        [['Cuadrilla Paul Castro',castroGTot],['Cuadrilla Valeria Elgueta',elguetaTot],['Cuadrilla Angelica Farias',fariasTot],['Cuadrilla Hans Villablanca',villablancaTot]].map(function(row,i){
+          return h('div',{key:i,style:{display:'flex',justifyContent:'space-between',fontSize:10,color:'var(--text3)'}},
+            h('span',null,row[0]),
+            h('span',{style:{fontFamily:'var(--mono)',color:'var(--text2)',fontWeight:700}},row[1])
+          );
+        })
+      )
+    )
+  );
+}
+
 // ── Vista día agrupada por equipos ──────────────────────────
 function DayByTeams({orgData,dayNum,casaW,subcW,onConfigureOrg,isAdmin}){
   var nodes=(orgData&&orgData.nodes)||[];
@@ -6994,7 +7243,7 @@ function DayByTeams({orgData,dayNum,casaW,subcW,onConfigureOrg,isAdmin}){
   }
   var roots=buildOrgTree(nodes);
 
-  function TeamCard({node,color,idx}){
+  function TeamCard({node,color,idx,nested,nestedColors}){
     var[open,setOpen]=useState(true);
     var ts=getTeamStats(node,dayNum,casaW);
     var members=[];
@@ -7004,7 +7253,7 @@ function DayByTeams({orgData,dayNum,casaW,subcW,onConfigureOrg,isAdmin}){
       (n.children||[]).forEach(function(c){collect(c,level+1);});
     }
     collect(node,0);
-    return h('div',{style:{background:'var(--card)',border:'1px solid '+(color+'40'),borderRadius:12,overflow:'hidden',marginBottom:8}},
+    return h('div',{style:{width:'100%',background:'var(--card)',border:'1px solid '+(color+'40'),borderRadius:12,overflow:'hidden'}},
       h('div',{onClick:function(){setOpen(function(o){return !o;});},style:{padding:'10px 12px',background:color+'10',display:'flex',alignItems:'center',gap:8,cursor:'pointer'}},
         idx===0&&ts.pct>=90&&h('span',{style:{fontSize:16}},'🏆'),
         h('div',{style:{flex:1}},
@@ -7036,7 +7285,13 @@ function DayByTeams({orgData,dayNum,casaW,subcW,onConfigureOrg,isAdmin}){
             ),
             h('div',{style:{fontSize:9,fontWeight:700,color:dotCol,letterSpacing:'.04em',flexShrink:0}},lbl)
           );
-        })
+        }),
+        nested&&nested.length>0&&h('div',{style:{marginTop:10,paddingTop:8,borderTop:'1px dashed '+color+'50'}},
+          h('div',{style:{fontSize:9,fontWeight:700,letterSpacing:'.08em',color:'var(--text3)',marginBottom:6,textTransform:'uppercase'}},'Supervisores a cargo'),
+          h('div',{style:{display:'flex',flexDirection:'column',gap:8}},
+            nested.map(function(n,ni){return h(TeamCard,{key:'sup'+ni,node:n,color:nestedColors[ni],idx:-1});})
+          )
+        )
       )
     );
   }
@@ -7050,9 +7305,26 @@ function DayByTeams({orgData,dayNum,casaW,subcW,onConfigureOrg,isAdmin}){
   }).filter(function(c){return c.total>0;});
   subcCompanies.sort(function(a,b){return b.pct-a.pct;});
 
+  // Separa la rama administrativa (Castro Espinoza) de la rama Terreno (Pablo Huaiquiman)
+  var adminRoots=roots.filter(function(r){return nameKey(r.nombre)===ADMIN_ROOT_KEY;});
+  var pabloRoot=roots.find(function(r){return nameKey(r.nombre)!==ADMIN_ROOT_KEY;});
+  var pabloEquipos=(pabloRoot&&pabloRoot.children)||[];
+  // Los 3 Sup. de Terminaciones se cuelgan visualmente del cuadro "Jefe de Obra Terminaciones"
+  var supTerm=pabloEquipos.filter(function(eq){return TERMINACIONES_SUP_KEYS.indexOf(nameKey(eq.nombre))>=0;});
+  var mainEquipos=pabloEquipos.filter(function(eq){return TERMINACIONES_SUP_KEYS.indexOf(nameKey(eq.nombre))<0;});
+  var supTermColors=supTerm.map(function(eq,i){return TEAM_COLORS[(adminRoots.length+mainEquipos.length+i)%TEAM_COLORS.length];});
+
   return h('div',null,
+    h(PersonnelSummary,{roots:roots,casaW:casaW,dayNum:dayNum}),
     h('div',{style:{fontSize:10,fontWeight:700,letterSpacing:'.08em',color:'var(--text3)',marginBottom:8,textTransform:'uppercase'}},'Equipos Casa'),
-    roots.map(function(r,i){return h(TeamCard,{key:i,node:r,color:TEAM_COLORS[i%TEAM_COLORS.length],idx:i});}),
+    h('div',{style:{display:'flex',flexDirection:'column',gap:10,marginBottom:subcCompanies.length>0?12:0}},
+      adminRoots.map(function(r,i){return h(TeamCard,{key:'a'+i,node:r,color:TEAM_COLORS[i%TEAM_COLORS.length],idx:i});}),
+      mainEquipos.map(function(eq,i){
+        var color=TEAM_COLORS[(adminRoots.length+i)%TEAM_COLORS.length];
+        var isLead=nameKey(eq.nombre)===TERMINACIONES_LEAD_KEY;
+        return h(TeamCard,{key:'p'+i,node:eq,color:color,idx:adminRoots.length+i,nested:isLead?supTerm:null,nestedColors:isLead?supTermColors:null});
+      })
+    ),
     subcCompanies.length>0&&[
       h('div',{key:'hdr',style:{fontSize:10,fontWeight:700,letterSpacing:'.08em',color:'var(--text3)',margin:'12px 0 8px',textTransform:'uppercase'}},'Subcontratos'),
       h('div',{key:'cards',style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6}},
@@ -7415,7 +7687,7 @@ function generarPDFResumenSemanal(entries,conBoletas,semLabel){
 function SobretiempoView({asistData,stData,onStSave,auth,toast}){
   var _td=new Date();var today=_td.getFullYear()+'-'+String(_td.getMonth()+1).padStart(2,'0')+'-'+String(_td.getDate()).padStart(2,'0');
   var[fecha,setFecha]=useState(today);
-  var[monto,setMonto]=useState(1800);
+  var[monto,setMonto]=useState(2000);
   var[jefatura,setJefatura]=useState([]);
   var[bodega,setBodega]=useState([]);
   var[mantenimiento,setMantenimiento]=useState([]);
@@ -7514,12 +7786,12 @@ function SobretiempoView({asistData,stData,onStSave,auth,toast}){
   }
 
   function doSave(){onStSave(Object.assign({},stData,{[fecha]:{fecha,monto,jefatura,bodega,mantenimiento,grupos,savedAt:new Date().toISOString()}}));toast&&toast('Guardado');}
-  function loadRec(){if(savedRec){setMonto(savedRec.monto||1800);setJefatura(savedRec.jefatura||[]);setBodega(savedRec.bodega||[]);setMantenimiento(savedRec.mantenimiento||[]);setGrupos(savedRec.grupos||[]);setBoletasArr([]);toast&&toast('Registro cargado');}}
+  function loadRec(){if(savedRec){setMonto(savedRec.monto||2000);setJefatura(savedRec.jefatura||[]);setBodega(savedRec.bodega||[]);setMantenimiento(savedRec.mantenimiento||[]);setGrupos(savedRec.grupos||[]);setBoletasArr([]);toast&&toast('Registro cargado');}}
   function loadHistEntry(entry){
     // Carga el registro completo desde stData[fecha] si existe, si no desde el historial
     var rec=stData[entry.fecha]||{};
     setFecha(entry.fecha||today);
-    setMonto(entry.monto||rec.monto||1800);
+    setMonto(entry.monto||rec.monto||2000);
     setJefatura(rec.jefatura||[]);
     setBodega(rec.bodega||[]);
     setMantenimiento(rec.mantenimiento||[]);
