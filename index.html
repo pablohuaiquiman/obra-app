@@ -1302,6 +1302,8 @@ function PartidasView({progress,saves,onSave,auth,toast,userResp}){
           var deps=_D.fl[fl]||[];
           var flSum=deps.reduce(function(s,dep){return s+getVal(dep);},0);
           var flAvgP=deps.length?Math.round(flSum/deps.length*10)/10:0;
+          var flComp=0,flAvanz=0,flPend=0;
+          deps.forEach(function(dep){var v=getVal(dep);if(v>=100)flComp++;else if(v>0)flAvanz++;else flPend++;});
           var visibleDeps=hideDone?deps.filter(function(d){return getVal(d)<100;}):deps;
           var flHasSel=selDep!=null&&deps.indexOf(selDep)>=0;
           if(hideDone&&visibleDeps.length===0&&!flHasSel)return null;
@@ -1332,6 +1334,12 @@ function PartidasView({progress,saves,onSave,auth,toast,userResp}){
               ),
               h('span',{style:{fontFamily:'var(--mono)',fontSize:12,fontWeight:700,
                 color:pc(flAvgP),minWidth:40,textAlign:'right',flexShrink:0}},flAvgP+'%')
+            ),
+            // Resumen por piso: completados / trabajando / pendientes
+            h('div',{style:{display:'flex',justifyContent:'flex-end',gap:10,padding:'2px 6px 6px 0',fontFamily:'var(--mono)',fontSize:10,fontWeight:700}},
+              h('span',{style:{color:'var(--green)'}},'✓ '+flComp),
+              h('span',{style:{color:'var(--amber)'}},'~ '+flAvanz),
+              h('span',{style:{color:'var(--red)'}},'● '+flPend)
             ),
             // Panel inline de edición (sin cambio de vista)
             flHasSel&&h('div',{style:{background:'var(--bg3)',border:'1px solid var(--accent)',
@@ -2764,7 +2772,7 @@ function ReportDeptCard({ent,saves,reportSel,toggleDeptSel,togglePartida,phaseDe
   );
 }
 
-function ProgramaView({ganttData,saves,onSave,onWeekSave,weekData,auth,toast,userResp}){
+function ProgramaView({ganttData,onGanttSave,saves,onSave,onWeekSave,weekData,auth,toast,userResp}){
   const[filtFase,sff]=useState('all');
   const[filtResp,sfr]=useState('all');
   const[showEntregas,setShowEntregas]=useState(false);
@@ -2782,6 +2790,8 @@ function ProgramaView({ganttData,saves,onSave,onWeekSave,weekData,auth,toast,use
     return d.toISOString().slice(0,10);
   });
   const[dayInput,sdi]=useState({});
+  var[showGanttEntrega,setShowGanttEntrega]=useState(false);
+  var[selGDep,setSelGDep]=useState(null);
   const resps=PLAN.rl; // 19 responsables únicos
   const faseColor=f=>f==='1'?'var(--blue)':f==='2'?'var(--purple)':f==='3'?'var(--green)':'var(--amber)';
   const pd=(s)=>s?new Date(s+'T12:00:00'):null;
@@ -3237,7 +3247,194 @@ function ProgramaView({ganttData,saves,onSave,onWeekSave,weekData,auth,toast,use
     doc.save(fname);
     toast&&toast('PDF generado: '+fname);
   }
+  // ══ GANTT PROGRAMA DE ENTREGA ══════════════════════════════
+  if(showGanttEntrega){
+    var _gOv=ganttData.overrides||{};var _gDs=ganttData.dateShift||0;
+    var _GM=[{l:'FEB',s:31,d:28},{l:'MAR',s:59,d:31},{l:'ABR',s:90,d:30},
+             {l:'MAY',s:120,d:31},{l:'JUN',s:151,d:30},{l:'JUL',s:181,d:31},
+             {l:'AGO',s:212,d:31},{l:'SEP',s:243,d:30},{l:'OCT',s:273,d:31}];
+    var _GS=31,_GE=303,_GD=273;
+    var _gmP=function(n){return Math.max(0,Math.min(100,(n-_GS)/_GD*100));};
+    var _tgn=(function(){var ep=new Date('2026-01-01');return Math.round((new Date()-ep)/864e5);})();
+    var _dPct=function(d){
+      var f1=calcDeptoFaseResp(d,1,saves,null),f2=calcDeptoFaseResp(d,2,saves,null),f3=calcDeptoFaseResp(d,3,saves,null);
+      return Math.round((f1+f2+f3)/3);
+    };
+    var _bCol=function(p,en){
+      if(p>=100)return'var(--green)';
+      if(p>=75)return'#f97316';
+      if(p>=1)return'#ca8a04';
+      if(_tgn>en)return'var(--red)';
+      return'var(--blue)';
+    };
+    var _gc=0,_gav=0,_gat=0,_gpe=0;
+    PLAN.de.forEach(function(dep,di){
+      var od=_gOv['dep_'+di];
+      var en=od&&od.e!=null?od.e:(dep.e+_gDs);
+      var p=_dPct(dep.d);
+      if(p>=100)_gc++;else if(_tgn>en)_gat++;else if(p>0)_gav++;else _gpe++;
+    });
+    // ── Ajuste de fechas por depto ──
+    var _saveDepOv=function(di,delta){
+      if(!onGanttSave)return;
+      var dep=PLAN.de[di];
+      var od=_gOv['dep_'+di]||{};
+      var curS=od.s!=null?od.s:(dep.s+_gDs);
+      var curE=od.e!=null?od.e:(dep.e+_gDs);
+      var newOv=Object.assign({},_gOv);
+      newOv['dep_'+di]=Object.assign({},od,{s:curS+delta,e:curE+delta});
+      onGanttSave(Object.assign({},ganttData,{overrides:newOv}));
+    };
+    var _resetDepOv=function(di){
+      if(!onGanttSave)return;
+      var newOv=Object.assign({},_gOv);
+      delete newOv['dep_'+di];
+      onGanttSave(Object.assign({},ganttData,{overrides:newOv}));
+      toast&&toast('Fechas restablecidas');
+    };
+    var _piOrd=[0,2,1,3,4];
+    var _LW=54;
+    return h('div',{className:'page gap10'},
+      h('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:4}},
+        h('button',{onClick:function(){setShowGanttEntrega(false);},
+          style:{background:'none',border:'1px solid var(--border)',borderRadius:7,padding:'5px 10px',
+            color:'var(--text3)',cursor:'pointer',fontSize:12,flexShrink:0}},'← Semana'),
+        h('div',{style:{fontSize:12,fontWeight:800,color:'var(--text)',lineHeight:1.2}},
+          'Programa de Entrega de Departamentos')
+      ),
+      h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:5,marginBottom:8}},
+        [{l:'Completados',v:_gc,c:'var(--green)',bg:'rgba(34,197,94,.1)',bd:'rgba(34,197,94,.25)'},
+         {l:'En avance',v:_gav,c:'var(--amber)',bg:'rgba(245,158,11,.1)',bd:'rgba(245,158,11,.25)'},
+         {l:'Atrasados',v:_gat,c:'var(--red)',bg:'rgba(239,68,68,.1)',bd:'rgba(239,68,68,.25)'},
+         {l:'Por iniciar',v:_gpe,c:'var(--blue)',bg:'rgba(14,165,233,.1)',bd:'rgba(14,165,233,.25)'}
+        ].map(function(s,i){
+          return h('div',{key:i,style:{textAlign:'center',padding:'7px 4px',background:s.bg,border:'1px solid '+s.bd,borderRadius:8}},
+            h('div',{style:{fontSize:18,fontWeight:800,color:s.c,fontFamily:'var(--mono)',lineHeight:1}},s.v),
+            h('div',{style:{fontSize:8,color:s.c,marginTop:2,fontWeight:700,letterSpacing:'.04em',textTransform:'uppercase'}},s.l)
+          );
+        })
+      ),
+      h('div',{style:{display:'flex',gap:8,flexWrap:'wrap',marginBottom:8,fontSize:9,color:'var(--text3)',alignItems:'center'}},
+        [{c:'var(--green)',l:'100%'},{c:'#f97316',l:'75-99%'},{c:'#ca8a04',l:'1-74%'},
+         {c:'var(--blue)',l:'0% prog.'},{c:'var(--red)',l:'Atrasado'},{c:'rgba(255,220,0,.7)',l:'Hoy',border:true}
+        ].map(function(leg,i){
+          return h('div',{key:i,style:{display:'flex',alignItems:'center',gap:3}},
+            leg.border
+              ?h('div',{style:{width:2,height:10,background:leg.c}})
+              :h('div',{style:{width:14,height:10,borderRadius:2,background:leg.c}}),
+            leg.l
+          );
+        })
+      ),
+      h('div',{style:{overflowX:'auto',background:'var(--bg2)',borderRadius:10,border:'1px solid var(--border)'}},
+        h('div',{style:{minWidth:500}},
+          h('div',{style:{display:'flex',borderBottom:'2px solid var(--border)',background:'rgba(14,165,233,.06)'}},
+            h('div',{style:{width:_LW,flexShrink:0,padding:'5px 4px',fontSize:9,color:'var(--text3)',fontWeight:700,letterSpacing:'.06em'}},'DPTO'),
+            h('div',{style:{flex:1,display:'flex'}},
+              _GM.map(function(mo){
+                var wPct=mo.d/_GD*100;
+                var isCurr=_tgn>=mo.s&&_tgn<mo.s+mo.d;
+                return h('div',{key:mo.l,style:{
+                  width:wPct+'%',textAlign:'center',fontSize:9,fontWeight:700,
+                  padding:'5px 0',letterSpacing:'.06em',
+                  color:isCurr?'var(--amber)':'var(--text3)',
+                  background:isCurr?'rgba(245,158,11,.08)':'transparent',
+                  borderRight:'1px solid rgba(30,58,95,.3)'}},mo.l);
+              })
+            )
+          ),
+          _piOrd.map(function(pi){
+            var piInfo=PLAN.pi[pi];
+            var deps=PLAN.de.filter(function(d){return d.pi===pi;});
+            return h('div',{key:pi},
+              h('div',{style:{display:'flex',alignItems:'center',background:'rgba(14,165,233,.12)',
+                padding:'4px 8px',borderBottom:'1px solid var(--border)',borderTop:'1px solid var(--border)'}},
+                h('span',{style:{fontSize:10,fontWeight:800,color:'var(--blue)',letterSpacing:'.07em',
+                  textTransform:'uppercase',flex:1}},piInfo.n),
+                h('span',{style:{fontSize:9,color:'var(--text3)'}},deps.length+' dptos')
+              ),
+              deps.map(function(dep,idx){
+                var di=PLAN.de.indexOf(dep);
+                var od=_gOv['dep_'+di];
+                var sn=od&&od.s!=null?od.s:(dep.s+_gDs);
+                var en=od&&od.e!=null?od.e:(dep.e+_gDs);
+                var p=_dPct(dep.d);
+                var bCol=_bCol(p,en);
+                var barL=_gmP(sn);
+                var barW=Math.max(0.4,_gmP(en+1)-barL);
+                var isSelDep=selGDep===di;
+                var hasOv=!!_gOv['dep_'+di];
+                var btnSt={padding:'3px 8px',borderRadius:5,cursor:'pointer',fontSize:10,fontWeight:700,
+                  border:'1px solid var(--border)',background:'var(--bg3)',color:'var(--text2)'};
+                return h('div',{key:dep.d},
+                  h('div',{
+                    onClick:function(){setSelGDep(isSelDep?null:di);},
+                    style:{
+                      display:'flex',alignItems:'center',height:22,cursor:'pointer',
+                      background:isSelDep?'rgba(14,165,233,.12)':idx%2===1?'rgba(6,13,24,.35)':'transparent',
+                      borderBottom:isSelDep?'none':'1px solid rgba(30,58,95,.18)',
+                      transition:'background .12s'}},
+                    h('div',{style:{width:_LW,flexShrink:0,fontSize:10,
+                      color:isSelDep?'var(--blue)':'var(--text2)',
+                      fontFamily:'var(--mono)',fontWeight:600,padding:'0 4px',
+                      overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},
+                      (hasOv?'✦ ':'')+'D'+dep.d),
+                    h('div',{style:{flex:1,position:'relative',height:14,margin:'0 2px'}},
+                      _GM.slice(0,-1).map(function(mo,mi){
+                        return h('div',{key:mi,style:{position:'absolute',left:_gmP(mo.s+mo.d)+'%',
+                          top:0,bottom:0,width:1,background:'rgba(30,58,95,.4)',pointerEvents:'none'}});
+                      }),
+                      _tgn>=_GS&&_tgn<=_GE&&h('div',{style:{position:'absolute',left:_gmP(_tgn)+'%',
+                        top:-3,bottom:-3,width:1,background:'rgba(255,220,0,.65)',zIndex:3,pointerEvents:'none'}}),
+                      h('div',{style:{position:'absolute',left:barL+'%',width:barW+'%',
+                        top:1,bottom:1,borderRadius:3,background:bCol,opacity:.88,
+                        display:'flex',alignItems:'center',justifyContent:'center',overflow:'hidden',zIndex:1}},
+                        barW>5&&p>0&&h('span',{style:{fontSize:7,fontWeight:800,color:'#fff',
+                          whiteSpace:'nowrap',textShadow:'0 0 3px rgba(0,0,0,.6)'}},p+'%')
+                      )
+                    )
+                  ),
+                  isSelDep&&h('div',{style:{
+                    background:'rgba(14,165,233,.07)',border:'1px solid rgba(14,165,233,.25)',
+                    borderTop:'none',padding:'8px 10px',marginBottom:1}},
+                    h('div',{style:{display:'flex',alignItems:'center',gap:6,marginBottom:6,flexWrap:'wrap'}},
+                      h('span',{style:{fontSize:10,fontWeight:700,color:'var(--blue)',fontFamily:'var(--mono)'}},'D'+dep.d),
+                      h('span',{style:{fontSize:9,color:'var(--text3)'}},'Inicio: '+n2d(sn)+' · Entrega: '+n2d(en)),
+                      hasOv&&h('span',{style:{fontSize:8,background:'rgba(14,165,233,.2)',color:'var(--blue)',
+                        padding:'1px 6px',borderRadius:4,fontWeight:700}},'ajustado')
+                    ),
+                    h('div',{style:{display:'flex',gap:5,alignItems:'center',flexWrap:'wrap'}},
+                      h('span',{style:{fontSize:9,color:'var(--text3)',marginRight:2}},'Mover:'),
+                      [-14,-7,-1,1,7,14].map(function(d){
+                        return h('button',{key:d,onClick:function(e){e.stopPropagation();_saveDepOv(di,d);toast&&toast((d>0?'+':'')+d+' días → D'+dep.d);},
+                          style:Object.assign({},btnSt,{color:d<0?'var(--red)':'var(--green)',
+                            borderColor:d<0?'rgba(239,68,68,.3)':'rgba(34,197,94,.3)',
+                            background:d<0?'rgba(239,68,68,.07)':'rgba(34,197,94,.07)'})},
+                          (d>0?'+':'')+d+'d');
+                      }),
+                      hasOv&&h('button',{onClick:function(e){e.stopPropagation();_resetDepOv(di);},
+                        style:Object.assign({},btnSt,{marginLeft:4,color:'var(--amber)',
+                          borderColor:'rgba(245,158,11,.3)',background:'rgba(245,158,11,.07)'})},
+                        '↺ Restablecer')
+                    )
+                  )
+                );
+              })
+            );
+          })
+        )
+      )
+    );
+  }
+  // ══════════════════════════════════════════════════════════
   return h('div',{className:'page gap10'},
+    // ── Botón acceso Gantt Entrega ──
+    h('button',{onClick:function(){setShowGanttEntrega(true);},
+      style:{width:'100%',padding:'8px 0',borderRadius:8,
+        border:'1px solid rgba(14,165,233,.35)',background:'rgba(14,165,233,.07)',
+        color:'var(--blue)',cursor:'pointer',fontSize:12,fontWeight:700,marginBottom:4,
+        display:'flex',alignItems:'center',justifyContent:'center',gap:6}},
+      '📊 Programa de Entrega de Departamentos'),
     // ── FILTERS CARD ──
     h('div',{className:'card'},
       // Header row with week nav
@@ -6627,6 +6824,35 @@ var ORG_TEMPLATE=[
   {nombre:'CARRASCO VALENZUELA CARLOS ALBERTO',parent:'VILLABLANCA MARILICAN HANS GABRIEL'}
 ];
 
+// Bodegueros del Edificio Victoria (encargado + ayudante de bodega)
+const BODEGUEROS_NOMBRES=['VARGAS MORA JUAN CARLOS','FIGUEROA MOLINA ALDO AGUSTIN'];
+// Línea de mando: personas del organigrama que tienen al menos un subordinado
+const LINEA_MANDO_NOMBRES=(function(){
+  var set={};
+  ORG_TEMPLATE.forEach(function(n){if(n.parent)set[n.parent]=true;});
+  return Object.keys(set);
+})();
+
+// Mapa de destinos del Edificio Victoria (Huérfanos 801) por piso
+const DESTINOS_VICTORIA=(function(){
+  function deptos(a,b){var r=[];for(var i=a;i<=b;i++)r.push('D'+i);return r;}
+  function pasillo(piso,conEsc2){
+    var r=['Pasillo San Antonio (P'+piso+')','Pasillo Huérfanos (P'+piso+')','Hall de Ascensor (P'+piso+')','Escalera 1 Principal (P'+piso+')'];
+    if(conEsc2)r.push('Escalera 2 Secundaria (P'+piso+')');
+    return r;
+  }
+  return{
+    'Piso -1':['Sala de Máquinas','Sala Bombas Agua','Baño Personal Hombres','Baño Personal Mujeres','Comedores o Sala de Estar','Sala Eléctrica','Sala de Transformador','Duchas de Faena'],
+    'Piso 1':['Escalera 1 Principal (P1)','Escalera 2 Secundaria (P1)','Sala de Basura','Hall de Acceso','Altillo','Patio Interior'],
+    'Piso 2':deptos(202,222).concat(pasillo(2,true)),
+    'Piso 3':deptos(302,322).concat(pasillo(3,true)),
+    'Piso 4':deptos(403,422).concat(pasillo(4,true)),
+    'Piso 5':deptos(503,522).concat(pasillo(5,true)),
+    'Piso 6':deptos(603,622).concat(pasillo(6,false)),
+    'Cubierta':['Cubierta San Antonio','Cubierta Huérfanos']
+  };
+})();
+
 function buildOrgTree(nodes){
   var map={};
   nodes.forEach(function(n){map[n.id]=Object.assign({},n,{children:[]});});
@@ -6666,13 +6892,22 @@ function getInitials(nombre){
 // Inventario físico de Bodega Central Victoria al 15/06/2026 (snapshot importado).
 // Formato por ítem: [codigo, nombre, unidad, cantidadStock]
 const BODEGA_INV_20260615=[["C.19.01.04.014","Adaptador para careta facial","un",3],["C.06.02.10.002","Adaptador Porta Broca","un",3],["C.16.01.10.003","Adhesivo Multiuso","un",2],["C.16.01.11.005","Adhesivo para Montaje","Gl",18],["C.16.01.11.006","Adhesivo para Montaje","cartucho",163],["C.16.01.07.010","Adhesivos para Cerámicos AC","saco",348],["C.16.01.07.007","Adhesivos para Cerámicos DA","saco",430],["C.18.01.01.009","Aguarrás","bidón",6],["C.03.02.99.002","Alambre FLUX – E71T 8mm","rollo",5],["C.11.01.11.003","Alambre Negro Nº14","rollo",4],["C.06.02.07.001","Alicate","un",2],["C.07.01.01.001","Amarra Plástica","un",1080],["C.19.01.02.014","Amortiguador Floyd Ignífugo Tipo Y","un",10],["C.07.03.04.007","Amperimetro","un",1],["C.07.04.01.115","Ampolleta GU10 6,7 w","un",372],["C.03.01.06.002","Angulo de Refuerzo","un",7],["C.18.01.02.010","Anticorrosivo rojo","Gl",5],["C.18.01.02.002","Antioxido","lata",10],["P.01.03.01.002","Archivador Carta","un",15],["P.01.03.01.008","Archivador Oficio","un",6],["C.19.01.02.011","Arnes de seguridad TALLA L","un",5],["C.19.01.02.010","Arnes de seguridad TALLA M","un",5],["C.19.01.02.012","Arnes de seguridad TALLA XL","un",5],["C.19.01.02.013","Arnes de seguridad TALLA XXL","un",5],["C.19.01.04.001","Arnés para Casco","un",15],["C.06.11.09.001","Arriendo Alzaprima","un",1],["C.06.11.09.002","Arriendo Andamios","un",5.475129],["C.06.11.01.001","Arriendo Aspiradora","un",8],["C.06.11.08.004","Arriendo Camión Grúa","un",47],["C.06.11.04.001","Arriendo Cepillo Eléctrico","un",1],["C.06.11.06.009","Arriendo Cincelador","un",6],["C.21.07.06.006","Arriendo de estacionamiento","global",25],["C.06.11.02.001","Arriendo Esmeril","un",3],["C.06.11.08.010","Arriendo Grúa Horquilla","un",1],["C.06.11.06.018","Arriendo Martillo Demoledor","un",21],["C.06.11.08.014","Arriendo Montacarga","un",3],["C.06.11.10.016","Arriendo Motor Eléctrico","un",2],["C.06.11.12.005","Arriendo Nivel topográfico","mes",4],["C.06.11.99.009","Arriendo pistola de calor","un",2],["C.06.11.02.002","Arriendo Pistola de Fijación","un",5],["C.06.11.06.024","Arriendo Pulidora Angular","un",4],["C.06.11.06.027","Arriendo Rotomartillo","un",1],["C.06.11.12.003","Arriendo Taquímetro","un",4],["C.06.11.06.029","Arriendo Trompo","un",6],["C.21.04.99.003","Asesoria técnica","global",1],["C.09.03.14.004","Asiento y Tapa para Wc","un",64],["P.04.01.01.003","Aspiradora industrial con filtro hepa","un",1],["C.19.01.04.002","Barbiquejo para Casco","un",67],["C.19.02.04.003","Barrera de Seguridad","un",16],["C.07.01.01.002","Base para Instalación","un",1],["P.08.01.001","Bidón de Agua","bidón",100],["C.17.05.02.006","Bisagra 3x3\"","un",2],["C.17.05.04.014","Boca Llave","un",168],["P.07.01.01.009","Bolsa de Basura 50 x 70","un",60],["P.07.01.01.005","Bolsa de Basura 80x120cm","un",99],["P.02.03.04.001","Borrador para Pizarra","un",3],["C.19.01.09.001","Bota de agua N°39","par",2],["C.19.01.09.004","Bota de agua N°42","par",3],["C.19.01.09.009","Bota de agua N°44","par",2],["C.19.01.09.010","Botín de Seguridad N°35","par",1],["C.19.01.09.011","Botín de Seguridad N°36","par",4],["C.19.01.09.012","Botín de Seguridad N°37","par",3],["C.19.01.09.013","Botín de Seguridad N°38","par",3],["C.19.01.09.014","Botín de Seguridad N°39","par",2],["C.19.01.09.015","Botín de Seguridad N°40","par",5],["C.19.01.09.016","Botín de Seguridad N°41","par",1],["C.19.01.09.017","Botín de Seguridad N°42","par",6],["C.19.01.09.018","Botín de Seguridad N°43","par",1],["C.19.01.09.019","Botín de Seguridad N°44","par",3],["C.19.01.09.020","Botín de Seguridad N°45","par",2],["P.07.03.01.006","Botiquín Primeros Auxilios","un",2],["C.07.03.06.001","Botón","un",5],["C.06.02.04.004","Broca HSS","un",12],["C.06.02.04.027","Broca Para Acero HSS 10 mm","un",11],["C.06.02.04.028","Broca Para Acero HSS 12 mm","un",11],["C.06.02.04.035","Broca Para Acero HSS 14 mm","un",6],["C.06.02.04.025","Broca Para Acero HSS 6 mm","un",10],["C.06.02.04.026","Broca Para Acero HSS 8 mm","un",9],["C.06.02.04.029","Broca punta flecha 6 mm","un",60],["C.06.02.04.030","Broca punta flecha 8 mm","un",41],["C.06.02.04.037","Broca SDS Plus 10 mm","un",15],["C.06.02.04.038","Broca SDS Plus 12 mm","un",15],["C.06.02.04.039","Broca SDS Plus 14 mm","un",9],["C.06.02.04.036","Broca SDS Plus 8mm","un",14],["C.06.02.05.005","Brocha de 3\"","un",17],["C.06.02.05.006","Brocha de 4\"","un",7],["C.19.01.02.004","Cabo de Vida","un",10],["C.07.03.08.002","Caja Chuqui","un",47],["P.04.02.01.004","Campana FDV Urban 60","un",21],["C.11.06.03.008","CANAL ECONOMICO 39X20X0,50 MM 3 mts","tira",1190],["C.17.05.04.005","Candado 20 mm","un",3],["C.07.04.05.006","Canoa Fluorescente","un",190],["C.19.01.08.044","Capa de agua Talla L","un",5],["C.19.01.08.045","Capa de agua Talla XL","un",5],["C.07.03.10.001","Cargador de Baterías","un",2],["P.01.03.03.009","Carpeta Fuelle","un",2],["C.06.10.07.003","Carretilla Concretera","un",10],["C.19.01.02.016","Carro Miller Anticaídas","un",8],["C.19.01.04.011","Casco de seguridad amarillo","un",6],["C.19.01.04.009","Casco de seguridad blanco","un",15],["C.19.01.04.016","Casco de seguridad gris","un",4],["C.19.01.04.010","Casco de seguridad rojo","un",4],["C.19.01.04.012","Casco de seguridad verde","un",5],["C.16.06.02.008","Catalizador para masilla mágica","un",11],["C.17.05.05.006","Celosía de Pvc","un",92],["C.17.05.05.008","Celosía Ventilación 20X20 Cm","un",19],["C.15.04.02.014","Cerámica Dolcevita black 20 x 20","m²",91],["C.17.05.06.024","Cerradura Digital","un",2],["C.17.05.06.027","Cerradura Multiple ML-001","un",160],["C.17.05.06.004","Cerradura Simple Paso","un",29],["C.19.01.08.030","Chaleco Geólogo Talla L","un",1],["C.19.01.08.029","Chaleco Geólogo Talla M","un",1],["C.19.01.08.031","Chaleco Geólogo Talla XL","un",1],["C.19.01.08.007","Chaqueta Soldador","un",1],["C.06.02.08.001","Chicharra","un",1],["C.06.02.09.001","Chuzo","un",3],["C.17.05.07.002","Cierrapuerta Hidráulico","un",6],["C.08.05.01.002","Cilindro 11g","un",1],["C.17.05.22.016","CILINDRO CONDENA BAÑO SS LK 110","un",116],["C.17.05.22.019","Cilindro llave  llave LK-106","un",19],["C.17.05.22.020","Cilindro llave/mariposa LK103","un",28],["C.06.02.09.002","Cincel de Acero","un",6],["C.16.01.08.001","Cinta Adhesiva de Teflón","rollo",6],["C.07.03.05.002","Cinta Aisladora","rollo",49],["C.07.03.05.008","Cinta Aisladora amarilla","rollo",34],["C.07.03.05.011","Cinta Aisladora azul","rollo",36],["C.07.03.05.012","Cinta Aisladora blanca","rollo",38],["C.07.03.05.009","Cinta Aisladora roja","rollo",35],["C.07.03.05.010","Cinta Aisladora verde","rollo",31],["C.18.06.02.001","Cinta Autoadhesiva para Junturas","rollo",243],["C.16.01.08.008","Cinta de Embalaje","rollo",13],["C.16.01.08.019","Cinta de Enmascarar 1\"","un",49],["C.16.01.08.018","Cinta de Enmascarar 2\"","un",103],["C.19.02.03.003","Cinta Peligro","rollo",8],["C.03.01.03.085","Clavo Corriente 2.1/2\"","kg",226],["C.03.01.03.084","Clavo Corriente 4\"","kg",236],["C.03.01.04.017","Clavo SDM 2.1/2\"","un",1900],["P.07.01.07.004","Cloro","un",13],["C.19.01.08.009","Coleto Soldador","un",7],["C.09.05.01.044","COLUMNA DUCHA URBAN 25 CM CROMO","un",103],["C.06.02.09.003","Combo","un",5],["C.09.03.03.026","Conjunto fijación universal","un",64],["C.19.02.01.002","Cono para Señalización Reflectantes","un",10],["P.04.02.11.001","Conservadora","un",1],["C.06.02.03.030","Copa de desbaste para concreto 4 1/2\"","un",2],["C.06.02.04.018","Copa Diamantada","un",3],["P.01.01.04.002","Corchetera de Escritorio","un",1],["C.07.03.03.017","Cordón 3 x 1,5 mm","un",280],["C.07.03.03.016","Cordón 3 x 2,5 mm","ml",300],["C.07.03.03.002","Cordón Flexible","ml",400],["C.18.04.02.002","Cornisa de Poliestireno","un",770],["P.01.01.05.014","Cuaderno Universitario Matemática","un",5],["C.17.05.22.017","Cuadrillo de expansion 65mm","un",51],["P.07.01.99.001","Cubrecalzado desechable","un",900],["C.17.05.20.007","Cubrejunta 25x2500mm Aluminio Mate","un",96],["P.01.01.06.001","Cuchillo Cartonero","un",5],["C.03.01.14.018","Cuerda perlon 10 mm","ml",200],["C.09.03.03.017","Desagüe","un",23],["C.21.03.01.003","Desinfección de Servicios Higiénicos","global",2],["P.07.01.04.001","Desodorante Ambiental","un",5],["C.21.03.02.001","Desratización","global",4],["P.01.02.05.001","Destacador","un",10],["C.18.01.01.003","Diluyente","bidón",9],["C.18.01.01.005","Diluyente Duco","bidón",7],["C.06.02.03.024","Disco de Corte metal 9\"","un",25],["C.06.02.03.017","Disco Milimetrico 4 1/2\"","un",438],["P.08.02.99.013","Dispensador bidón de agua","un",12],["P.01.01.03.009","Dispensador para Cintas Adhesivas","un",2],["C.03.02.01.016","Electrodo E-6011","kg",110],["C.03.02.01.009","Electrodo E-7018","kg",25],["C.07.01.03.047","Enchufe Hembra 16A 2P+T","un",50],["C.07.01.03.045","Enchufe Industrial Hembra Sobrepuesto 16 A","un",40],["C.07.01.03.048","Enchufe Industrial Hembra volante","un",20],["C.07.01.03.046","Enchufe Industrial Macho Volante 16 A","un",4],["C.07.01.03.036","Enchufe industrial volante hembra 32 Amperes.","un",27],["C.07.01.03.037","Enchufe industrial volante macho 32 Amperes.","un",26],["C.07.01.03.002","Enchufe Macho 10A 2P+T","un",53],["C.07.01.03.003","Enchufe Macho 16A 2P+T","un",50],["C.07.01.03.038","Enchufe Macho Industrial 3P+N+T","un",9],["P.04.02.03.012","Encimera Vitrocerámica Plus 2Q 35cm Kubli","un",21],["C.17.02.01.002","Endolado MDF","un",2],["C.17.02.01.024","ENDOLADO MDF DESNUDO 15mm x 300mm x 2440mm","tira",110],["C.17.02.01.027","ENDOLADO MDF FOLIADO EVOKE CLASSIC ES30210 12mm x 70mm x 2400mm","tira",903],["C.17.02.01.028","ENDOLADO MDF PREPINTADO 12mm x 70mm x 3050mm","tira",205],["C.17.02.01.023","ENDOLADO MDF PREPINTADO 15mm x 80mm x 2440mm","tira",200],["C.17.02.01.022","ENDOLADO MDF PREPINTADO 15mm x 90mm x 2440mm","tira",198],["C.12.01.05.003","Escalera","un",1],["C.06.05.08.006","Escarificadora de Pavimento","un",3],["P.07.01.06.002","Escobilla Limpia Sanitarios","un",6],["P.07.01.11.021","Escobillón municipal","un",2],["P.07.01.11.006","Escobillon Plástico","un",20],["C.17.05.09.011","Escuadra","un",2],["C.18.01.04.001","Esmalte al agua","tineta",5],["C.06.03.06.001","Esmeril Angular 4½\"","un",1],["C.06.02.02.006","Espaciador y nivelador  de cerámica","un",2095],["C.06.02.02.005","Espaciadores para Cerámica 3mm","un",1082],["C.12.01.04.022","Espejo Reflex 93 x 55 cm","un",1],["P.07.01.06.008","Esponja Cocina","un",4],["C.16.06.08.001","Espuma de Poliuretano","cartucho",38],["C.11.06.03.001","Esquinero Perforado","tira",732],["C.09.03.01.041","Esquinero Terminal para Cerámica 8mm Aluminio 2,5mts","un",103],["C.09.03.05.001","Estanque Inodoro","un",50],["C.04.03.06.001","Estructuras Metálicas","global",1],["C.11.01.01.018","Fierro para Hormigón A63-42H Ø 10mm","barra",16],["C.11.01.01.020","Fierro para Hormigón A63-42H Ø 16mm","barra",3],["C.11.01.01.022","Fierro para Hormigón A63-42H Ø 22mm","barra",3],["C.11.01.01.017","Fierro para Hormigón A63-42H Ø 8mm","barra",23],["C.16.01.08.021","Film adhesivo protección pisos vinílicos","rollo",52],["C.19.01.06.005","Filtro de Protección","un",13],["C.19.01.06.025","FILTRO ERGONIC F410CP3R PARTICULAS Y VO","par",33],["C.06.11.08.016","Flete camion","un",330.781529],["C.09.03.03.022","Flexible HI 1/2 HI 1/2 L300 mm D8mm","un",59],["C.09.03.01.013","Flotador WC","un",3],["C.07.04.06.007","Foco","un",76],["C.16.01.07.013","Fragüe gris ( 5 kilos )","un",62],["C.03.01.02.007","Fulminante Calibre 27 amarillo","un",2800],["C.06.01.04.017","Gas Butano","un",9],["C.06.01.04.005","Gas Licuado","un",1],["C.08.04.15.001","Generador de Aire Caliente","un",2],["C.09.05.02.009","Griferia cocina URBAN 1 JET CROMO","un",95],["C.09.05.01.043","GRIFERIA LAVAMANOS URBAN 9 CM COLDSTAR","un",104],["C.19.01.05.001","Guante Albañil","par",40],["C.19.01.05.021","Guante Antivibracion","par",82],["C.19.01.05.004","Guante Cabritilla","par",100],["C.19.01.05.013","Guante Látex","par",100],["C.19.01.05.020","Guante Multiflex","par",316],["C.19.01.05.018","Guante Soldador","par",8],["C.19.01.05.023","Guantes de Látex Domestico","par",18],["C.19.01.05.022","Guantes de Seguridad Multiprotect Flex","par",141],["C.17.05.06.028","Guarnicion  846-1/2 DER/IZQ.","un",51],["C.17.05.06.021","Guarnicion 846 acero inox","un",146],["C.06.02.03.020","Hoja Sierra Bimetalica","un",22],["C.06.02.03.012","Hoja Sierra Circular","un",3],["C.06.02.03.015","Hoja Sierra Sable","un",1],["C.02.03.03.023","Hormigón H-25","saco",505],["P.04.02.05.004","Horno Empotrado Neu 57 Lts Kubli","un",21],["C.06.02.05.018","Huaipe","un",31],["C.06.13.02.004","Huincha de Medir","un",13],["C.07.01.05.004","Interruptor 9/12","un",40],["P.07.02.02.004","Jabón Liquido","un",10],["C.06.02.07.035","Juego de  llaves Allen","un",1],["C.17.05.22.022","kit caja escala 80 x 300 mm","un",5],["C.17.02.01.006","KIT KIT PTA F30 MDF 4mm CALBUCO I (1V) PREPINTADA C/UNION PLACA VISIBLE 45 x 90 x 247","un",79],["C.17.02.01.007","KIT PRECOLGADO PTA MDF 5,5mm LISA PREPINTADA 45 x 65 x 206","un",16],["P.01.01.09.002","Lamina para Termolaminar","un",2],["C.01.03.04.014","Lana de Vidrio Rollo Libre 90mm","rollo",140],["C.01.03.01.011","Lana Mineral Rollo Libre 40mm","un",145],["C.06.10.99.006","Lápiz Bicolor","un",15],["P.01.02.08.003","Lápiz Pasta Punta Fina","un",24],["C.09.03.03.030","Lavabo knut2 sobremueble de 51 x 46 cm con rebalse","un",12],["P.07.01.13.001","Lavaloza","un",2],["C.09.03.07.013","Lavaplatos BE FDV Cubus 1C + desague completo","un",28],["C.19.01.08.040","Legionario","un",18],["C.19.01.01.012","Lente de Protección de Cristal","un",9],["C.19.01.01.013","Lente de Protección de Policarbonato","un",40],["C.19.01.01.004","Lente de seguridad Claro","un",91],["C.19.01.01.007","Lente de seguridad Oscuro","un",37],["C.06.02.01.038","Lija para Madera grano 120","un",168],["P.07.01.07.023","Limpiador Industrial","un",1],["P.07.01.07.024","Limpiador Multiuso","un",7],["C.19.01.04.015","Linterna para casco","un",5],["C.09.03.01.029","Llave angular HE 1/2\" X HE 1/2\"","un",58],["C.09.01.07.002","Llave de Paso","un",4],["C.06.02.07.036","Llave francesa","un",3],["C.06.02.07.015","Llave Stillson","un",1],["C.07.01.01.024","Luz Piloto LED Rojo 220V 22 mm","un",10],["C.06.10.06.004","Malla con 80% de Sombra","un",2],["C.17.02.10.007","Mampara Malve 110 x 185 cm","un",14],["C.17.02.10.008","Mampara Malve 120 x 185 cm","un",2],["C.06.10.05.004","Manguera Reforzada 2\"","un",1],["C.09.03.03.021","Manguito WC","un",57],["C.21.03.12.007","Mantención y Reparación de Montacargas","global",1],["P.01.02.10.003","Marcador Permanente Normal","un",6],["C.17.02.02.005","Marco de Puerta de Mdf","un",2],["C.06.02.07.016","Martillo","un",2],["C.19.01.06.008","Mascarilla con Válvula","un",99],["C.19.01.06.009","Mascarilla Desechable","un",199],["C.18.06.02.005","Masilla Base para Juntura","saco",137],["C.16.06.02.001","Masilla Mágica","un",2],["P.04.01.11.001","Microonda","un",4],["C.07.01.03.024","Módulo Toma Corriente 10/16A","un",50],["C.07.01.03.023","Módulo Toma Corriente 10A","un",50],["C.21.07.06.012","Montaje de montacargas","global",1],["C.11.06.03.005","MONTANTE ECONOMICO 38X38X5X0,50 MM 3 mts","tira",811],["C.02.04.07.002","Mortero de Nivelación y Retape","saco",22],["C.02.04.02.006","Mortero para Estuco Exterior","saco",45],["C.02.04.06.004","Mortero para Grout","saco",160],["C.12.04.01.008","Mueble para Vanitorio","un",11],["C.06.13.02.017","Nivel de Burbujas","un",1],["P.01.01.07.011","Notas Adhesivas","un",2],["C.06.02.09.009","Pala","un",1],["P.07.01.11.015","Pala de Aseo","un",2],["C.06.02.09.012","Pala Punta de Huevo","un",6],["C.06.10.08.008","Pallets","un",12],["P.07.01.10.011","Paño de aseo ( retazos)","kg",31],["P.07.01.10.006","Paño Multiuso","un",7],["P.01.01.11.001","Papel Fotocopia","resma",10],["P.07.02.04.002","Papel Higiénico","paquete",26],["P.01.01.13.005","Papel Impresión y Escritura","resma",12],["P.01.01.13.009","Papel Plotter","rollo",7],["C.11.01.10.018","Perfil Cuadrado de Acero  40X40X2MM","tira",10],["C.11.01.10.022","Perfil Cuadrado de Acero 40X40X3MM","un",6],["C.11.01.06.008","Perfil Rectangular","tira",20],["C.11.01.10.029","Perfil Rectangular metálico 50x50x3mm 6 metros","tira",63],["C.03.01.04.025","Perno Expansión 3/4\"","un",54],["C.17.05.14.020","Picaporte palanca 150mm","un",14],["C.17.05.14.019","Picaporte palanca 200mm","un",14],["C.07.02.09.009","Pila Recargable","un",12],["C.18.04.01.017","Pilastra de MDF","un",2],["C.17.02.01.025","PILASTRA MDF PREPINTADA 9mmx20mmx2440mm","un",240],["C.06.02.05.025","Pincel","un",86],["C.10.01.01.061","Pino bto calibrado 32x32x3200","un",275],["C.18.01.08.015","Pintura Spray azul","un",22],["C.18.01.08.013","Pintura Spray rojo","un",18],["C.18.01.08.016","Pintura Spray verde fluorescente","un",5],["C.15.05.04.031","Piso Vinílico SPC Herringbone London Beige Oak 64x13","m²",241.5],["C.16.06.01.003","Pistola para Silicona","un",10],["C.11.01.07.005","Placa de acero","un",2],["C.17.05.22.018","Placa de fijacion 1/2 manilla acceso  con hilo","un",51],["C.10.04.02.032","Placa Fenólica 18 mm","placa",5],["C.11.01.07.010","Placa metal 220x220x8mm","un",8],["C.13.05.03.003","Plancha Yeso Cartón RF 15mm","plancha",270],["C.13.05.03.005","Plancha Yeso Cartón RH 15mm","plancha",470],["C.13.05.03.007","Plancha Yeso Cartón ST 10mm","plancha",414],["C.13.05.03.009","Plancha Yeso Cartón ST 15mm","plancha",660],["C.09.03.09.014","Plato ducha Soho2 Wasser  120 x70 cm. c/patas reg. c/ desague","un",13],["C.09.03.09.012","Plato ducha Soho2 Wasser 100x70 cm. c/patas reg. c/ desague","un",4],["C.09.03.09.013","Plato ducha Soho2 Wasser 110x70 cm. c/patas reg. c/ desague","un",8],["C.09.03.09.015","Plato ducha Soho2 Wasser 130x70 cm. c/patas reg. c/ desague","un",4],["C.09.03.09.016","Plato ducha Soho2 Wasser 160x70 cm. c/patas reg. c/ desague","un",5],["C.03.02.04.002","Plomo","un",1],["P.01.02.09.005","Plumón pizarra azul","un",6],["P.01.02.09.003","Plumón pizarra negro","un",6],["P.01.02.09.004","Plumón pizarra rojo","un",6],["P.01.02.09.006","Plumón pizarra verde","un",4],["C.19.01.08.024","Polaina Soldador","un",4],["C.19.01.08.038","Polera Polo con Logo Talla L","un",46],["C.19.01.08.037","Polera Polo con Logo Talla M","un",5],["C.19.01.08.036","Polera Polo con Logo Talla S","un",7],["C.19.01.08.039","Polera Polo con Logo Talla XL","un",22],["C.01.03.02.013","Poliestireno Expandido 100mm","un",110],["C.01.04.03.011","Polietileno Recuperado negro","rollo",3],["C.15.04.03.033","Porcelanato Dolcevita Ottagone  20 x 20","m²",95],["C.15.04.03.024","Porcelanico Milenium light grey mate R10 30x60","m²",155.52],["C.07.04.08.028","PORTA GU10 LED STUDIO RETRAÍDO REDONDO IP44 (SIN AMPOLLETA GU10) BLANCO","un",352],["C.06.02.06.012","Portaherramientas","un",40],["C.17.02.01.004","PREARMADO DE KIT","un",1],["C.17.02.01.003","Precolgado","un",1],["C.03.01.15.030","Prensa Crosby 1/2\"","un",30],["C.19.01.07.006","Protector Auditivo Tipo Fono adosable al casco","un",2],["P.07.02.99.001","Protector solar","un",3],["C.16.07.05.003","Puente de Adherencia Epoxico","un",23],["C.16.07.05.004","Puente de Adherencia para Yesos","un",8],["C.17.02.06.008","Puerta de MDF Prepintado","un",2],["C.03.01.03.053","Punta Corriente 1\"","un",5],["C.06.02.10.013","Punta Philps para Taladro","un",121],["C.06.02.99.004","Radio Portatil","un",20],["C.06.01.99.002","Repuesto","un",5],["C.19.01.06.024","RESPIRADOR ERGONIC 100 T/L","un",7],["C.21.03.01.002","Retiro de Escombros","m³",602.3],["C.19.01.008","RODILLERA","par",27],["C.06.02.05.033","Rodillo Chiporro","un",17],["C.06.02.05.034","Rodillo Esponja","un",24],["C.06.02.10.039","Rotomartillo","un",1],["C.06.10.07.007","Rueda para Carretilla","un",10],["P.01.01.04.029","Sacacorchetes Pinza","un",2],["P.01.01.04.030","Sacacorchetes Tenaza","un",1],["C.16.06.06.007","Sellante Sikaflex 11FC","cartucho",13],["C.09.03.01.040","Sello Tina de Baño 23x2,5cm Blanco 3mts","un",119],["P.01.03.01.015","Separador para Archivador Tamaño Carta","un",5],["C.21.03.99.001","Servicio de mantención y reparación","un",2],["C.21.03.02.006","Servicio de Sanitización","global",1],["C.21.07.06.003","Servicios de Movilización y Traslado","global",1],["C.21.07.06.008","Servicios Varios","global",1],["C.06.04.03.016","Sierra Sable","un",1],["C.09.03.03.023","Sifón botella  1 1/4\" son ranura y rebalse","un",18],["C.16.06.06.006","Silicona Acetica","cartucho",67],["C.16.06.06.011","Silicona acética blanca","cartucho",69],["C.16.06.06.008","Silicona acética negra","cartucho",8],["C.16.06.06.010","Silicona acrílica Almendra","cartucho",11],["C.16.06.06.005","Silicona Pintable","cartucho",216],["C.06.05.07.008","Sonda Vibradora Ø 25mm","un",2],["C.06.02.99.001","Soplador de Aire","un",2],["C.06.03.03.019","Soplete para Soldar","un",1],["C.21.02.02.017","Subcontrato Colocación de Cerámica","global",1],["C.21.02.02.037","Subcontrato Impermeabilizaciones","global",1],["C.21.02.02.043","Subcontrato Muebles","global",5],["C.21.02.02.045","Subcontrato Muebles de Cocina","global",5],["C.21.02.02.067","Subcontrato provisión e instalación","global",3],["P.01.04.99.002","Tabla Apretapapeles","un",1],["C.10.04.06.003","Tablero OSB 15mm","plancha",15],["C.06.08.08.020","Taco 14 x 70 mm","un",510],["C.06.02.10.017","Taladro a Batería","un",1],["C.06.10.02.006","Tambor","un",2],["C.19.01.07.003","Tapón Auditivo con Cordón","un",120],["C.03.01.11.002","Tarugo Clavo 6mm","un",318],["C.03.01.11.019","Tarugo Nylon 6mm","un",970],["C.03.01.11.020","Tarugo Nylon 8mm","un",1000],["C.21.07.06.013","Telescopaje de montacargas","global",1],["P.04.02.10.005","Termo Eléctrico","un",1],["P.04.02.10.008","Termo eléctrico mural 80L","un",45],["C.18.01.11.004","Tierra de Color Azul","kg",3],["C.18.01.11.002","Tierra de Color Roja","kg",3],["P.03.01.08.005","TINTA HP DESIGNJET 711 P/PLOTTER, C/AMARILLO","un",2],["P.03.01.08.003","TINTA HP DESIGNJET 711 P/PLOTTER, C/CYAM","un",1],["P.03.01.08.004","TINTA HP DESIGNJET 711 P/PLOTTER, C/MAGENTA","un",2],["P.03.01.08.002","TINTA HP DESIGNJET 711 P/PLOTTER, C/NEGRO","un",3],["C.06.13.02.014","Tizador","un",3],["P.08.02.18.005","Toalla de Papel","paquete",15],["P.03.01.06.006","Toner Impresora","un",8],["C.17.05.21.005","Tope cilindrico con aro de goma negro","un",169],["C.17.05.21.006","Tope recto 75mm","un",92],["C.06.08.08.021","Tornillo anlla 12 x 95 mm cancamo","un",510],["C.03.01.12.273","Tornillo Escuadra 3\" Bronce 10 un","un",40],["C.03.01.12.153","Tornillo Framer 7 x 7/16\"","un",100],["C.03.01.12.215","Tornillo Plancha Yeso Cartón 6 x 1.5/8\"","un",5000],["C.03.01.12.221","Tornillo Plancha Yeso Cartón 8 x 3\"","un",7900],["C.19.01.08.017","Traje de papel","un",74],["C.06.07.10.007","Transpaleta Manual","un",3],["P.07.01.11.020","Trapero con Ojal","un",42],["C.07.04.05.016","Tubo Fluorescente 20W","un",56],["C.17.03.07.011","Ventana de Pvc","un",1],["C.11.01.09.003","Viga IPE (Doble T)","un",3],["C.09.03.05.009","WC  ecológico Magnet","un",49],["C.02.05.04.001","Yeso Espuma","saco",45]];
-function BodegaView({bodegaData,onBodegaSave,auth,toast}){
+function BodegaView({bodegaData,onBodegaSave,auth,toast,asistData}){
   var canEdit=!auth||auth.role==='Admin'||auth.role==='Jefe Obra';
   var bd=bodegaData||{stock:[],guias:[],vales:[]};
   var stock=bd.stock||[];
   var guias=bd.guias||[];
   var vales=bd.vales||[];
   var _today=(function(){var d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');})();
+  // Nómina completa del mes actual (Asistencia: casa + subcontratos) para el picker "Quién retira"
+  var personalNames=(function(){
+    var moKey=_today.slice(0,7);
+    var asistMo=(asistData&&asistData[moKey])||{};
+    var names=[];
+    (asistMo.casa||[]).forEach(function(w){if(w.nombre&&names.indexOf(w.nombre)<0)names.push(w.nombre);});
+    Object.values(asistMo.subcontratos||{}).forEach(function(ws){ws.forEach(function(w){if(w.nombre&&names.indexOf(w.nombre)<0)names.push(w.nombre);});});
+    return names.sort();
+  })();
   var BUNITS=['un','m²','m³','ml','lt','kg','ton','saco','balde','caja','rollo','plancha','palmeta','tubo','barra','Gl','paquete','palet'];
   var iSt={width:'100%',padding:'7px 10px',borderRadius:7,border:'1px solid var(--border)',background:'var(--bg3)',color:'var(--text)',fontSize:11,boxSizing:'border-box'};
   var lSt={fontSize:9,fontWeight:700,color:'var(--text3)',letterSpacing:'.08em',marginBottom:3,display:'block',textTransform:'uppercase'};
@@ -6686,9 +6921,12 @@ function BodegaView({bodegaData,onBodegaSave,auth,toast}){
   var[showGuia,setShowGuia]=useState(false);
   var[draftGuia,setDraftGuia]=useState({nGuia:'',proveedor:'',fecha:_today,recibidoPor:'',estado:'Verificado',items:[]});
   var[draftGI,setDraftGI]=useState({matId:'',cant:''});
+  var[editGuia,setEditGuia]=useState(null);
   var[showVale,setShowVale]=useState(false);
-  var[draftVale,setDraftVale]=useState({nVale:'',maestro:'',destino:'',fecha:_today,entregadoPor:'',items:[]});
+  var[draftVale,setDraftVale]=useState({nVale:'',maestro:'',generadoPor:'',destino:'',pisoSel:'',fecha:_today,entregadoPor:BODEGUEROS_NOMBRES[0],items:[]});
   var[draftVI,setDraftVI]=useState({matId:'',cant:''});
+  var[editVale,setEditVale]=useState(null);
+  var[valeQ,setValeQ]=useState('');
   var[stAlerts,setStAlerts]=useState([]);
 
   function saveBd(patch){onBodegaSave(Object.assign({},bd,patch));}
@@ -6696,6 +6934,17 @@ function BodegaView({bodegaData,onBodegaSave,auth,toast}){
   function fld(lbl,inp){return h('div',{style:{marginBottom:10}},h('label',{style:lSt},lbl),inp);}
   function row2(a,b){return h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:10}},a,b);}
   function lbl2(t,c){return h('div',null,h('label',{style:lSt},t),c);}
+  // ── input con autocompletado (lupa) y opción de escribir nombre libremente ──
+  function personPicker(value,onChange,listId,opciones,placeholder){
+    return h('div',null,
+      h('div',{style:{position:'relative'}},
+        h('input',{type:'text',list:listId,value:value,onChange:onChange,
+          style:Object.assign({},iSt,{paddingRight:24}),placeholder:placeholder||'Buscar o escribir nombre...'}),
+        h('span',{style:{position:'absolute',right:8,top:'50%',transform:'translateY(-50%)',fontSize:11,pointerEvents:'none',color:'var(--text3)'}},'🔍')
+      ),
+      h('datalist',{id:listId},opciones.map(function(n){return h('option',{key:n,value:n});}))
+    );
+  }
   // ── STOCK ──
   function saveNewMat(){
     if(!draftMat.nombre.trim()){toast&&toast('⚠ Ingresa un nombre');return;}
@@ -6711,6 +6960,18 @@ function BodegaView({bodegaData,onBodegaSave,auth,toast}){
     saveBd({stock:ns});setAdjItem(null);setAdjDelta('');toast&&toast('✓ Stock ajustado');
   }
   function deleteMat(idx){if(!confirm('¿Eliminar material?'))return;saveBd({stock:stock.filter(function(_,i){return i!==idx;})});toast&&toast('Material eliminado');}
+  // Total consumido de un material según los vales emitidos
+  function consumidoMat(matId){
+    var tot=0;
+    vales.forEach(function(v){(v.items||[]).forEach(function(it){if(it.matId===matId)tot+=it.cant;});});
+    return tot;
+  }
+  // Cantidad llegada a obra (ingreso manual)
+  function saveLlegado(idx,val){
+    var n=Number(val);if(isNaN(n)||n<0)n=0;
+    var ns=stock.slice();ns[idx]=Object.assign({},ns[idx],{llegadoObra:n});
+    saveBd({stock:ns});
+  }
   // ── Importar inventario físico (snapshot por código) ──
   function importarInventario(){
     if(!confirm('Se importará el inventario al 15/06/2026 ('+BODEGA_INV_20260615.length+' materiales).\nLos materiales existentes se actualizarán por código y los nuevos se agregarán. ¿Continuar?'))return;
@@ -6733,14 +6994,47 @@ function BodegaView({bodegaData,onBodegaSave,auth,toast}){
     setDraftGI({matId:'',cant:''});
   }
   function rmGI(ii){setDraftGuia(Object.assign({},draftGuia,{items:draftGuia.items.filter(function(_,i){return i!==ii;})}));}
-  function saveGuia(){
-    if(!draftGuia.nGuia.trim()||!draftGuia.items.length){toast&&toast('⚠ N° Guía e ítems requeridos');return;}
-    var ng=[Object.assign({},draftGuia,{id:Date.now()+'',nGuia:draftGuia.nGuia.trim()})].concat(guias);
+  function closeGuiaModal(){setShowGuia(false);setEditGuia(null);setDraftGuia({nGuia:'',proveedor:'',fecha:_today,recibidoPor:'',estado:'Verificado',items:[]});setDraftGI({matId:'',cant:''});}
+  function startEditGuia(g){
+    setEditGuia(g.id);
+    setDraftGuia({nGuia:g.nGuia||'',proveedor:g.proveedor||'',fecha:g.fecha||_today,recibidoPor:g.recibidoPor||'',estado:g.estado||'Verificado',items:(g.items||[]).slice()});
+    setDraftGI({matId:'',cant:''});
+    setShowGuia(true);
+  }
+  function deleteGuia(id){
+    if(!confirm('¿Eliminar esta guía? El stock que ingresó se descontará nuevamente.'))return;
+    var g=guias.find(function(x){return x.id===id;});if(!g)return;
     var ns=stock.slice();
-    draftGuia.items.forEach(function(it){var idx=ns.findIndex(function(m){return m.id===it.matId;});if(idx>=0)ns[idx]=Object.assign({},ns[idx],{stockActual:ns[idx].stockActual+it.cant});});
+    (g.items||[]).forEach(function(it){var idx=ns.findIndex(function(m){return m.id===it.matId;});if(idx>=0)ns[idx]=Object.assign({},ns[idx],{stockActual:Math.max(0,ns[idx].stockActual-it.cant)});});
+    saveBd({guias:guias.filter(function(x){return x.id!==id;}),stock:ns});
+    toast&&toast('Guía eliminada y stock ajustado');
+  }
+  function saveGuia(){
+    var items=draftGuia.items;
+    if(!items.length&&draftGI.matId&&Number(draftGI.cant)>0){
+      var pend=stock.find(function(m){return m.id===draftGI.matId;});
+      if(pend)items=items.concat([{matId:pend.id,matNombre:pend.nombre,unidad:pend.unidad,cant:Number(draftGI.cant)}]);
+    }
+    if(!draftGuia.nGuia.trim()||!items.length){toast&&toast('⚠ N° Guía e ítems requeridos');return;}
+    var baseStock=stock;
+    if(editGuia){
+      var old=guias.find(function(g){return g.id===editGuia;});
+      if(old){
+        baseStock=stock.map(function(m){return Object.assign({},m);});
+        (old.items||[]).forEach(function(it){var idx=baseStock.findIndex(function(m){return m.id===it.matId;});if(idx>=0)baseStock[idx].stockActual=Math.max(0,baseStock[idx].stockActual-it.cant);});
+      }
+    }
+    var ns=baseStock.slice();
+    items.forEach(function(it){var idx=ns.findIndex(function(m){return m.id===it.matId;});if(idx>=0)ns[idx]=Object.assign({},ns[idx],{stockActual:ns[idx].stockActual+it.cant});});
+    var ng;
+    if(editGuia){
+      ng=guias.map(function(g){return g.id===editGuia?Object.assign({},draftGuia,{id:editGuia,nGuia:draftGuia.nGuia.trim(),items:items}):g;});
+    }else{
+      ng=[Object.assign({},draftGuia,{id:Date.now()+'',nGuia:draftGuia.nGuia.trim(),items:items})].concat(guias);
+    }
     saveBd({guias:ng,stock:ns});
-    setShowGuia(false);setDraftGuia({nGuia:'',proveedor:'',fecha:_today,recibidoPor:'',estado:'Verificado',items:[]});
-    toast&&toast('✓ Guía registrada y stock actualizado');
+    closeGuiaModal();
+    toast&&toast(editGuia?'✓ Guía actualizada':'✓ Guía registrada y stock actualizado');
   }
   // ── VALES ──
   function addVI(){
@@ -6750,20 +7044,76 @@ function BodegaView({bodegaData,onBodegaSave,auth,toast}){
     setDraftVI({matId:'',cant:''});
   }
   function rmVI(ii){setDraftVale(Object.assign({},draftVale,{items:draftVale.items.filter(function(_,i){return i!==ii;})}));setStAlerts([]);}
-  function saveVale(){
-    if(!draftVale.nVale.trim()||!draftVale.items.length){toast&&toast('⚠ N° Vale e ítems requeridos');return;}
-    var alerts=[];
-    draftVale.items.forEach(function(it){var mat=stock.find(function(m){return m.id===it.matId;});if(mat&&mat.stockActual<it.cant)alerts.push(mat.nombre+' (tiene '+mat.stockActual+', pide '+it.cant+' '+mat.unidad+')');});
-    if(alerts.length){setStAlerts(alerts);return;}
-    var nv=[Object.assign({},draftVale,{id:Date.now()+'',nVale:draftVale.nVale.trim()})].concat(vales);
+  function closeValeModal(){setShowVale(false);setStAlerts([]);setEditVale(null);setDraftVale({nVale:'',maestro:'',generadoPor:'',destino:'',pisoSel:'',fecha:_today,entregadoPor:BODEGUEROS_NOMBRES[0],items:[]});setDraftVI({matId:'',cant:''});}
+  function startEditVale(v){
+    setEditVale(v.id);
+    setDraftVale({nVale:v.nVale||'',maestro:v.maestro||'',generadoPor:v.generadoPor||'',destino:v.destino||'',
+      pisoSel:v.pisoSel||(v.destino?'Otro':''),fecha:v.fecha||_today,entregadoPor:v.entregadoPor||BODEGUEROS_NOMBRES[0],items:(v.items||[]).slice()});
+    setDraftVI({matId:'',cant:''});
+    setStAlerts([]);
+    setShowVale(true);
+  }
+  function deleteVale(id){
+    if(!confirm('¿Eliminar este vale? El stock descontado se restituirá.'))return;
+    var v=vales.find(function(x){return x.id===id;});if(!v)return;
     var ns=stock.slice();
-    draftVale.items.forEach(function(it){var idx=ns.findIndex(function(m){return m.id===it.matId;});if(idx>=0)ns[idx]=Object.assign({},ns[idx],{stockActual:Math.max(0,ns[idx].stockActual-it.cant)});});
+    (v.items||[]).forEach(function(it){var idx=ns.findIndex(function(m){return m.id===it.matId;});if(idx>=0)ns[idx]=Object.assign({},ns[idx],{stockActual:ns[idx].stockActual+it.cant});});
+    saveBd({vales:vales.filter(function(x){return x.id!==id;}),stock:ns});
+    toast&&toast('Vale eliminado y stock restituido');
+  }
+  function saveVale(){
+    var items=draftVale.items;
+    if(!items.length&&draftVI.matId&&Number(draftVI.cant)>0){
+      var pend=stock.find(function(m){return m.id===draftVI.matId;});
+      if(pend)items=items.concat([{matId:pend.id,matNombre:pend.nombre,unidad:pend.unidad,cant:Number(draftVI.cant)}]);
+    }
+    if(!draftVale.nVale.trim()||!items.length){toast&&toast('⚠ N° Vale e ítems requeridos');return;}
+    var baseStock=stock;
+    if(editVale){
+      var old=vales.find(function(v){return v.id===editVale;});
+      if(old){
+        baseStock=stock.map(function(m){return Object.assign({},m);});
+        (old.items||[]).forEach(function(it){var idx=baseStock.findIndex(function(m){return m.id===it.matId;});if(idx>=0)baseStock[idx].stockActual+=it.cant;});
+      }
+    }
+    var alerts=[];
+    items.forEach(function(it){var mat=baseStock.find(function(m){return m.id===it.matId;});if(mat&&mat.stockActual<it.cant)alerts.push(mat.nombre+' (tiene '+mat.stockActual+', pide '+it.cant+' '+mat.unidad+')');});
+    if(alerts.length){setStAlerts(alerts);return;}
+    var ns=baseStock.slice();
+    items.forEach(function(it){var idx=ns.findIndex(function(m){return m.id===it.matId;});if(idx>=0)ns[idx]=Object.assign({},ns[idx],{stockActual:Math.max(0,ns[idx].stockActual-it.cant)});});
+    var nv;
+    if(editVale){
+      nv=vales.map(function(v){return v.id===editVale?Object.assign({},draftVale,{id:editVale,nVale:draftVale.nVale.trim(),items:items}):v;});
+    }else{
+      nv=[Object.assign({},draftVale,{id:Date.now()+'',nVale:draftVale.nVale.trim(),items:items})].concat(vales);
+    }
     saveBd({vales:nv,stock:ns});
-    setShowVale(false);setStAlerts([]);setDraftVale({nVale:'',maestro:'',destino:'',fecha:_today,entregadoPor:'',items:[]});
-    toast&&toast('✓ Vale emitido y stock descontado');
+    closeValeModal();
+    toast&&toast(editVale?'✓ Vale actualizado':'✓ Vale emitido y stock descontado');
   }
   var filtStock=q.trim()?stock.filter(function(m){return m.nombre.toLowerCase().indexOf(q.toLowerCase())>=0;}):stock;
   var critCount=stock.filter(function(m){return m.stockMinimo>0&&m.stockActual<=m.stockMinimo;}).length;
+  // ── filtro de vales por material, encargado o N° vale ──
+  var filtVales=valeQ.trim()?vales.filter(function(v){
+    var qq=valeQ.toLowerCase();
+    if((v.nVale||'').toLowerCase().indexOf(qq)>=0)return true;
+    if((v.maestro||'').toLowerCase().indexOf(qq)>=0)return true;
+    if((v.entregadoPor||'').toLowerCase().indexOf(qq)>=0)return true;
+    if((v.generadoPor||'').toLowerCase().indexOf(qq)>=0)return true;
+    if((v.destino||'').toLowerCase().indexOf(qq)>=0)return true;
+    return(v.items||[]).some(function(it){return(it.matNombre||'').toLowerCase().indexOf(qq)>=0;});
+  }):vales;
+  var valeTotales=[];
+  if(valeQ.trim()){
+    var qq2=valeQ.toLowerCase(),sumMap={};
+    filtVales.forEach(function(v){(v.items||[]).forEach(function(it){
+      if((it.matNombre||'').toLowerCase().indexOf(qq2)>=0){
+        var k=it.matNombre+'|'+it.unidad;
+        sumMap[k]=(sumMap[k]||0)+it.cant;
+      }
+    });});
+    valeTotales=Object.keys(sumMap).map(function(k){var p=k.split('|');return{nombre:p[0],unidad:p[1],total:sumMap[k]};});
+  }
   // ── helper: fila de ítems de formulario ──
   function itemRow(draft,setDraft,onAdd,accentColor){
     return h('div',null,
@@ -6846,6 +7196,22 @@ function BodegaView({bodegaData,onBodegaSave,auth,toast}){
               canEdit&&h('button',{onClick:function(){setAdjItem({idx:idx});setAdjDelta('');},
                 style:{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:6,padding:'5px 9px',color:'var(--text3)',cursor:'pointer',fontSize:10,flexShrink:0}},'⊕ Ajustar')
             ),
+            h('div',{style:{display:'flex',gap:12,marginTop:8,paddingTop:8,borderTop:'1px solid var(--border)'}},
+              h('div',{style:{flex:1}},
+                h('div',{style:{fontSize:9,color:'var(--text3)',fontWeight:700,letterSpacing:'.05em',textTransform:'uppercase',marginBottom:2}},'Consumido (vales)'),
+                h('div',{style:{fontSize:13,fontWeight:800,fontFamily:'var(--mono)',color:'var(--amber)'}},consumidoMat(mat.id)+' '+mat.unidad)
+              ),
+              h('div',{style:{flex:1}},
+                h('div',{style:{fontSize:9,color:'var(--text3)',fontWeight:700,letterSpacing:'.05em',textTransform:'uppercase',marginBottom:2}},'Llegado a obra'),
+                canEdit
+                  ?h('input',{type:'number',min:0,step:'any',placeholder:'0',value:mat.llegadoObra||'',
+                      onChange:function(e){saveLlegado(idx,e.target.value);},
+                      style:{width:90,background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:5,
+                        padding:'3px 6px',color:'var(--green)',fontSize:13,fontFamily:'var(--mono)',fontWeight:800,
+                        outline:'none',boxSizing:'border-box'}})
+                  :h('div',{style:{fontSize:13,fontWeight:800,fontFamily:'var(--mono)',color:'var(--green)'}},(mat.llegadoObra||0)+' '+mat.unidad)
+              )
+            ),
             isAdj&&h('div',{style:{marginTop:8,paddingTop:8,borderTop:'1px solid var(--border)',display:'flex',alignItems:'center',gap:6}},
               h('span',{style:{fontSize:10,color:'var(--text3)',flex:1}},'Delta (+/−) '+mat.unidad),
               h('input',{type:'number',value:adjDelta,onChange:function(e){setAdjDelta(e.target.value);},
@@ -6872,7 +7238,11 @@ function BodegaView({bodegaData,onBodegaSave,auth,toast}){
             h('div',{style:{display:'flex',alignItems:'center',gap:6,marginBottom:4}},
               h('span',{style:{fontSize:11,fontWeight:800,color:'var(--blue)',fontFamily:'var(--mono)'}},'Guía #'+g.nGuia),
               h('span',{style:{fontSize:9,padding:'1px 6px',borderRadius:5,fontWeight:700,background:stB,color:stC}},g.estado),
-              h('span',{style:{marginLeft:'auto',fontSize:9,color:'var(--text3)'}},g.fecha)
+              h('span',{style:{marginLeft:'auto',fontSize:9,color:'var(--text3)'}},g.fecha),
+              canEdit&&h('div',{style:{display:'flex',gap:4,marginLeft:6}},
+                h('button',{onClick:function(){startEditGuia(g);},style:{background:'rgba(14,165,233,.1)',border:'1px solid rgba(14,165,233,.2)',borderRadius:5,color:'var(--blue)',cursor:'pointer',fontSize:10,padding:'2px 7px'}},'✏️'),
+                h('button',{onClick:function(){deleteGuia(g.id);},style:{background:'rgba(239,68,68,.08)',border:'1px solid rgba(239,68,68,.15)',borderRadius:5,color:'var(--red)',cursor:'pointer',fontSize:10,padding:'2px 7px'}},'🗑')
+              )
             ),
             h('div',{style:{fontSize:10,color:'var(--text2)',marginBottom:5}},g.proveedor+(g.recibidoPor?' · Recibe: '+g.recibidoPor:'')),
             h('div',{style:{display:'flex',flexWrap:'wrap',gap:4}},
@@ -6887,16 +7257,31 @@ function BodegaView({bodegaData,onBodegaSave,auth,toast}){
         style:{padding:'9px 0',borderRadius:8,border:'1px solid rgba(168,85,247,.4)',background:'rgba(168,85,247,.08)',
           color:'var(--purple)',cursor:'pointer',fontSize:12,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center',gap:6}},
         '➕ Crear Vale de Consumo'),
+      vales.length>0&&h('input',{type:'text',value:valeQ,onChange:function(e){setValeQ(e.target.value);},
+        placeholder:'🔍 Buscar por material, encargado, destino o N° vale...',style:iSt}),
+      valeQ.trim()&&h('div',{style:{fontSize:10,color:'var(--text3)'}},filtVales.length+' de '+vales.length+' vales'),
+      valeTotales.length>0&&h('div',{style:{background:'rgba(168,85,247,.08)',border:'1px solid rgba(168,85,247,.25)',borderRadius:8,padding:'8px 10px',display:'flex',flexDirection:'column',gap:3}},
+        h('div',{style:{fontSize:9,fontWeight:700,color:'var(--purple)',letterSpacing:'.06em',textTransform:'uppercase'}},'Total despachado (filtro)'),
+        valeTotales.map(function(t,i){return h('div',{key:i,style:{fontSize:11,color:'var(--text2)',fontFamily:'var(--mono)'}},t.nombre+': '+t.total+' '+t.unidad);})
+      ),
       vales.length===0
         ?h('div',{style:{textAlign:'center',color:'var(--text3)',padding:'28px 0',fontSize:12}},'Sin vales emitidos.')
-        :vales.map(function(v){
+        :filtVales.length===0
+        ?h('div',{style:{textAlign:'center',color:'var(--text3)',padding:'28px 0',fontSize:12}},'Sin resultados para esta búsqueda.')
+        :filtVales.map(function(v){
           return h('div',{key:v.id,style:{background:'var(--bg3)',borderRadius:9,padding:'10px 12px',border:'1px solid var(--border)',borderLeft:'3px solid var(--purple)'}},
             h('div',{style:{display:'flex',alignItems:'center',gap:6,marginBottom:4}},
               h('span',{style:{fontSize:11,fontWeight:800,color:'var(--purple)',fontFamily:'var(--mono)'}},'Vale '+v.nVale),
               v.destino&&h('span',{style:{fontSize:9,background:'rgba(168,85,247,.12)',color:'var(--purple)',padding:'1px 6px',borderRadius:5,fontWeight:700}},'→ '+v.destino),
-              h('span',{style:{marginLeft:'auto',fontSize:9,color:'var(--text3)'}},v.fecha)
+              h('span',{style:{marginLeft:'auto',fontSize:9,color:'var(--text3)'}},v.fecha),
+              canEdit&&h('div',{style:{display:'flex',gap:4,marginLeft:6}},
+                h('button',{onClick:function(){startEditVale(v);},style:{background:'rgba(168,85,247,.1)',border:'1px solid rgba(168,85,247,.2)',borderRadius:5,color:'var(--purple)',cursor:'pointer',fontSize:10,padding:'2px 7px'}},'✏️'),
+                h('button',{onClick:function(){deleteVale(v.id);},style:{background:'rgba(239,68,68,.08)',border:'1px solid rgba(239,68,68,.15)',borderRadius:5,color:'var(--red)',cursor:'pointer',fontSize:10,padding:'2px 7px'}},'🗑')
+              )
             ),
-            h('div',{style:{fontSize:10,color:'var(--text2)',marginBottom:5}},v.maestro+(v.entregadoPor?' · Entrega: '+v.entregadoPor:'')),
+            h('div',{style:{fontSize:10,color:'var(--text2)',marginBottom:5}},
+              'Retira: '+(v.maestro||'-')+(v.entregadoPor?' · Entrega: '+v.entregadoPor:'')+(v.generadoPor?' · Genera: '+v.generadoPor:'')
+            ),
             h('div',{style:{display:'flex',flexWrap:'wrap',gap:4}},
               (v.items||[]).map(function(it,ii){return h('span',{key:ii,style:{fontSize:9,background:'rgba(168,85,247,.1)',color:'var(--purple)',padding:'2px 7px',borderRadius:4,fontWeight:600}},it.matNombre+' x'+it.cant+' '+it.unidad);})
             )
@@ -6936,11 +7321,11 @@ function BodegaView({bodegaData,onBodegaSave,auth,toast}){
     // ═══════════ MODAL: REGISTRAR GUÍA ═══════════
     showGuia&&h('div',{style:{position:'fixed',inset:0,background:'rgba(0,0,0,.75)',zIndex:1200,
       display:'flex',alignItems:'flex-start',justifyContent:'center',padding:'16px',overflowY:'auto'},
-      onClick:function(e){if(e.target===e.currentTarget)setShowGuia(false);}},
+      onClick:function(e){if(e.target===e.currentTarget)closeGuiaModal();}},
       h('div',{style:{background:'var(--bg2)',borderRadius:14,width:'100%',maxWidth:500,padding:'18px',border:'1px solid rgba(14,165,233,.3)'}},
         h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}},
-          h('span',{style:{fontSize:13,fontWeight:700,color:'var(--blue)'}},'📄 Registrar Guía de Despacho'),
-          h('button',{onClick:function(){setShowGuia(false);},style:{background:'none',border:'none',color:'var(--text3)',cursor:'pointer',fontSize:16}},'✕')
+          h('span',{style:{fontSize:13,fontWeight:700,color:'var(--blue)'}},editGuia?'✏️ Editar Guía de Despacho':'📄 Registrar Guía de Despacho'),
+          h('button',{onClick:closeGuiaModal,style:{background:'none',border:'none',color:'var(--text3)',cursor:'pointer',fontSize:16}},'✕')
         ),
         row2(
           lbl2('N° Guía',h('input',{type:'text',value:draftGuia.nGuia,onChange:function(e){setDraftGuia(Object.assign({},draftGuia,{nGuia:e.target.value}));},style:iSt,placeholder:'001234'})),
@@ -6958,17 +7343,17 @@ function BodegaView({bodegaData,onBodegaSave,auth,toast}){
           :h('div',null,itemRow(draftGI,setDraftGI,addGI,'var(--blue)'),itemTags(draftGuia.items,rmGI,'var(--blue)')),
         h('button',{onClick:saveGuia,style:{width:'100%',padding:'9px 0',borderRadius:8,cursor:'pointer',fontWeight:700,
           border:'1px solid rgba(14,165,233,.4)',background:'rgba(14,165,233,.1)',color:'var(--blue)',fontSize:12}},
-          '✓ Guardar Guía y Actualizar Stock')
+          editGuia?'✓ Guardar Cambios':'✓ Guardar Guía y Actualizar Stock')
       )
     ),
     // ═══════════ MODAL: CREAR VALE ═══════════
     showVale&&h('div',{style:{position:'fixed',inset:0,background:'rgba(0,0,0,.75)',zIndex:1200,
       display:'flex',alignItems:'flex-start',justifyContent:'center',padding:'16px',overflowY:'auto'},
-      onClick:function(e){if(e.target===e.currentTarget){setShowVale(false);setStAlerts([]);}}},
+      onClick:function(e){if(e.target===e.currentTarget)closeValeModal();}},
       h('div',{style:{background:'var(--bg2)',borderRadius:14,width:'100%',maxWidth:500,padding:'18px',border:'1px solid rgba(168,85,247,.3)'}},
         h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}},
-          h('span',{style:{fontSize:13,fontWeight:700,color:'var(--purple)'}},'📋 Crear Vale de Consumo'),
-          h('button',{onClick:function(){setShowVale(false);setStAlerts([]);},style:{background:'none',border:'none',color:'var(--text3)',cursor:'pointer',fontSize:16}},'✕')
+          h('span',{style:{fontSize:13,fontWeight:700,color:'var(--purple)'}},editVale?'✏️ Editar Vale de Consumo':'📋 Crear Vale de Consumo'),
+          h('button',{onClick:closeValeModal,style:{background:'none',border:'none',color:'var(--text3)',cursor:'pointer',fontSize:16}},'✕')
         ),
         stAlerts.length>0&&h('div',{style:{background:'rgba(239,68,68,.1)',border:'1px solid rgba(239,68,68,.4)',borderRadius:8,padding:'8px 12px',marginBottom:12}},
           h('div',{style:{fontSize:11,fontWeight:700,color:'var(--red)',marginBottom:4}},'⚠ Stock insuficiente:'),
@@ -6978,18 +7363,38 @@ function BodegaView({bodegaData,onBodegaSave,auth,toast}){
           lbl2('N° Vale',h('input',{type:'text',value:draftVale.nVale,onChange:function(e){setDraftVale(Object.assign({},draftVale,{nVale:e.target.value}));},style:iSt,placeholder:'V-001'})),
           lbl2('Fecha',h('input',{type:'date',value:draftVale.fecha,onChange:function(e){setDraftVale(Object.assign({},draftVale,{fecha:e.target.value}));},style:iSt}))
         ),
+        fld('Quién retira',personPicker(draftVale.maestro,function(e){setDraftVale(Object.assign({},draftVale,{maestro:e.target.value}));},'bg_personal_list',personalNames,'Buscar en asistencia o escribir...')),
         row2(
-          lbl2('Maestro / Subcontrato',h('input',{type:'text',value:draftVale.maestro,onChange:function(e){setDraftVale(Object.assign({},draftVale,{maestro:e.target.value}));},style:iSt})),
-          lbl2('Destino (Depto)',h('input',{type:'text',value:draftVale.destino,onChange:function(e){setDraftVale(Object.assign({},draftVale,{destino:e.target.value}));},style:iSt,placeholder:'D209'}))
+          lbl2('Piso',h('select',{value:draftVale.pisoSel,onChange:function(e){
+            var p=e.target.value;
+            setDraftVale(Object.assign({},draftVale,{pisoSel:p,destino:''}));
+          },style:iSt},
+            h('option',{value:''},'— Piso —'),
+            Object.keys(DESTINOS_VICTORIA).map(function(p){return h('option',{key:p,value:p},p);}),
+            h('option',{value:'Otro'},'Otro (escribir)')
+          )),
+          lbl2('Destino',
+            draftVale.pisoSel==='Otro'
+              ?h('input',{type:'text',value:draftVale.destino,onChange:function(e){setDraftVale(Object.assign({},draftVale,{destino:e.target.value}));},style:iSt,placeholder:'Escribir destino...'})
+              :h('select',{value:draftVale.destino,onChange:function(e){setDraftVale(Object.assign({},draftVale,{destino:e.target.value}));},style:iSt,disabled:!draftVale.pisoSel},
+                  h('option',{value:''},'— Destino —'),
+                  (DESTINOS_VICTORIA[draftVale.pisoSel]||[]).map(function(d){return h('option',{key:d,value:d},d);})
+                )
+          )
         ),
-        fld('Entregado por (bodeguero)',h('input',{type:'text',value:draftVale.entregadoPor,onChange:function(e){setDraftVale(Object.assign({},draftVale,{entregadoPor:e.target.value}));},style:iSt})),
+        row2(
+          lbl2('Entregado por (bodeguero)',h('select',{value:draftVale.entregadoPor,onChange:function(e){setDraftVale(Object.assign({},draftVale,{entregadoPor:e.target.value}));},style:iSt},
+            BODEGUEROS_NOMBRES.map(function(n){return h('option',{key:n,value:n},n);})
+          )),
+          lbl2('Generado por',personPicker(draftVale.generadoPor,function(e){setDraftVale(Object.assign({},draftVale,{generadoPor:e.target.value}));},'bg_mando_list',LINEA_MANDO_NOMBRES,'Línea de mando o escribir...'))
+        ),
         h('div',{style:{fontSize:9,fontWeight:700,color:'var(--text3)',letterSpacing:'.08em',marginBottom:6,textTransform:'uppercase'}},'Materiales despachados'),
         stock.length===0
           ?h('div',{style:{fontSize:10,color:'var(--amber)',marginBottom:8,fontWeight:600}},'⚠ Sin materiales en stock')
           :h('div',null,itemRow(draftVI,setDraftVI,addVI,'var(--purple)'),itemTags(draftVale.items,rmVI,'var(--purple)')),
         h('button',{onClick:saveVale,style:{width:'100%',padding:'9px 0',borderRadius:8,cursor:'pointer',fontWeight:700,
           border:'1px solid rgba(168,85,247,.4)',background:'rgba(168,85,247,.1)',color:'var(--purple)',fontSize:12}},
-          '✓ Emitir Vale y Descontar Stock')
+          editVale?'✓ Guardar Cambios':'✓ Emitir Vale y Descontar Stock')
       )
     )
   );
@@ -7423,6 +7828,7 @@ function AsistenciaView({asistData,onAsistSave,orgData,onOrgSave,auth,toast}){
   var[loading,setLoading]=useState(false);
   var[orgBuild,setOrgBuild]=useState(false);
   var[dayGroupBy,setDayGroupBy]=useState('lista');
+  var[searchW,setSearchW]=useState('');
   var isAdmin=auth&&(auth.role==='Admin'||auth.role==='Jefe Obra');
   var MONTH_NAMES=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
   var DAY_NAMES=['Lun','Mar','Mi\xe9','Jue','Vie','S\xe1b','Dom'];
@@ -7500,18 +7906,34 @@ function AsistenciaView({asistData,onAsistSave,orgData,onOrgSave,auth,toast}){
       ),
       tab==='equipos'?h(DayByTeams,{orgData:orgData,dayNum:dn,casaW:casaW,subcW:subcW,onConfigureOrg:function(){setDayView(null);setOrgBuild(true);},isAdmin:isAdmin}):
       list.length===0?h('div',{style:{textAlign:'center',padding:40,color:'var(--text3)',fontSize:13}},'Sin datos cargados para este mes'):
-      h('div',{className:'gap8'},
-        all.map(function(w,i){
-          var col=ecol(w.estado);
-          return h('div',{key:i,style:{display:'flex',alignItems:'center',gap:10,background:'var(--card)',border:'1px solid var(--border)',borderRadius:8,padding:'9px 12px'}},
-            h('div',{style:{width:8,height:8,borderRadius:'50%',background:col,flexShrink:0}}),
-            h('div',{style:{flex:1}},
-              h('div',{style:{fontSize:12,fontWeight:600,color:'var(--text)'}},w.nombre),
-              h('div',{style:{fontSize:10,color:'var(--text3)'}},w.empresa+' \xb7 '+w.cargo+(w.rut?' \xb7 '+w.rut:''))
-            ),
-            h('div',{style:{fontSize:10,fontWeight:700,color:col,letterSpacing:'.04em'}},elbl(w.estado))
-          );
-        })
+      h('div',null,
+        // Buscador dentro del día
+        h('div',{style:{position:'relative',marginBottom:8}},
+          h('span',{style:{position:'absolute',left:10,top:'50%',transform:'translateY(-50%)',fontSize:14,pointerEvents:'none'}},'🔍'),
+          h('input',{type:'text',value:searchW,onChange:function(e){setSearchW(e.target.value);},
+            placeholder:'Filtrar trabajador...',
+            style:{width:'100%',padding:'7px 12px 7px 34px',borderRadius:8,border:'1px solid var(--border)',
+              background:'var(--bg3)',color:'var(--text)',fontSize:12,boxSizing:'border-box',outline:'none'}}),
+          searchW&&h('span',{onClick:function(){setSearchW('');},
+            style:{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',cursor:'pointer',fontSize:14,color:'var(--text3)'}},'✕')
+        ),
+        h('div',{className:'gap8'},
+          (function(){
+            var filtered=searchW.trim()?all.filter(function(w){return(w.nombre||'').toLowerCase().indexOf(searchW.trim().toLowerCase())>=0;}):all;
+            if(filtered.length===0)return[h('div',{key:'nores',style:{textAlign:'center',padding:20,color:'var(--text3)',fontSize:12}},'Sin coincidencias para "'+searchW+'"')];
+            return filtered.map(function(w,i){
+              var col=ecol(w.estado);
+              return h('div',{key:i,style:{display:'flex',alignItems:'center',gap:10,background:'var(--card)',border:'1px solid var(--border)',borderRadius:8,padding:'9px 12px'}},
+                h('div',{style:{width:8,height:8,borderRadius:'50%',background:col,flexShrink:0}}),
+                h('div',{style:{flex:1}},
+                  h('div',{style:{fontSize:12,fontWeight:600,color:'var(--text)'}},w.nombre),
+                  h('div',{style:{fontSize:10,color:'var(--text3)'}},w.empresa+' \xb7 '+w.cargo+(w.rut?' \xb7 '+w.rut:''))
+                ),
+                h('div',{style:{fontSize:10,fontWeight:700,color:col,letterSpacing:'.04em'}},elbl(w.estado))
+              );
+            });
+          })()
+        )
       )
     );
   }
@@ -7541,11 +7963,62 @@ function AsistenciaView({asistData,onAsistSave,orgData,onOrgSave,auth,toast}){
         })
       )
     ),
+    // ── Buscador de trabajadores ──
+    tab!=='org'&&h('div',{style:{position:'relative',marginBottom:10}},
+      h('span',{style:{position:'absolute',left:10,top:'50%',transform:'translateY(-50%)',fontSize:14,pointerEvents:'none'}},'🔍'),
+      h('input',{type:'text',value:searchW,onChange:function(e){setSearchW(e.target.value);},
+        placeholder:'Buscar trabajador por nombre...',
+        style:{width:'100%',padding:'8px 12px 8px 34px',borderRadius:8,border:'1px solid var(--border)',
+          background:'var(--bg3)',color:'var(--text)',fontSize:12,boxSizing:'border-box',outline:'none'}}),
+      searchW&&h('span',{onClick:function(){setSearchW('');},
+        style:{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',cursor:'pointer',
+          fontSize:14,color:'var(--text3)'}},'✕')
+    ),
+    // ── Resultados de búsqueda ──
+    tab!=='org'&&searchW.trim()?(function(){
+      var q=searchW.trim().toLowerCase();
+      var results=[];
+      casaW.forEach(function(w){
+        if((w.nombre||'').toLowerCase().indexOf(q)>=0)
+          results.push(Object.assign({},w,{empresa:'Casa'}));
+      });
+      Object.entries(subcW).forEach(function(kv){
+        kv[1].forEach(function(w){
+          if((w.nombre||'').toLowerCase().indexOf(q)>=0)
+            results.push(Object.assign({},w,{empresa:kv[0]}));
+        });
+      });
+      if(results.length===0)return h('div',{style:{textAlign:'center',padding:24,color:'var(--text3)',fontSize:12}},'Sin coincidencias para "'+searchW+'"');
+      return h('div',{className:'gap8'},
+        results.map(function(w,i){
+          var dias=w.dias||{};
+          var xCount=Object.values(dias).filter(function(v){return v==='X';}).length;
+          var pCount=Object.values(dias).filter(function(v){return v==='P';}).length;
+          var aCount=lastDate-xCount-pCount;
+          return h('div',{key:i,style:{background:'var(--card)',border:'1px solid var(--border)',borderRadius:9,padding:'10px 12px'}},
+            h('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:6}},
+              h('div',{style:{flex:1}},
+                h('div',{style:{fontSize:12,fontWeight:700,color:'var(--text)'}},w.nombre),
+                h('div',{style:{fontSize:10,color:'var(--text3)'}},w.empresa+(w.cargo?' \xb7 '+w.cargo:''))
+              ),
+              h('div',{style:{display:'flex',gap:8,fontFamily:'var(--mono)',fontSize:11,fontWeight:700}},
+                h('span',{style:{color:'var(--green)'}},'X '+xCount),
+                h('span',{style:{color:'var(--amber)'}},'P '+pCount),
+                h('span',{style:{color:'var(--red)'}},'A '+aCount)
+              )
+            ),
+            h('div',{style:{display:'flex',flexWrap:'wrap',gap:2}},
+              (function(){var chips=[];for(var d=1;d<=lastDate;d++){var v=dias[d]||'';var col=v==='X'?'var(--green)':v==='P'?'var(--amber)':v?'var(--text3)':'rgba(100,116,139,.2)';chips.push(h('span',{key:d,title:'Día '+d+': '+(v||'—'),style:{fontSize:8,fontFamily:'var(--mono)',fontWeight:700,padding:'2px 4px',borderRadius:3,background:col+'22',color:col,border:'1px solid '+col+'55',minWidth:18,textAlign:'center'}},d));}return chips;})()
+            )
+          );
+        })
+      );
+    })():null,
     tab==='org'?h(OrgTreeView,{orgData:orgData,moData:moData,dayNum:null,isAdmin:isAdmin,onEdit:function(){setOrgBuild(true);},toast:toast}):
-    (tab==='casa'&&casaW.length===0)||(tab==='subcontratos'&&Object.keys(subcW).length===0)?
+    (!searchW.trim()&&((tab==='casa'&&casaW.length===0)||(tab==='subcontratos'&&Object.keys(subcW).length===0)))?
       h('div',{style:{textAlign:'center',padding:'18px',background:'var(--card)',border:'1px solid var(--border)',borderRadius:12,color:'var(--text3)',fontSize:12,marginBottom:10}},
         isAdmin?'Sin datos para este mes. Usa los botones "Cargar" para subir la planilla Excel.':'Sin datos de asistencia para este mes.'):null,
-    h('div',{style:{overflowX:'auto'}},
+    !searchW.trim()&&tab!=='org'&&h('div',{style:{overflowX:'auto'}},
       h('div',{style:{minWidth:280}},
         h('div',{style:{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:2,marginBottom:2}},
           DAY_NAMES.map(function(dn,i){return h('div',{key:i,style:{textAlign:'center',fontSize:10,fontWeight:700,letterSpacing:'.08em',color:i>=5?'var(--amber)':'var(--text3)',padding:'4px 0',textTransform:'uppercase'}},dn);})
@@ -12399,11 +12872,11 @@ function App({initialData}){
   else if(effectiveTab==='control')content=h(ControlView,{saves,onSave,ganttData,onGanttSave,auth,toast:showToast});
   else if(effectiveTab==='pisos')content=h(PisosView,{progress,saves,onSave,auth,toast:showToast,userResp});
   else if(effectiveTab==='gantt')content=h(GanttView,{ganttData,onGanttSave,auth,progress,saves,toast:showToast});
-  else if(effectiveTab==='programa')content=h(ProgramaView,{ganttData,saves,onSave,onWeekSave,weekData,auth,toast:showToast,userResp});
+  else if(effectiveTab==='programa')content=h(ProgramaView,{ganttData,onGanttSave,saves,onSave,onWeekSave,weekData,auth,toast:showToast,userResp});
   else if(effectiveTab==='rendimiento')content=h(RendimientoView,{progress,saves,rendData,onRendSave,auth,toast:showToast});
   else if(effectiveTab==='cubic')content=h(CubicView,{saves,cubicData,onCubicSave,auth,toast:showToast});
   else if(effectiveTab==='logistica')content=h(LogisticaView,{logData,onLogSave,bodegaData,onBodegaSave,auth,toast:showToast});
-  else if(effectiveTab==='bodega')content=h(BodegaView,{bodegaData,onBodegaSave,auth,toast:showToast});
+  else if(effectiveTab==='bodega')content=h(BodegaView,{bodegaData,onBodegaSave,auth,toast:showToast,asistData});
   else if(effectiveTab==='materiales')content=h(MatView,{saves,matData,onMatSave,auth,toast:showToast});
   else if(effectiveTab==='asistencia')content=h(AsistenciaView,{asistData,onAsistSave,orgData,onOrgSave,auth,toast:showToast});
   else if(effectiveTab==='sobretiempo')content=h(SobretiempoView,{asistData,stData,onStSave,auth,toast:showToast});
