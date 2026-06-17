@@ -3350,9 +3350,9 @@ function ProgramaView({ganttData,onGanttSave,saves,onSave,onWeekSave,weekData,au
           );
         })
       ),
-      h('div',{style:{overflowX:'auto',background:'var(--bg2)',borderRadius:10,border:'1px solid var(--border)'}},
+      h('div',{style:{overflowX:'auto',overflowY:'auto',maxHeight:'calc(100vh - 160px)',background:'var(--bg2)',borderRadius:10,border:'1px solid var(--border)'}},
         h('div',{style:{minWidth:500}},
-          h('div',{style:{display:'flex',borderBottom:'2px solid var(--border)',background:'rgba(14,165,233,.06)'}},
+          h('div',{style:{position:'sticky',top:0,zIndex:10,display:'flex',borderBottom:'2px solid var(--border)',background:'rgba(10,20,40,.97)'}},
             h('div',{style:{width:_LW,flexShrink:0,padding:'5px 4px',fontSize:9,color:'var(--text3)',fontWeight:700,letterSpacing:'.06em'}},'DPTO'),
             h('div',{style:{flex:1,display:'flex'}},
               _GM.map(function(mo){
