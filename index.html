@@ -12512,6 +12512,13 @@ const MASIV_ELEMENTOS=[
   {id:'ipe',      nombre:'IPE',             dim:'300 x 120 x 8',     retardo:'F-120', micras:2164},
 ];
 const MASIV_PISOS=['5','6'];
+const MASIV_REVISORES=[
+  {k:'contratista',     l:'Contratista'},
+  {k:'obra',             l:'Obra'},
+  {k:'proveedor',        l:'Empresa Proveedora'},
+  {k:'ito_interno',      l:'ITO Interno'},
+  {k:'ito_inmobiliaria', l:'ITO Inmobiliaria'},
+];
 function masivDeptos(piso){return (_D.fl||{})['piso '+piso]||[];}
 function MasividadView({auth,toast}){
   var canEdit=!auth||auth.role==='Admin'||auth.role==='Jefe Obra'||auth.role==='Supervisor';
@@ -12530,6 +12537,32 @@ function MasividadView({auth,toast}){
   }
   function getEl(dep,elId){return itemData[itemKey(dep,elId)]||{};}
   function cumple(dep,el){var d=getEl(dep,el.id);return d.micras!=null&&d.micras!==''&&Number(d.micras)>=el.micras;}
+  // ── Historial de revisiones (Revisión 1, 2, ... por depto, con quién revisa) ──
+  const[revData,setRevData]=useState(function(){
+    try{return JSON.parse(localStorage.getItem('ctrl_masiv_rev_v1')||'{}');}catch(e){return{};}
+  });
+  function saveRevData(nd){setRevData(nd);try{localStorage.setItem('ctrl_masiv_rev_v1',JSON.stringify(nd));}catch(e){}}
+  const[pickRevisor,setPickRevisor]=useState({});
+  const[expRev,setExpRev]=useState(null);
+  function getRevisiones(dep){return revData[dep]||[];}
+  function revisorLabel(k){var r=MASIV_REVISORES.find(function(x){return x.k===k;});return r?r.l:k;}
+  function registrarRevision(dep){
+    var revisor=pickRevisor[dep];
+    if(!revisor){toast&&toast('Selecciona quién revisa antes de registrar');return;}
+    var items={};
+    MASIV_ELEMENTOS.forEach(function(el){
+      var d=getEl(dep,el.id);
+      items[el.id]={micras:d.micras!=null?d.micras:null,foto:d.foto||null,cumple:cumple(dep,el)};
+    });
+    var list=getRevisiones(dep).slice();
+    var numero=list.length+1;
+    list.push({numero:numero,revisor:revisor,fecha:new Date().toISOString().slice(0,10),items:items});
+    var nd=Object.assign({},revData);
+    nd[dep]=list;
+    saveRevData(nd);
+    var np=Object.assign({},pickRevisor);np[dep]='';setPickRevisor(np);
+    toast&&toast('✓ Revisión '+numero+' registrada — '+revisorLabel(revisor));
+  }
   function deptoStats(dep){
     var n=0;MASIV_ELEMENTOS.forEach(function(el){if(cumple(dep,el))n++;});
     return{n:n,total:MASIV_ELEMENTOS.length};
@@ -12578,20 +12611,30 @@ function MasividadView({auth,toast}){
                   padding:'4px 7px',color:'var(--text)',fontSize:11,fontFamily:'var(--font)'}})
             :h('span',{style:{fontSize:11,fontWeight:700,color:col}},tieneVal?micrasVal+'µm':'—')
         ),
-        canEdit&&h('label',{style:{display:'flex',alignItems:'center',gap:5,cursor:'pointer',
-          padding:'4px 10px',borderRadius:7,border:'1px dashed '+(d.foto?'var(--green)':'var(--blue)'),
-          background:d.foto?'rgba(34,197,94,.08)':'rgba(14,165,233,.08)'}},
-          h('span',{style:{fontSize:12}},'📷'),
-          h('span',{style:{fontSize:10,color:d.foto?'var(--green)':'var(--blue)',fontWeight:600}},d.foto?'Reemplazar foto':'Foto de respaldo'),
-          h('input',{type:'file',accept:'image/*',capture:'environment',style:{display:'none'},
-            onChange:function(ev){
-              var file=ev.target.files[0];if(!file)return;
-              var reader=new FileReader();
-              reader.onload=function(re){updEl(dep,el.id,{foto:re.target.result});toast&&toast('✓ Foto adjuntada — '+el.nombre);};
-              reader.readAsDataURL(file);
-              ev.target.value='';
-            }})
-        ),
+        canEdit&&(function(){
+          function onPick(ev){
+            var file=ev.target.files[0];if(!file)return;
+            var reader=new FileReader();
+            reader.onload=function(re){updEl(dep,el.id,{foto:re.target.result});toast&&toast('✓ Foto adjuntada — '+el.nombre);};
+            reader.readAsDataURL(file);
+            ev.target.value='';
+          }
+          return h(React.Fragment,null,
+            h('label',{style:{display:'flex',alignItems:'center',gap:5,cursor:'pointer',
+              padding:'4px 10px',borderRadius:7,border:'1px dashed '+(d.foto?'var(--green)':'var(--blue)'),
+              background:d.foto?'rgba(34,197,94,.08)':'rgba(14,165,233,.08)'}},
+              h('span',{style:{fontSize:12}},'📷'),
+              h('span',{style:{fontSize:10,color:d.foto?'var(--green)':'var(--blue)',fontWeight:600}},d.foto?'Reemplazar (cámara)':'Tomar foto'),
+              h('input',{type:'file',accept:'image/*',capture:'environment',style:{display:'none'},onChange:onPick})
+            ),
+            h('label',{style:{display:'flex',alignItems:'center',gap:5,cursor:'pointer',
+              padding:'4px 10px',borderRadius:7,border:'1px dashed var(--text3)',background:'var(--bg2)'}},
+              h('span',{style:{fontSize:12}},'🖼️'),
+              h('span',{style:{fontSize:10,color:'var(--text2)',fontWeight:600}},'Subir de galería'),
+              h('input',{type:'file',accept:'image/*',style:{display:'none'},onChange:onPick})
+            )
+          );
+        })(),
         d.foto&&h('div',{style:{display:'flex',alignItems:'center',gap:5}},
           h('img',{src:d.foto,style:{width:42,height:32,objectFit:'cover',borderRadius:5,border:'1px solid var(--border)',cursor:'pointer'},
             onClick:function(){window.open(d.foto,'_blank');},title:'Clic para ampliar'}),
@@ -12599,6 +12642,36 @@ function MasividadView({auth,toast}){
             style:{padding:'2px 6px',borderRadius:4,border:'1px solid rgba(239,68,68,.3)',background:'rgba(239,68,68,.1)',
               color:'var(--red)',cursor:'pointer',fontSize:9}},'✕')
         )
+      )
+    );
+  }
+
+  function renderRevisionCard(dep,rev){
+    var rkey=dep+'_'+rev.numero;
+    var isExp=expRev===rkey;
+    var nOk=Object.keys(rev.items||{}).filter(function(k){return rev.items[k].cumple;}).length;
+    var total=MASIV_ELEMENTOS.length;
+    var col=nOk===total?'var(--green)':nOk>0?'var(--amber)':'var(--text3)';
+    return h('div',{key:rkey,style:{border:'1px solid var(--border)',borderRadius:8,marginBottom:5,overflow:'hidden'}},
+      h('div',{onClick:function(){setExpRev(isExp?null:rkey);},
+        style:{padding:'7px 10px',display:'flex',alignItems:'center',gap:8,cursor:'pointer',flexWrap:'wrap',
+          background:isExp?'rgba(0,10,24,.6)':'var(--card)'}},
+        h('span',{style:{fontSize:11,fontWeight:700,color:'var(--accent)'}},'Revisión '+rev.numero),
+        h('span',{style:{fontSize:10,color:'var(--text2)',flex:1}},revisorLabel(rev.revisor)+' · '+rev.fecha),
+        h('span',{style:{fontSize:11,fontWeight:700,color:col}},nOk+'/'+total)
+      ),
+      isExp&&h('div',{style:{padding:'8px 10px',borderTop:'1px solid var(--border)',display:'flex',flexDirection:'column',gap:5}},
+        MASIV_ELEMENTOS.map(function(el){
+          var it=(rev.items||{})[el.id]||{};
+          var c=it.cumple?'#22c55e':(it.micras!=null?'#ef4444':'#64748b');
+          return h('div',{key:el.id,style:{display:'flex',alignItems:'center',gap:8,fontSize:10}},
+            h('span',{style:{flex:1,color:'var(--text2)'}},el.nombre),
+            h('span',{style:{color:c,fontWeight:700,minWidth:50,textAlign:'right'}},it.micras!=null?it.micras+'µm':'—'),
+            h('span',{style:{color:c,minWidth:14}},it.cumple?'✓':(it.micras!=null?'✗':'')),
+            it.foto?h('img',{src:it.foto,style:{width:30,height:22,objectFit:'cover',borderRadius:4,cursor:'pointer',border:'1px solid var(--border)'},
+              onClick:function(){window.open(it.foto,'_blank');}}):h('span',{style:{width:30}})
+          );
+        })
       )
     );
   }
@@ -12650,6 +12723,18 @@ function MasividadView({auth,toast}){
           if(d.foto)fotosPend.push({dep:dep,el:el,foto:d.foto});
           y+=4.3;
         });
+        var revs=getRevisiones(dep);
+        if(revs.length){
+          if(y>252){doc.addPage();header();}
+          doc.setFontSize(7);doc.setFont('helvetica','italic');doc.setTextColor(110,110,110);
+          revs.forEach(function(rev){
+            if(y>255){doc.addPage();header();}
+            var nOk=Object.keys(rev.items||{}).filter(function(k){return rev.items[k].cumple;}).length;
+            doc.text('Revisión '+rev.numero+' — '+revisorLabel(rev.revisor)+' — '+rev.fecha+' — '+nOk+'/'+MASIV_ELEMENTOS.length+' OK',margin+2,y);
+            y+=3.6;
+          });
+          doc.setFont('helvetica','normal');doc.setTextColor(40,40,40);
+        }
         y+=3;
       });
       y+=2;
@@ -12749,7 +12834,25 @@ function MasividadView({auth,toast}){
     ),
     selDepto!=null&&h('div',{style:{background:'var(--bg3)',borderRadius:10,padding:'8px 10px',marginTop:6}},
       h('div',{style:{fontSize:10,fontWeight:700,color:'var(--accent)',marginBottom:8,letterSpacing:.5}},'D'+selDepto+' — Piso '+selPiso),
-      MASIV_ELEMENTOS.map(function(el){return renderEl(selDepto,el);})
+      canEdit&&h('div',{style:{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center',marginBottom:8,paddingBottom:8,borderBottom:'1px solid var(--border)'}},
+        h('span',{style:{fontSize:9,color:'var(--text3)'}},'Quién revisa:'),
+        h('select',{value:pickRevisor[selDepto]||'',
+          onChange:function(ev){var np=Object.assign({},pickRevisor);np[selDepto]=ev.target.value;setPickRevisor(np);},
+          style:{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:6,padding:'4px 7px',
+            color:'var(--text)',fontSize:11,fontFamily:'var(--font)'}},
+          h('option',{value:''},'Seleccionar...'),
+          MASIV_REVISORES.map(function(r){return h('option',{key:r.k,value:r.k},r.l);})
+        ),
+        h('button',{onClick:function(){registrarRevision(selDepto);},
+          style:{padding:'5px 12px',borderRadius:8,border:'1px solid var(--accent)',background:'rgba(0,200,255,.12)',
+            color:'var(--accent)',fontSize:11,fontWeight:700,cursor:'pointer'}
+        },'📋 Registrar Revisión '+(getRevisiones(selDepto).length+1))
+      ),
+      MASIV_ELEMENTOS.map(function(el){return renderEl(selDepto,el);}),
+      getRevisiones(selDepto).length>0&&h('div',{style:{marginTop:10}},
+        h('div',{style:{fontSize:9,color:'var(--text3)',fontWeight:700,letterSpacing:.5,marginBottom:6,textTransform:'uppercase'}},'HISTORIAL DE REVISIONES'),
+        getRevisiones(selDepto).slice().reverse().map(function(rev){return renderRevisionCard(selDepto,rev);})
+      )
     )
   );
 }
