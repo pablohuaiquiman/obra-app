@@ -72,7 +72,7 @@ if(typeof React==='undefined'){
   --bg:#060d18;--bg2:#0a1628;--bg3:#0f1f38;
   --blue:#0ea5e9;--blue2:#38bdf8;
   --green:#22c55e;--green2:#16a34a;
-  --amber:#f59e0b;--red:#ef4444;--purple:#a855f7;
+  --amber:#f59e0b;--orange:#f97316;--red:#ef4444;--purple:#a855f7;
   --cyan:#06b6d4;--teal:#14b8a6;--accent:#00c8ff;
   --text:#e2e8f0;--text2:#94a3b8;--text3:#475569;
   --border:#1e3a5f;--card:#0d1f3c;
@@ -134,6 +134,7 @@ input,select,textarea{font-family:var(--font);outline:none}
 .pill-green{background:rgba(34,197,94,.15);color:var(--green)}
 .pill-blue{background:rgba(14,165,233,.15);color:var(--blue)}
 .pill-amber{background:rgba(245,158,11,.15);color:var(--amber)}
+.pill-orange{background:rgba(249,115,22,.15);color:var(--orange)}
 .pill-red{background:rgba(239,68,68,.15);color:var(--red)}
 .pill-gray{background:rgba(148,163,184,.1);color:var(--text3)}
 .pill-purple{background:rgba(168,85,247,.15);color:var(--purple)}
@@ -1193,6 +1194,11 @@ function PartidasView({progress,saves,onSave,auth,toast,userResp}){
   var isAdmin=auth&&(auth.role==='Admin'||auth.role==='Jefe Obra');
   // Admin y Supervisor pueden editar avances; otros solo ven
   var canEdit=auth&&(auth.role==='Admin'||auth.role==='Jefe Obra'||auth.role==='Supervisor');
+  // Escala de color de avance (igual que vista Pisos): 0%=gris sin relleno, 1-49%=amarillo, 50-99%=naranjo, 100%=verde
+  // Se redondea igual que el texto mostrado (Math.round) para que el color nunca contradiga el % en pantalla
+  const avColor=(v)=>{var r=Math.round(v);return r>=100?'var(--green)':r>=50?'var(--orange)':r>0?'var(--amber)':'var(--text3)';};
+  const avBg=(v)=>{var r=Math.round(v);return r>=100?'rgba(34,197,94,.15)':r>=50?'rgba(249,115,22,.12)':r>0?'rgba(245,158,11,.10)':'transparent';};
+  const avBdrCol=(v)=>{var r=Math.round(v);return r>=100?'rgba(34,197,94,.45)':r>=50?'rgba(249,115,22,.40)':r>0?'rgba(245,158,11,.35)':'var(--border)';};
   const allPs=[
     ..._D.ps.map(p=>({...p,fase:1})),
     ..._D.ps2.map(p=>({...p,fase:2})),
@@ -1211,7 +1217,7 @@ function PartidasView({progress,saves,onSave,auth,toast,userResp}){
     var svD=saves&&saves[dep]||{};
     var saved=svD[fkP]&&svD[fkP][sel.id]!=null?svD[fkP][sel.id]:null;
     var v=saved!=null?saved:(lkMap[dep]&&lkMap[dep][sel.id]!=null?lkMap[dep][sel.id]:0);
-    var col=v>=100?'var(--green)':v>=50?'var(--blue)':v>0?'var(--amber)':'var(--text3)';
+    var col=avColor(v);
     function saveV(pct){
       var ns=Object.assign({},svD);
       if(!ns[fkP])ns[fkP]={};
@@ -1301,7 +1307,7 @@ function PartidasView({progress,saves,onSave,auth,toast,userResp}){
       // Promedio + barra
       h('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:4}},
         h('span',{style:{fontSize:11,color:'var(--text3)'}},'Promedio general:'),
-        h('span',{className:'mono',style:{fontSize:13,fontWeight:700,color:pc(totalAvg)}},totalAvg+'%')
+        h('span',{className:'mono',style:{fontSize:13,fontWeight:700,color:avColor(totalAvg)}},totalAvg+'%')
       ),
       h('div',{style:{marginBottom:12}},h(Bar,{val:totalAvg,color:fColor})),
       // Grid por piso — clic en depto abre panel inline sin cambiar de vista
@@ -1329,9 +1335,9 @@ function PartidasView({progress,saves,onSave,auth,toast,userResp}){
                 visibleDeps.map(function(dep){
                   var v=getVal(dep);
                   var isSelDep=selDep===dep;
-                  var bg=isSelDep?'rgba(0,200,255,.2)':v>=100?'rgba(34,197,94,.28)':v>0?'rgba(14,165,233,.22)':'var(--bg2)';
-                  var bdr=isSelDep?'var(--accent)':v>=100?'rgba(34,197,94,.55)':v>0?'rgba(14,165,233,.45)':'var(--border)';
-                  var col=isSelDep?'var(--accent)':v>=100?'var(--green)':v>0?'var(--blue)':'var(--text3)';
+                  var bg=isSelDep?'rgba(0,200,255,.2)':avBg(v);
+                  var bdr=isSelDep?'var(--accent)':avBdrCol(v);
+                  var col=isSelDep?'var(--accent)':avColor(v);
                   return h('button',{key:dep,
                     onClick:function(){ssd2(selDep===dep?null:dep);},
                     title:dep+': '+v+'%',
@@ -1343,7 +1349,7 @@ function PartidasView({progress,saves,onSave,auth,toast,userResp}){
                 })
               ),
               h('span',{style:{fontFamily:'var(--mono)',fontSize:12,fontWeight:700,
-                color:pc(flAvgP),minWidth:40,textAlign:'right',flexShrink:0}},flAvgP+'%')
+                color:avColor(flAvgP),minWidth:40,textAlign:'right',flexShrink:0}},flAvgP+'%')
             ),
             // Resumen por piso: completados / trabajando / pendientes
             h('div',{style:{display:'flex',justifyContent:'flex-end',gap:10,padding:'2px 6px 6px 0',fontFamily:'var(--mono)',fontSize:10,fontWeight:700}},
@@ -1406,7 +1412,7 @@ function PartidasView({progress,saves,onSave,auth,toast,userResp}){
               isAdmin&&respLabel&&h('div',{style:{fontSize:10,color:'var(--text3)',marginTop:2,letterSpacing:'.04em'}},respLabel)
             ),
             h('div',{className:'flex aic g6'},
-              h('span',{className:'mono',style:{fontSize:12,fontWeight:700,color:pc(overallPct)}},overallPct+'%'),
+              h('span',{className:'mono',style:{fontSize:12,fontWeight:700,color:avColor(overallPct)}},overallPct+'%'),
               h('span',{className:`pill ${fcpill(p.fase)}`},'F'+p.fase)
             )
           )
@@ -1449,6 +1455,13 @@ function PisosView({progress,saves,onSave,auth,toast,userResp}){
   });
   const[selPasillo,setSelPasillo]=useState(null);
   const floors=Object.keys(_D.fl);
+  // Escala de color de avance propia de esta vista: 0%=gris sin relleno, 1-49%=amarillo, 50-99%=naranjo, 100%=verde
+  // Se redondea igual que el texto mostrado (Math.round) para que el color nunca contradiga el % en pantalla
+  const avColor=(v)=>{var r=Math.round(v);return r>=100?'var(--green)':r>=50?'var(--orange)':r>0?'var(--amber)':'var(--text3)';};
+  const avPill=(v)=>{var r=Math.round(v);return r>=100?'pill-green':r>=50?'pill-orange':r>0?'pill-amber':'pill-gray';};
+  const avBg=(v)=>{var r=Math.round(v);return r>=100?'rgba(34,197,94,.15)':r>=50?'rgba(249,115,22,.12)':r>0?'rgba(245,158,11,.10)':'transparent';};
+  const avBdrCol=(v)=>{var r=Math.round(v);return r>=100?'rgba(34,197,94,.45)':r>=50?'rgba(249,115,22,.40)':r>0?'rgba(245,158,11,.35)':'var(--border)';};
+  const avBdr=(v)=>'1px solid '+avBdrCol(v);
   var isAdmin=auth&&(auth.role==='Admin'||auth.role==='Jefe Obra');
   // ── Depto partidas view ──
   if(dep){
@@ -1483,7 +1496,7 @@ function PisosView({progress,saves,onSave,auth,toast,userResp}){
       h('div',{style:{background:'var(--bg2)',borderRadius:9,padding:'11px 13px',marginBottom:12}},
         h('div',{className:'flex aic jb mb6'},
           h('span',{className:'mono',style:{fontSize:15,fontWeight:700}},'Depto '+dep),
-          h('span',{className:'pill '+pcl(overallDep)},Math.round(overallDep)+'% total')
+          h('span',{className:'pill '+avPill(overallDep)},Math.round(overallDep)+'% total')
         ),
         h('div',{className:'flex g8'},
           ['1','2','3','4'].map(f=>
@@ -1513,7 +1526,7 @@ function PisosView({progress,saves,onSave,auth,toast,userResp}){
           ),
           parts.map(p=>{
             const v=p.val;
-            const color=v>=100?'var(--green)':v>=50?'var(--blue)':v>0?'var(--amber)':'var(--text3)';
+            const color=avColor(v);
             return h('div',{key:p.id,className:`p-item${v>=100?' done':''}`,style:v>=100?{borderColor:'rgba(34,197,94,.2)'}:{}},
               h('div',{className:'p-hdr'},
                 h('div',{className:'p-name'},
@@ -1564,9 +1577,9 @@ function PisosView({progress,saves,onSave,auth,toast,userResp}){
         fd.map(dep=>{
           var pd=pg.deptos[dep]||{overall:0,f1:0,f2:0,f3:0,f4:0};
           var ov=pd.overall;
-          var color=pc(ov);
-          var simBg=ov>=99?'rgba(34,197,94,.15)':ov>0?'rgba(249,115,22,.10)':'rgba(239,68,68,.08)';
-          var simBdr=ov>=99?'1px solid rgba(34,197,94,.45)':ov>0?'1px solid rgba(249,115,22,.40)':'1px solid rgba(239,68,68,.35)';
+          var color=avColor(ov);
+          var simBg=avBg(ov);
+          var simBdr=avBdr(ov);
           return h('button',{key:dep,className:'depto-btn',onClick:function(){sd(dep);},style:{background:simBg,border:simBdr,borderRadius:9,padding:'9px 7px',textAlign:'center',transition:'all .18s',cursor:'pointer',width:'100%'}},
             h('div',{className:'mono',style:{fontSize:16,fontWeight:700,color:'var(--text)'}},dep),
             h('div',{className:'mono',style:{fontSize:12,fontWeight:700,color,marginTop:2}},Math.round(ov)+'%'),
@@ -1666,16 +1679,16 @@ function PisosView({progress,saves,onSave,auth,toast,userResp}){
               );
             })
           ),
-          h('span',{className:`pill ${pcl(tot)}`,style:{flexShrink:0}},Math.round(tot)+'%')
+          h('span',{className:`pill ${avPill(tot)}`,style:{flexShrink:0}},Math.round(tot)+'%')
         ),
         // Botones de departamentos
         h('div',{style:{display:'flex',flexWrap:'wrap',gap:4,paddingLeft:4}},
           visibleDeps.map(function(dep){
             var pd2=pg.deptos[dep]||{overall:0};
             var ov2=pd2.overall;
-            var bg=ov2>=99?'rgba(34,197,94,.28)':ov2>0?'rgba(14,165,233,.22)':'var(--bg2)';
-            var bdr=ov2>=99?'rgba(34,197,94,.55)':ov2>0?'rgba(14,165,233,.45)':'var(--border)';
-            var col=ov2>=99?'var(--green)':ov2>0?'var(--blue)':'var(--text3)';
+            var bg=avBg(ov2);
+            var bdr=avBdrCol(ov2);
+            var col=avColor(ov2);
             return h('button',{key:dep,
               onClick:function(){sd(dep);sf(fl);},
               title:'D'+dep+' — '+Math.round(ov2)+'%',
@@ -10453,6 +10466,7 @@ function InformeSemanalView({ganttData,saves,onSave,onGanttSave,reportData,onRep
   },[filtTasks]);
 
   // ── Deliveries this week ───────────────────────────────────────────────
+  // Si hay filtro por responsable activo, solo se muestran deptos con tareas de ese responsable esta semana (mismo criterio que filtTasks/deptWeekPlan)
   const deliveries=useMemo(function(){
     var ov=(ganttData||{}).overrides||{};var ds=(ganttData||{}).dateShift||0;
     var res=[];
@@ -10461,12 +10475,13 @@ function InformeSemanalView({ganttData,saves,onSave,onGanttSave,reportData,onRep
       var eDay=ovDep&&ovDep.e!=null?ovDep.e:(dep.e+ds);
       var eDate=n2d(eDay);
       if(eDate<wStart||eDate>wEnd)return;
+      if(filtResp!=='all'&&!deptWeekPlan[dep.d])return;
       var f3=calcDeptoFase(dep.d,3,saves)||0;
       var pi=PLAN.pi[dep.pi]?PLAN.pi[dep.pi].n:'';
       res.push({dep,di,eDate,f3:Math.round(f3),pi});
     });
     return res.sort(function(a,b){return deptSeqOrder(a.dep.d)-deptSeqOrder(b.dep.d);});
-  },[ganttData,saves,wStart,wEnd]);
+  },[ganttData,saves,wStart,wEnd,filtResp,deptWeekPlan]);
 
   // ── Dptos vencidos (todos los que pasaron la fecha, incluyendo completados) ──
   const [showVencComp,setShowVencComp]=useState(true); // switch ver completados (ON por defecto)
@@ -11385,193 +11400,6 @@ function InformeSemanalView({ganttData,saves,onSave,onGanttSave,reportData,onRep
         )
     ),
 
-    // ── S3: Compromisos por subcontrato (solo en modo informe) ───────
-    periodoVista==='semana'&&!reviewMode&&h('div',{className:'card'},
-      h('div',{style:{fontWeight:700,fontSize:11,letterSpacing:1,color:'var(--text)',marginBottom:8,display:'flex',alignItems:'center',gap:6}},
-        h('span',{style:{background:'var(--purple)',color:'#fff',padding:'1px 7px',borderRadius:3,fontSize:9}},'3'),
-        'COMPROMISOS POR SUBCONTRATO'),
-      subCompromisos.length===0
-        ?h('div',{style:{color:'var(--text2)',fontSize:11,textAlign:'center',padding:'12px 0'}},'Sin compromisos para esta semana')
-        :h('div',{style:{display:'flex',flexDirection:'column',gap:5}},
-          subCompromisos.map(function(sc){
-            var k='sub_'+sc.resp;var v=comp[k];
-            var avg=sc.tasks.length?Math.round(sc.total_pct/sc.tasks.length):0;
-            var border=v==='ok'?'rgba(34,197,94,.4)':v==='nok'?'rgba(239,68,68,.4)':v==='par'?'rgba(249,115,22,.4)':'var(--border)';
-            return h('div',{key:sc.resp,
-              style:{background:'var(--card)',border:'1px solid '+border,borderRadius:8,padding:'7px 10px',
-                display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}},
-              h('div',{style:{flex:1,minWidth:0}},
-                h('div',{style:{fontSize:11,fontWeight:700,color:'var(--text)'}},sc.resp),
-                h('div',{style:{fontSize:9,color:'var(--text2)',marginTop:1}},
-                  sc.tasks.length+' tareas · '+sc.dep_count+' dptos-tarea')
-              ),
-              h('span',{style:{fontSize:12,fontWeight:700,color:avg>=70?'var(--green)':avg>=40?'var(--amber)':'var(--red)'}},
-                avg+'%'),
-              statusBtn(k)
-            );
-          })
-        )
-    ),
-
-    // ── S4: Vencidas (solo en modo informe) ───────────────────────────
-    periodoVista==='semana'&&!reviewMode&&h('div',{className:'card'},
-      // Header + switch
-      h('div',{style:{display:'flex',alignItems:'center',gap:6,marginBottom:10,flexWrap:'wrap'}},
-        h('span',{style:{background:'var(--red)',color:'#fff',padding:'1px 7px',borderRadius:3,fontSize:9}},'4'),
-        h('div',{style:{fontWeight:700,fontSize:11,letterSpacing:1,color:'var(--text)',flex:1}},
-          'DPTOS VENCIDOS ACUMULADOS'),
-        // Contadores
-        h('span',{style:{fontSize:10,color:'var(--red)',fontWeight:600}},
-          vencidasAll.filter(function(v){return !v.done;}).length+' pendientes'),
-        h('span',{style:{fontSize:10,color:'var(--text3)'}},'·'),
-        h('span',{style:{fontSize:10,color:'var(--green)',fontWeight:600}},
-          vencidasAll.filter(function(v){return v.done;}).length+' entregados'),
-        // Switch
-        h('div',{
-          onClick:function(){setShowVencComp(!showVencComp);},
-          style:{display:'flex',alignItems:'center',gap:6,cursor:'pointer',
-            padding:'4px 10px',borderRadius:20,border:'1px solid var(--border)',
-            background:showVencComp?'rgba(34,197,94,.1)':'var(--bg2)',
-            transition:'all .2s'}
-        },
-          h('div',{style:{
-            width:30,height:16,borderRadius:8,position:'relative',
-            background:showVencComp?'var(--green)':'var(--border)',transition:'background .2s'
-          }},
-            h('div',{style:{
-              position:'absolute',top:2,left:showVencComp?14:2,width:12,height:12,
-              borderRadius:'50%',background:'#fff',transition:'left .2s',boxShadow:'0 1px 3px rgba(0,0,0,.3)'
-            }})
-          ),
-          h('span',{style:{fontSize:10,color:showVencComp?'var(--green)':'var(--text2)',fontWeight:600,whiteSpace:'nowrap'}},
-            showVencComp?'Ver todos':'Solo pendientes')
-        )
-      ),
-      // Lista
-      vencidasAll.length===0
-        ?h('div',{style:{color:'var(--green)',fontSize:11,textAlign:'center',padding:'12px 0'}},'✓ Sin unidades vencidas')
-        :vencidas.length===0&&!showVencComp
-          ?h('div',{style:{color:'var(--green)',fontSize:11,textAlign:'center',padding:'12px 0'}},'✓ Todas las unidades vencidas están entregadas')
-          :h('div',{style:{display:'flex',flexDirection:'column',gap:4}},
-            vencidas.map(function(v2){
-              var dn=v2.dep.d;
-              var isOpen=editDep===dn;
-              var f3Live=Math.round(calcDeptoFase(dn,3,saves)||0);
-              var isDone=f3Live>=100;
-              var col=isDone?'var(--green)':v2.dias>14?'var(--red)':v2.dias>7?'var(--amber)':'var(--warn)';
-              var bg=isOpen?'rgba(0,200,255,.05)':isDone?'rgba(34,197,94,.05)':'rgba(239,68,68,.05)';
-              var bdr=isOpen?'var(--accent)':isDone?'rgba(34,197,94,.2)':'rgba(239,68,68,.2)';
-              // Panel de edición inline (evita problema de componente dentro de map)
-              var editPanel=null;
-              if(isOpen){
-                var sv4=saves[dn]||{};
-                var rFilt=userResp||(filtResp!=='all'?rl2Resp(filtResp):null);
-                var phDefs4=[
-                  {fi:1,fk:'f1',label:'FASE 1',color:'var(--blue)',ps:_D.ps,lf:_D.lf1||{}},
-                  {fi:2,fk:'f2',label:'FASE 2',color:'var(--purple)',ps:_D.ps2,lf:_D.lf2||{}},
-                  {fi:3,fk:'f3',label:'FASE 3',color:'var(--green)',ps:_D.ps3,lf:_D.lf3||{}},
-                  {fi:4,fk:'f4',label:'FASE 4',color:'var(--amber)',ps:_D.ps4||[],lf:_D.lf4||{}}
-                ];
-                var totalDone4=0;
-                phDefs4.forEach(function(ph){
-                  var pR=ph.ps.filter(function(p){return rFilt?getPartidaRespName(ph.fi,p.id)===rFilt:true;});
-                  pR.forEach(function(p){
-                    var c=(sv4[ph.fk]||{})[p.id]!=null?(sv4[ph.fk]||{})[p.id]:(ph.lf[dn]?ph.lf[dn][p.id]||0:0);
-                    if(Math.round(c)>=100)totalDone4++;
-                  });
-                });
-                var hasAny4=phDefs4.some(function(ph){
-                  return ph.ps.some(function(p){return rFilt?getPartidaRespName(ph.fi,p.id)===rFilt:true;});
-                });
-                editPanel=h('div',{style:{borderTop:'1px solid var(--border)',marginTop:6,paddingTop:8,display:'flex',flexDirection:'column',gap:8}},
-                  h('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:2}},
-                    h('div',{style:{fontSize:9,color:'var(--text2)',fontWeight:700,letterSpacing:.5,flex:1}},
-                      rFilt?'PARTIDAS — '+(RESP_LABEL[rFilt]||rFilt.replace('sucto.','').toUpperCase()):'TODAS LAS PARTIDAS'),
-                    totalDone4>0&&h('button',{
-                      onClick:function(e){e.stopPropagation();setHideEditDone(!hideEditDone);},
-                      style:{padding:'2px 8px',borderRadius:10,border:'1px solid '+(hideEditDone?'var(--green)':'var(--border)'),
-                        background:hideEditDone?'rgba(34,197,94,.15)':'var(--bg2)',
-                        color:hideEditDone?'var(--green)':'var(--text2)',fontSize:9,cursor:'pointer',whiteSpace:'nowrap'}
-                    },hideEditDone?'▶ Ver completadas ('+totalDone4+')':'✓ Ocultar 100% ('+totalDone4+')')
-                  ),
-                  !hasAny4&&h('div',{style:{fontSize:10,color:'var(--text3)',textAlign:'center',padding:'8px 0',fontStyle:'italic'}},'Sin partidas asignadas a este responsable'),
-                  phDefs4.map(function(ph){
-                    var pRows=ph.ps.filter(function(p){return rFilt?getPartidaRespName(ph.fi,p.id)===rFilt:true;});
-                    if(!pRows.length)return null;
-                    var svPh4=sv4[ph.fk]||{};
-                    var visRows=hideEditDone?pRows.filter(function(p){var c=svPh4[p.id]!=null?svPh4[p.id]:(ph.lf[dn]?ph.lf[dn][p.id]||0:0);return Math.round(c)<100;}):pRows;
-                    if(hideEditDone&&visRows.length===0)return null;
-                    return h('div',{key:ph.fi},
-                      h('div',{style:{fontSize:8,fontWeight:700,letterSpacing:'.08em',color:ph.color,padding:'3px 0',marginBottom:3,borderBottom:'1px solid rgba(255,255,255,.06)',textTransform:'uppercase'}},ph.label),
-                      visRows.length===0
-                        ?h('div',{style:{fontSize:9,color:'var(--green)',textAlign:'center',padding:'4px 0'}},'✓ Todas al 100%')
-                        :visRows.map(function(p){
-                          var cur=svPh4[p.id]!=null?svPh4[p.id]:(ph.lf[dn]?ph.lf[dn][p.id]||0:0);
-                          cur=Math.round(cur);
-                          var nm=p.name.replace(/^F[1-4] /i,'');
-                          return h('div',{key:p.id,style:{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap',
-                            background:cur>=100?'rgba(34,197,94,.06)':'var(--bg3)',borderRadius:6,padding:'5px 8px',marginBottom:3,
-                            opacity:cur>=100?.7:1}},
-                            h('div',{style:{flex:1,fontSize:10,color:'var(--text)',minWidth:120,
-                              textDecoration:cur>=100?'line-through':'none'}},nm),
-                            h('div',{style:{fontSize:11,fontWeight:700,minWidth:32,textAlign:'right',
-                              color:cur>=100?'var(--green)':cur>0?'var(--amber)':'var(--text3)'}},cur+'%'),
-                            h('div',{style:{display:'flex',gap:3}},
-                              [0,25,50,75,100].map(function(v){
-                                var active=cur===v;
-                                return h('button',{key:v,
-                                  onClick:function(e){e.stopPropagation();quickSave(dn,p.id,v,ph.fk);},
-                                  style:{padding:'4px 7px',borderRadius:5,
-                                    border:'1px solid '+(active?'var(--accent)':'var(--border)'),
-                                    background:active?'var(--accent)':'var(--bg2)',
-                                    color:active?'#000':'var(--text2)',
-                                    fontSize:10,fontWeight:active?700:400,cursor:'pointer',minWidth:36}
-                                },v+'%');
-                              })
-                            )
-                          );
-                        })
-                    );
-                  })
-                );
-              }
-              return h('div',{key:dn,
-                style:{background:bg,border:'1px solid '+bdr,borderRadius:8,
-                  padding:'7px 10px',opacity:isDone&&!isOpen?.65:1,transition:'all .15s'}},
-                // Fila principal
-                h('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}},
-                  h('div',{style:{fontSize:16,flexShrink:0}},isDone?'✅':'⏳'),
-                  h('div',{style:{fontFamily:'var(--mono)',fontWeight:700,fontSize:13,
-                    color:isDone?'var(--green)':'var(--text)',minWidth:44,
-                    textDecoration:isDone?'line-through':'none'}},'D'+dn),
-                  h('div',{style:{flex:1}},
-                    h('div',{style:{fontSize:10,color:'var(--text2)'}},v2.pi+' · '+v2.eDate),
-                    isDone&&h('div',{style:{fontSize:9,color:'var(--green)',fontWeight:600,marginTop:1}},'✓ Entregado')
-                  ),
-                  h('div',{style:{textAlign:'center',minWidth:50}},
-                    h('div',{style:{fontSize:11,fontWeight:700,color:col}},isDone?'Listo':v2.dias+' días'),
-                    h('div',{style:{fontSize:8,color:'var(--text2)'}},isDone?'':' atraso')
-                  ),
-                  h('div',{style:{textAlign:'center',minWidth:42}},
-                    h('div',{style:{fontSize:12,fontWeight:700,
-                      color:f3Live>=100?'var(--green)':f3Live>0?'var(--amber)':'var(--red)'}},f3Live+'%'),
-                    h('div',{style:{fontSize:8,color:'var(--text2)'}},'F3')
-                  ),
-                  !isDone&&h('button',{
-                    onClick:function(){setEditDep(isOpen?null:dn);},
-                    style:{padding:'6px 12px',borderRadius:6,flexShrink:0,
-                      border:'1px solid '+(isOpen?'var(--accent)':'var(--border)'),
-                      background:isOpen?'rgba(0,200,255,.15)':'var(--bg2)',
-                      color:isOpen?'var(--accent)':'var(--text2)',
-                      fontSize:11,fontWeight:600,cursor:'pointer'}
-                  },isOpen?'▲ Cerrar':'✏️ Editar')
-                ),
-                // Panel edición (renderizado inline, no como componente)
-                editPanel
-              );
-            })
-          )
-    )
   );
 }
 
@@ -12673,6 +12501,259 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
   );
 }
 
+// ── CONTROL DE MASIVIDAD — Espesor pintura ignífuga (Piso 5 y 6) ─────────
+const MASIV_ELEMENTOS=[
+  {id:'cerrado',  nombre:'CERRADO (pilar)', dim:'240 x 200',         retardo:'F-120', micras:3331},
+  {id:'canal1',   nombre:'Canal 1',         dim:'50 x 120',          retardo:'F-60',  micras:671},
+  {id:'canal2',   nombre:'Canal 2',         dim:'50 x 200',          retardo:'F-60',  micras:671},
+  {id:'angulo1',  nombre:'Angulo 1',        dim:'40 x 40',           retardo:'F-60',  micras:671},
+  {id:'angulo2',  nombre:'Angulo 2',        dim:'40 x 20',           retardo:'F-60',  micras:671},
+  {id:'costanera',nombre:'Costanera',       dim:'130 x 50 x 15 x 4', retardo:'F-60',  micras:671},
+  {id:'ipe',      nombre:'IPE',             dim:'300 x 120 x 8',     retardo:'F-120', micras:2164},
+];
+const MASIV_PISOS=['5','6'];
+function masivDeptos(piso){return (_D.fl||{})['piso '+piso]||[];}
+function MasividadView({auth,toast}){
+  var canEdit=!auth||auth.role==='Admin'||auth.role==='Jefe Obra'||auth.role==='Supervisor';
+  const[selPiso,setSelPiso]=useState(MASIV_PISOS[0]);
+  const[selDepto,setSelDepto]=useState(null);
+  const[itemData,setItemData]=useState(function(){
+    try{return JSON.parse(localStorage.getItem('ctrl_masiv_v1')||'{}');}catch(e){return{};}
+  });
+  function saveItemData(nd){setItemData(nd);try{localStorage.setItem('ctrl_masiv_v1',JSON.stringify(nd));}catch(e){}}
+  function itemKey(dep,elId){return dep+'_'+elId;}
+  function updEl(dep,elId,patch){
+    var nd=Object.assign({},itemData);
+    var k=itemKey(dep,elId);
+    nd[k]=Object.assign({},nd[k]||{},patch);
+    saveItemData(nd);
+  }
+  function getEl(dep,elId){return itemData[itemKey(dep,elId)]||{};}
+  function cumple(dep,el){var d=getEl(dep,el.id);return d.micras!=null&&d.micras!==''&&Number(d.micras)>=el.micras;}
+  function deptoStats(dep){
+    var n=0;MASIV_ELEMENTOS.forEach(function(el){if(cumple(dep,el))n++;});
+    return{n:n,total:MASIV_ELEMENTOS.length};
+  }
+  function deptoInd(dep){
+    var st=deptoStats(dep);
+    if(st.n===st.total)return{col:'#22c55e',bg:'rgba(34,197,94,.22)',bdr:'rgba(34,197,94,.55)'};
+    if(st.n>0)return{col:'#f59e0b',bg:'rgba(245,158,11,.18)',bdr:'rgba(245,158,11,.5)'};
+    return{col:'#64748b',bg:'var(--bg2)',bdr:'var(--border)'};
+  }
+  var pisoDeptos=masivDeptos(selPiso);
+  // Stats globales (Piso 5 + Piso 6)
+  var totalElGlobal=0,cumplElGlobal=0;
+  MASIV_PISOS.forEach(function(p){masivDeptos(p).forEach(function(dep){MASIV_ELEMENTOS.forEach(function(el){totalElGlobal++;if(cumple(dep,el))cumplElGlobal++;});});});
+  // Stats del piso seleccionado
+  var pisoComp=0,pisoEnProc=0,pisoPend=0;
+  pisoDeptos.forEach(function(dep){var st=deptoStats(dep);if(st.n===st.total)pisoComp++;else if(st.n>0)pisoEnProc++;else pisoPend++;});
+
+  function renderEl(dep,el){
+    var d=getEl(dep,el.id);
+    var ok=cumple(dep,el);
+    var tieneVal=d.micras!=null&&d.micras!=='';
+    var micrasVal=tieneVal?d.micras:'';
+    var col=ok?'#22c55e':(tieneVal?'#ef4444':'#64748b');
+    return h('div',{key:el.id,style:{background:'var(--bg3)',borderRadius:8,padding:'9px 10px',marginBottom:6,
+      border:'1px solid '+(ok?'rgba(34,197,94,.4)':'var(--border)')}},
+      h('div',{style:{display:'flex',alignItems:'flex-start',gap:8,flexWrap:'wrap',marginBottom:7}},
+        h('div',{style:{flex:1,minWidth:140}},
+          h('div',{style:{fontSize:11,fontWeight:700,color:'var(--text)'}},el.nombre),
+          h('div',{style:{fontSize:9,color:'var(--text3)',marginTop:1}},el.dim)
+        ),
+        h('span',{style:{padding:'2px 7px',borderRadius:6,fontSize:9,fontWeight:700,color:'var(--purple)',
+          background:'rgba(168,85,247,.12)',border:'1px solid rgba(168,85,247,.35)'}},el.retardo),
+        h('span',{style:{padding:'2px 7px',borderRadius:6,fontSize:9,fontWeight:700,color:'var(--blue)',
+          background:'rgba(14,165,233,.12)',border:'1px solid rgba(14,165,233,.35)'}},'Req: '+el.micras+'µm'),
+        h('span',{style:{padding:'2px 9px',borderRadius:10,fontSize:9,fontWeight:700,color:col,
+          background:col+'18',border:'1px solid '+col+'40'}},ok?'✓ Cumple':(tieneVal?'✗ No cumple':'Sin medir'))
+      ),
+      h('div',{style:{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}},
+        h('div',{style:{display:'flex',alignItems:'center',gap:6}},
+          h('span',{style:{fontSize:9,color:'var(--text3)'}},'Micras medidas:'),
+          canEdit
+            ?h('input',{type:'number',value:micrasVal,placeholder:'µm',
+                onChange:function(ev){updEl(dep,el.id,{micras:ev.target.value===''?null:Number(ev.target.value),fecha:new Date().toISOString().slice(0,10)});},
+                style:{width:80,background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:6,
+                  padding:'4px 7px',color:'var(--text)',fontSize:11,fontFamily:'var(--font)'}})
+            :h('span',{style:{fontSize:11,fontWeight:700,color:col}},tieneVal?micrasVal+'µm':'—')
+        ),
+        canEdit&&h('label',{style:{display:'flex',alignItems:'center',gap:5,cursor:'pointer',
+          padding:'4px 10px',borderRadius:7,border:'1px dashed '+(d.foto?'var(--green)':'var(--blue)'),
+          background:d.foto?'rgba(34,197,94,.08)':'rgba(14,165,233,.08)'}},
+          h('span',{style:{fontSize:12}},'📷'),
+          h('span',{style:{fontSize:10,color:d.foto?'var(--green)':'var(--blue)',fontWeight:600}},d.foto?'Reemplazar foto':'Foto de respaldo'),
+          h('input',{type:'file',accept:'image/*',capture:'environment',style:{display:'none'},
+            onChange:function(ev){
+              var file=ev.target.files[0];if(!file)return;
+              var reader=new FileReader();
+              reader.onload=function(re){updEl(dep,el.id,{foto:re.target.result});toast&&toast('✓ Foto adjuntada — '+el.nombre);};
+              reader.readAsDataURL(file);
+              ev.target.value='';
+            }})
+        ),
+        d.foto&&h('div',{style:{display:'flex',alignItems:'center',gap:5}},
+          h('img',{src:d.foto,style:{width:42,height:32,objectFit:'cover',borderRadius:5,border:'1px solid var(--border)',cursor:'pointer'},
+            onClick:function(){window.open(d.foto,'_blank');},title:'Clic para ampliar'}),
+          canEdit&&h('button',{onClick:function(){updEl(dep,el.id,{foto:null});},
+            style:{padding:'2px 6px',borderRadius:4,border:'1px solid rgba(239,68,68,.3)',background:'rgba(239,68,68,.1)',
+              color:'var(--red)',cursor:'pointer',fontSize:9}},'✕')
+        )
+      )
+    );
+  }
+
+  // ── Exportar informe PDF ────────────────────────────────────────────────
+  function generarInformeMasividad(filtroPiso){
+    if(typeof jspdf==='undefined'){toast&&toast('Error: jsPDF no disponible');return;}
+    var doc=new jspdf.jsPDF({orientation:'portrait',unit:'mm',format:'letter'});
+    var pw=doc.internal.pageSize.getWidth(),ph=doc.internal.pageSize.getHeight(),margin=14,y=16;
+    var today=new Date().toISOString().slice(0,10);
+    var pisos=filtroPiso?[filtroPiso]:MASIV_PISOS;
+    function header(){
+      y=16;
+      try{doc.addImage(_LOGO,'PNG',margin,y-6,28,8);}catch(e){}
+      doc.setFontSize(12);doc.setFont('helvetica','bold');doc.setTextColor(20,20,20);
+      doc.text('CONTROL DE MASIVIDAD — PINTURA IGNÍFUGA',pw/2,y,{align:'center'});
+      y+=5;doc.setFontSize(8);doc.setFont('helvetica','normal');doc.setTextColor(100,100,100);
+      doc.text('Edificio Victoria · '+(filtroPiso?('Piso '+filtroPiso):'Piso 5 y Piso 6')+' · Generado: '+today,pw/2,y,{align:'center'});
+      y+=8;doc.setTextColor(20,20,20);
+    }
+    header();
+    var fotosPend=[];
+    pisos.forEach(function(piso){
+      var deptos=masivDeptos(piso);
+      if(!deptos.length)return;
+      if(y>240){doc.addPage();header();}
+      doc.setFontSize(10);doc.setFont('helvetica','bold');doc.setTextColor(14,100,160);
+      doc.text('PISO '+piso,margin,y);y+=6;
+      deptos.forEach(function(dep){
+        if(y>250){doc.addPage();header();}
+        var st=deptoStats(dep);
+        doc.setFontSize(9);doc.setFont('helvetica','bold');doc.setTextColor(20,20,20);
+        doc.text('D'+dep+'  ('+st.n+'/'+st.total+' OK)',margin,y);y+=4.5;
+        doc.setFontSize(7.5);doc.setFont('helvetica','bold');doc.setTextColor(90,90,90);
+        var c=[margin,margin+58,margin+82,margin+112,margin+142];
+        doc.text('ELEMENTO',c[0],y);doc.text('RETARDO',c[1],y);doc.text('REQ.(µm)',c[2],y);doc.text('MEDIDO(µm)',c[3],y);doc.text('CUMPLE',c[4],y);
+        y+=1.5;doc.setDrawColor(200,200,200);doc.line(margin,y,pw-margin,y);y+=3.5;
+        doc.setFont('helvetica','normal');doc.setTextColor(40,40,40);
+        MASIV_ELEMENTOS.forEach(function(el){
+          var d=getEl(dep,el.id);var ok=cumple(dep,el);var tieneVal=d.micras!=null&&d.micras!=='';
+          doc.setTextColor(40,40,40);
+          doc.text(el.nombre+' ('+el.dim+')',c[0],y,{maxWidth:56});
+          doc.text(el.retardo,c[1],y);
+          doc.text(String(el.micras),c[2],y);
+          doc.text(tieneVal?String(d.micras):'—',c[3],y);
+          var rgb=ok?[34,150,80]:(tieneVal?[200,40,40]:[150,150,150]);
+          doc.setTextColor(rgb[0],rgb[1],rgb[2]);
+          doc.text(ok?'OK':(tieneVal?'NO':'—'),c[4],y);
+          if(d.foto)fotosPend.push({dep:dep,el:el,foto:d.foto});
+          y+=4.3;
+        });
+        y+=3;
+      });
+      y+=2;
+    });
+    fotosPend.forEach(function(f){
+      doc.addPage();y=16;
+      doc.setFontSize(10);doc.setFont('helvetica','bold');doc.setTextColor(20,20,20);
+      doc.text('FOTO DE RESPALDO — D'+f.dep+' · '+f.el.nombre,margin,y);
+      y+=6;
+      try{doc.addImage(f.foto,'JPEG',margin,y,pw-margin*2,0);}
+      catch(e1){try{doc.addImage(f.foto,'PNG',margin,y,pw-margin*2,0);}catch(e2){doc.text('[Imagen no disponible]',margin,y);}}
+    });
+    var nPg=doc.getNumberOfPages();
+    for(var pg=1;pg<=nPg;pg++){
+      doc.setPage(pg);
+      doc.setFontSize(7.5);doc.setFont('helvetica','normal');doc.setTextColor(160,160,160);
+      doc.text('Pág. '+pg+' / '+nPg,pw-margin,ph-8,{align:'right'});
+      doc.text('Edificio Victoria — Control de Obra · Informe Masividad Pintura Ignífuga',margin,ph-8);
+    }
+    var pisoSlug=filtroPiso?('-piso'+filtroPiso):'';
+    var fname='informe-masividad'+pisoSlug+'-'+today+'.pdf';
+    try{
+      var blob=doc.output('blob');
+      var file=new File([blob],fname,{type:'application/pdf'});
+      if(navigator.canShare&&navigator.canShare({files:[file]})){
+        navigator.share({files:[file],title:'Informe Masividad'}).catch(function(){});
+        toast&&toast('📤 Informe listo para compartir/enviar');
+        return;
+      }
+    }catch(e){}
+    doc.save(fname);
+    toast&&toast('PDF descargado: '+fname);
+  }
+
+  return h('div',{className:'page'},
+    h('div',{style:{marginBottom:10}},
+      h('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:8,flexWrap:'wrap'}},
+        h('div',{style:{fontSize:12,fontWeight:700,color:'var(--text)',letterSpacing:.5}},'🎨 CONTROL DE MASIVIDAD'),
+        h('div',{style:{flex:1}}),
+        h('button',{
+          onClick:function(){generarInformeMasividad();},
+          title:'Exportar informe de Piso 5 y Piso 6',
+          style:{padding:'5px 12px',borderRadius:16,fontSize:11,fontWeight:700,cursor:'pointer',
+            background:'var(--blue)',color:'#fff',border:'1px solid var(--blue)'}
+        },'📊 Exportar Informe')
+      ),
+      h('div',{style:{display:'flex',gap:6}},
+        h('span',{style:{background:'rgba(34,197,94,.12)',color:'var(--green)',padding:'3px 10px',borderRadius:10,fontSize:10,fontWeight:700}},cumplElGlobal+' ✓'),
+        h('span',{style:{background:'rgba(100,116,139,.1)',color:'var(--text3)',padding:'3px 10px',borderRadius:10,fontSize:10,fontWeight:700}},(totalElGlobal-cumplElGlobal)+' pend.'),
+        h('span',{style:{color:'var(--text3)',fontSize:10,padding:'3px 6px',marginLeft:'auto'}},'Total: '+totalElGlobal+' mediciones (Piso 5 y 6)')
+      )
+    ),
+    h('div',{style:{display:'flex',gap:5,flexWrap:'wrap',marginBottom:4}},
+      MASIV_PISOS.map(function(p){
+        var act=selPiso===p;
+        var deptos=masivDeptos(p);
+        var compP=deptos.filter(function(d){var st=deptoStats(d);return st.n===st.total;}).length;
+        var col=compP===deptos.length&&deptos.length>0?'var(--green)':compP>0?'var(--amber)':'var(--text3)';
+        return h('button',{key:p,
+          onClick:function(){setSelPiso(p);setSelDepto(null);},
+          style:{padding:'8px 14px',borderRadius:10,fontSize:12,fontWeight:act?700:500,cursor:'pointer',
+            border:'1px solid '+(act?'var(--accent)':'var(--border)'),
+            background:act?'var(--accent)':'var(--bg2)',
+            color:act?'var(--bg)':'var(--text2)',transition:'all .1s',minWidth:64,textAlign:'center'}
+        },
+          h('div',null,'Piso '+p),
+          h('div',{style:{fontSize:8,color:act?'rgba(0,0,0,.5)':col,marginTop:1}},compP+'/'+deptos.length)
+        );
+      })
+    ),
+    h('div',{style:{display:'flex',gap:5,marginBottom:2,alignItems:'center'}},
+      h('span',{style:{background:'rgba(34,197,94,.12)',color:'var(--green)',padding:'3px 9px',borderRadius:10,fontSize:10,fontWeight:700}},pisoComp+' completos'),
+      h('span',{style:{background:'rgba(245,158,11,.12)',color:'var(--amber)',padding:'3px 9px',borderRadius:10,fontSize:10,fontWeight:700}},pisoEnProc+' en proceso'),
+      h('span',{style:{background:'rgba(100,116,139,.1)',color:'var(--text3)',padding:'3px 9px',borderRadius:10,fontSize:10,fontWeight:700}},pisoPend+' pendientes'),
+      h('div',{style:{flex:1}}),
+      h('button',{
+        onClick:function(){generarInformeMasividad(selPiso);},
+        title:'Exportar informe solo de Piso '+selPiso,
+        style:{padding:'4px 10px',borderRadius:14,fontSize:10,fontWeight:700,cursor:'pointer',
+          background:'var(--bg2)',color:'var(--blue)',border:'1px solid var(--blue)'}
+      },'📊 Informe de este piso')
+    ),
+    h('div',{style:{display:'flex',flexWrap:'wrap',gap:5,paddingTop:4}},
+      pisoDeptos.map(function(dep){
+        var ind=deptoInd(dep);var st=deptoStats(dep);var isSel=selDepto===dep;
+        return h('button',{key:dep,
+          onClick:function(){setSelDepto(isSel?null:dep);},
+          style:{padding:'6px 8px',borderRadius:8,border:'1px solid '+(isSel?'var(--accent)':ind.bdr),
+            background:isSel?'rgba(0,200,255,.22)':ind.bg,color:isSel?'var(--accent)':ind.col,
+            fontFamily:'var(--mono)',fontSize:11,fontWeight:700,cursor:'pointer',
+            minWidth:48,textAlign:'center',lineHeight:'1.35',transition:'all .1s',flexShrink:0}
+        },
+          h('div',{style:{fontSize:12}},'D'+dep),
+          h('div',{style:{fontSize:9,opacity:.85}},st.n+'/'+st.total)
+        );
+      })
+    ),
+    selDepto!=null&&h('div',{style:{background:'var(--bg3)',borderRadius:10,padding:'8px 10px',marginTop:6}},
+      h('div',{style:{fontSize:10,fontWeight:700,color:'var(--accent)',marginBottom:8,letterSpacing:.5}},'D'+selDepto+' — Piso '+selPiso),
+      MASIV_ELEMENTOS.map(function(el){return renderEl(selDepto,el);})
+    )
+  );
+}
+
 // ── PLAN MAESTRO VIEW ────────────────────────────────────────────────────
 const PM_CSS=`.pm-root{font-family:Arial,sans-serif;font-size:12px;background:var(--bg);color:var(--text);min-height:100%;}
 .pm-root .pm-hdr{background:linear-gradient(135deg,#060b14,#0a1628,#060b14);border-bottom:1px solid var(--border);padding:10px 16px;display:flex;align-items:center;justify-content:space-between;position:relative;}
@@ -13257,11 +13338,12 @@ function App({initialData}){
   const onMatSave=(md)=>save({matData:md});
   const isSupervisor=auth.role==='Supervisor';
   const userResp=isSupervisor?(USER_RESP_MAP[auth.user]||null):null;
-  const SUPR_TABS=['partidas','pisos','programa','asistencia','control'];
+  const SUPR_TABS=['partidas','pisos','programa','asistencia','control','masividad'];
   const navTabs=[
     {id:'dash',icon:'◆',label:'Dashboard'},
     {id:'partidas',icon:'🔍',label:'Partidas'},
     {id:'control',icon:'🪟',label:'Control'},
+    {id:'masividad',icon:'🎨',label:'Masividad'},
     {id:'pisos',icon:'⬢',label:'Pisos'},
     {id:'gantt',icon:'▤',label:'Gantt'},
     {id:'programa',icon:'📅',label:'Plan Pers.'},
@@ -13280,6 +13362,7 @@ function App({initialData}){
   if(effectiveTab==='dash')content=h(Dashboard,{progress,ganttTasks:ganttData.tasks||[],weekData,ganttData,saves});
   else if(effectiveTab==='partidas')content=h(PartidasView,{progress,saves,onSave,auth,toast:showToast,userResp});
   else if(effectiveTab==='control')content=h(ControlView,{saves,onSave,ganttData,onGanttSave,auth,toast:showToast});
+  else if(effectiveTab==='masividad')content=h(MasividadView,{auth,toast:showToast});
   else if(effectiveTab==='pisos')content=h(PisosView,{progress,saves,onSave,auth,toast:showToast,userResp});
   else if(effectiveTab==='gantt')content=h(GanttView,{ganttData,onGanttSave,auth,progress,saves,toast:showToast});
   else if(effectiveTab==='programa')content=h(ProgramaView,{ganttData,onGanttSave,saves,onSave,onWeekSave,weekData,auth,toast:showToast,userResp});
