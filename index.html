@@ -262,6 +262,7 @@ input,select,textarea{font-family:var(--font);outline:none}
   <!-- Firebase SDK -->
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-storage-compat.js"></script>
 </head>
 <body>
 <div id="root">
@@ -12525,25 +12526,68 @@ function MasividadView({auth,toast}){
   const[selPiso,setSelPiso]=useState(MASIV_PISOS[0]);
   const[selDepto,setSelDepto]=useState(null);
   const[itemData,setItemData]=useState(function(){
-    try{return JSON.parse(localStorage.getItem('ctrl_masiv_v1')||'{}');}catch(e){return{};}
+    var local={};try{local=JSON.parse(localStorage.getItem('ctrl_masiv_v1')||'{}');}catch(e){}
+    var cloud=window._masivCloudData&&window._masivCloudData.items;
+    return cloud?Object.assign({},local,cloud):local;
   });
   function saveItemData(nd){setItemData(nd);try{localStorage.setItem('ctrl_masiv_v1',JSON.stringify(nd));}catch(e){}}
   function itemKey(dep,elId){return dep+'_'+elId;}
+  // Marca un depto como "recién editado localmente" por 6s para que el listener remoto no lo pise
+  function markMasivDirty(dep){
+    window._masivLocalDirty=window._masivLocalDirty||{};
+    window._masivLocalDirty[dep]=true;
+    setTimeout(function(){if(window._masivLocalDirty)delete window._masivLocalDirty[dep];},6000);
+  }
+  function pushMasivCloud(dep,itemsSrc,revSrc){
+    if(!window.fbSaveMasiv)return;
+    var items={};
+    MASIV_ELEMENTOS.forEach(function(el){var v=itemsSrc[itemKey(dep,el.id)];if(v)items[el.id]=v;});
+    window.fbSaveMasiv(dep,items,revSrc[dep]||[]);
+  }
   function updEl(dep,elId,patch){
     var nd=Object.assign({},itemData);
     var k=itemKey(dep,elId);
     nd[k]=Object.assign({},nd[k]||{},patch);
     saveItemData(nd);
+    markMasivDirty(dep);
+    pushMasivCloud(dep,nd,revData);
   }
   function getEl(dep,elId){return itemData[itemKey(dep,elId)]||{};}
   function cumple(dep,el){var d=getEl(dep,el.id);return d.micras!=null&&d.micras!==''&&Number(d.micras)>=el.micras;}
   // ── Historial de revisiones (Revisión 1, 2, ... por depto, con quién revisa) ──
   const[revData,setRevData]=useState(function(){
-    try{return JSON.parse(localStorage.getItem('ctrl_masiv_rev_v1')||'{}');}catch(e){return{};}
+    var local={};try{local=JSON.parse(localStorage.getItem('ctrl_masiv_rev_v1')||'{}');}catch(e){}
+    var cloud=window._masivCloudData&&window._masivCloudData.rev;
+    return cloud?Object.assign({},local,cloud):local;
   });
   function saveRevData(nd){setRevData(nd);try{localStorage.setItem('ctrl_masiv_rev_v1',JSON.stringify(nd));}catch(e){}}
   const[pickRevisor,setPickRevisor]=useState({});
   const[expRev,setExpRev]=useState(null);
+  // ── Sincronización en tiempo real: mergea cambios de otros dispositivos ──
+  useEffect(function(){
+    function onMasivUpdate(e){
+      var remote=e.detail;if(!remote)return;
+      setItemData(function(cur){
+        var merged=Object.assign({},cur);
+        Object.keys(remote.items||{}).forEach(function(k){
+          var dep=k.split('_')[0];
+          if(!window._masivLocalDirty||!window._masivLocalDirty[dep])merged[k]=remote.items[k];
+        });
+        try{localStorage.setItem('ctrl_masiv_v1',JSON.stringify(merged));}catch(e){}
+        return merged;
+      });
+      setRevData(function(cur){
+        var merged=Object.assign({},cur);
+        Object.keys(remote.rev||{}).forEach(function(dep){
+          if(!window._masivLocalDirty||!window._masivLocalDirty[dep])merged[dep]=remote.rev[dep];
+        });
+        try{localStorage.setItem('ctrl_masiv_rev_v1',JSON.stringify(merged));}catch(e){}
+        return merged;
+      });
+    }
+    window.addEventListener('fb-masiv-update',onMasivUpdate);
+    return function(){window.removeEventListener('fb-masiv-update',onMasivUpdate);};
+  },[]);
   function getRevisiones(dep){return revData[dep]||[];}
   function revisorLabel(k){var r=MASIV_REVISORES.find(function(x){return x.k===k;});return r?r.l:k;}
   function registrarRevision(dep){
@@ -12560,6 +12604,8 @@ function MasividadView({auth,toast}){
     var nd=Object.assign({},revData);
     nd[dep]=list;
     saveRevData(nd);
+    markMasivDirty(dep);
+    pushMasivCloud(dep,itemData,nd);
     var np=Object.assign({},pickRevisor);np[dep]='';setPickRevisor(np);
     toast&&toast('✓ Revisión '+numero+' registrada — '+revisorLabel(revisor));
   }
@@ -12853,6 +12899,372 @@ function MasividadView({auth,toast}){
         h('div',{style:{fontSize:9,color:'var(--text3)',fontWeight:700,letterSpacing:.5,marginBottom:6,textTransform:'uppercase'}},'HISTORIAL DE REVISIONES'),
         getRevisiones(selDepto).slice().reverse().map(function(rev){return renderRevisionCard(selDepto,rev);})
       )
+    )
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════
+// MÓDULO MUEBLES — Control de gestión, despacho e instalación de muebles
+// ════════════════════════════════════════════════════════════════════
+const MUEB_MURALES=[
+  {id:'M1',  nombre:'Mural Campana 60 (MFX)',             dim:'600x380x858h'},
+  {id:'M2',  nombre:'Mural 2P SOBRE MICROONDAS',          dim:'600x380x480h'},
+  {id:'M3',  nombre:'Mural ABIERTO MICROONDAS',           dim:'600x400x380h'},
+  {id:'M3B', nombre:'Mural ABIERTO MICROONDAS CV_PASADO', dim:'600x400x380h'},
+  {id:'M4B', nombre:'Mural 1P DER',                       dim:'200x380x860h'},
+  {id:'M5A', nombre:'Mural 1P IZQ',                        dim:'250x380x860h'},
+  {id:'M6A', nombre:'Mural 1P IZQ',                        dim:'300x380x860h'},
+  {id:'M7A', nombre:'Mural 1P IZQ',                        dim:'350x380x860h'},
+  {id:'M8A', nombre:'Mural 1P IZQ',                        dim:'430x380x860h'},
+  {id:'M9',  nombre:'Mural 2P',                            dim:'550x380x860h'},
+  {id:'M10', nombre:'Mural 2P',                            dim:'600x380x860h'},
+  {id:'M10A',nombre:'Mural 2P CV_IZQ',                     dim:'600x380x860h'},
+  {id:'M13', nombre:'Mural 1P1F',                          dim:'700/340x380x860h'},
+  {id:'M15', nombre:'Mural sobre cubierta',                dim:'300x350x1500h'},
+  {id:'M16', nombre:'Mural sobre cubierta',                dim:'400x300x1500h'},
+];
+const MUEB_BASES=[
+  {id:'B1',  nombre:'Base Homo 1C',                    dim:'600x557x783h'},
+  {id:'B1B', nombre:'Base Homo 1C CV_DER (MFX)',       dim:'600x557x783h'},
+  {id:'B2',  nombre:'Base LP 2P',                      dim:'600x557x783h'},
+  {id:'B4',  nombre:'Base LP ESQ 100 2P1F',            dim:'1000/800x557x783h'},
+  {id:'B6',  nombre:'Base ESQ 90 2P1F',                dim:'900/550x557x783h'},
+  {id:'B7A', nombre:'Base 25 1P IZQ',                  dim:'250x557x783h'},
+  {id:'B8',  nombre:'Base 55 2P',                      dim:'550x557x783h'},
+  {id:'B9A', nombre:'Base 60 2P CV IZQ (MFX)',         dim:'600x557x783h'},
+  {id:'B11', nombre:'Base 52 2P ISLA',                 dim:'520x280x783h'},
+  {id:'B13', nombre:'Base 52 3C',                      dim:'520x280x783h'},
+  {id:'B16', nombre:'Base 30',                         dim:'600x557x783h'},
+  {id:'B18', nombre:'Alto LAV 70 2P 1 VERTICAL (MFX)', dim:'700x620x2400h'},
+  {id:'B19', nombre:'Alto LAV 70 2P (MFX)',            dim:'700x670x2400h'},
+  {id:'B20', nombre:'Alto LAV 70 2P (MFX)',            dim:'700x730x2400h'},
+  {id:'B23', nombre:'Alto UTILERO 70 2P (MFX)',        dim:'700x730x2400h'},
+  {id:'B31A',nombre:'Base 35 1P IZQ',                  dim:'350x557x783h'},
+];
+const MUEB_CATALOGO=MUEB_MURALES.concat(MUEB_BASES);
+const MUEB_PISOS=['2','3','4','5','6'];
+function muebDeptos(piso){return (_D.fl||{})['piso '+piso]||[];}
+const MUEB_ESTADOS=[
+  {k:'en_film',l:'En film',c:'#0ea5e9'},
+  {k:'armado', l:'Armado', c:'#a855f7'},
+];
+// Partidas de instalación de muebles ya existentes en Partidas/Gantt (fase 2, resp. sucto.muebles)
+const MUEB_INSTALL_GRUPOS=[
+  {l:'Cocina',    ids:[22,23,24,25]},
+  {l:'Closet',    ids:[29,30,31]},
+  {l:'Vanitorio', ids:[35,36,37]},
+];
+const MUEB_INSTALL_LABELS={
+  22:'Base cocina',23:'Aéreo cocina',24:'Repisas cocina',25:'Puertas cocina',
+  29:'Base closet',30:'Repisa closet',31:'Puertas closet',
+  35:'Base vanitorio',36:'Puertas vanitorio',37:'Cubierta vanitorio'
+};
+
+function MueblesView({saves,onSave,muebTandas,onMuebTandasSave,auth,toast}){
+  var canEdit=!auth||auth.role==='Admin'||auth.role==='Jefe Obra'||auth.role==='Supervisor';
+  const[selPiso,setSelPiso]=useState(MUEB_PISOS[0]);
+  const[selDepto,setSelDepto]=useState(null);
+  const[selBloque,setSelBloque]=useState('gestion');
+  const[showNuevaTanda,setShowNuevaTanda]=useState(false);
+  const[nuevaTanda,setNuevaTanda]=useState({fecha:new Date().toISOString().slice(0,10),color:'#ec4899',estado:'en_film'});
+  const[uploadingTanda,setUploadingTanda]=useState(null);
+
+  var tandas=muebTandas||[];
+  function getSv(dep){return (saves&&saves[dep])||{};}
+  function getMuebState(dep){return getSv(dep).muebles||{};}
+  function getGestion(dep){return getMuebState(dep).gestion||{};}
+  function getItems(dep){return getMuebState(dep).items||{};}
+  function getItem(dep,muebId){return getItems(dep)[muebId]||{qty:1,tandaId:null};}
+  function tandaById(id){return tandas.find(function(t){return t.id===id;});}
+
+  function saveMuebState(dep,patch){
+    var sv=getSv(dep);
+    var nm=Object.assign({},sv.muebles||{},patch);
+    onSave(dep,Object.assign({},sv,{muebles:nm}));
+  }
+  function updGestion(dep,key,patch){
+    var g=getGestion(dep);
+    var ng=Object.assign({},g);
+    ng[key]=Object.assign({},ng[key]||{},patch);
+    saveMuebState(dep,{gestion:ng});
+  }
+  function updItem(dep,muebId,patch){
+    var items=getItems(dep);
+    var ni=Object.assign({},items);
+    ni[muebId]=Object.assign({qty:1,tandaId:null},ni[muebId]||{},patch);
+    saveMuebState(dep,{items:ni});
+  }
+
+  function crearTanda(){
+    if(!nuevaTanda.fecha){toast&&toast('Falta la fecha');return;}
+    var t={id:'t'+Date.now(),fecha:nuevaTanda.fecha,color:nuevaTanda.color,estado:nuevaTanda.estado,guiaUrl:null,guiaNombre:null};
+    onMuebTandasSave(tandas.concat([t]));
+    setNuevaTanda({fecha:new Date().toISOString().slice(0,10),color:'#ec4899',estado:'en_film'});
+    setShowNuevaTanda(false);
+    toast&&toast('✓ Tanda de despacho creada');
+  }
+  function subirGuia(tandaId,file){
+    if(!window.fbUploadFile){toast&&toast('Firebase Storage no disponible');return;}
+    setUploadingTanda(tandaId);
+    var path='muebles_guias/'+tandaId+'_'+file.name;
+    window.fbUploadFile(path,file).then(function(url){
+      var nt=tandas.map(function(t){return t.id===tandaId?Object.assign({},t,{guiaUrl:url,guiaNombre:file.name}):t;});
+      onMuebTandasSave(nt);
+      setUploadingTanda(null);
+      toast&&toast('✓ Guía adjuntada');
+    }).catch(function(e){
+      console.warn('Error subiendo guía:',e);
+      setUploadingTanda(null);
+      toast&&toast('✗ Error al subir la guía');
+    });
+  }
+
+  function gestionPct(dep){
+    var g=getGestion(dep);
+    var keys=['trazado','rectificacion'];
+    var ok=keys.filter(function(k){return g[k]&&g[k].ok;}).length;
+    return Math.round(ok/keys.length*100);
+  }
+  function despachoPct(dep){
+    var items=getItems(dep);
+    var asignados=0;
+    MUEB_CATALOGO.forEach(function(m){if(items[m.id]&&items[m.id].tandaId)asignados++;});
+    return MUEB_CATALOGO.length>0?Math.round(asignados/MUEB_CATALOGO.length*100):0;
+  }
+  function instalacionPct(dep){
+    var sum=0;
+    MUEB_INSTALL_GRUPOS.forEach(function(grp){sum+=calcDeptoFasePartidas(dep,2,saves,grp.ids);});
+    return Math.round(sum/MUEB_INSTALL_GRUPOS.length);
+  }
+  function bloquePct(dep,bloque){
+    if(bloque==='gestion')return gestionPct(dep);
+    if(bloque==='instalacion')return instalacionPct(dep);
+    return despachoPct(dep);
+  }
+  // Escala de color de avance: 0%=azul, 1-49%=amarillo, 50-99%=naranjo, 100%=verde
+  function pctStyle(pct){
+    if(pct>=100)return{col:'#22c55e',bg:'rgba(34,197,94,.22)',bdr:'rgba(34,197,94,.55)'};
+    if(pct>=50)return{col:'#f97316',bg:'rgba(249,115,22,.18)',bdr:'rgba(249,115,22,.5)'};
+    if(pct>0)return{col:'#eab308',bg:'rgba(234,179,8,.18)',bdr:'rgba(234,179,8,.5)'};
+    return{col:'#3b82f6',bg:'rgba(59,130,246,.16)',bdr:'rgba(59,130,246,.45)'};
+  }
+  function deptoInd(dep){return pctStyle(bloquePct(dep,selBloque));}
+  function getPartidaPct(dep,fi,pid){
+    var sv=saves&&saves[dep];
+    var lk=_D['lf'+fi]||{};
+    return sv&&sv['f'+fi]&&sv['f'+fi][pid]!=null?sv['f'+fi][pid]:(lk[dep]?(lk[dep][pid]||0):0);
+  }
+
+  var pisoDeptos=muebDeptos(selPiso);
+  var pisoComp=0,pisoEnProc=0,pisoPend=0;
+  pisoDeptos.forEach(function(dep){
+    var pct=bloquePct(dep,selBloque);
+    if(pct>=100)pisoComp++;
+    else if(pct>0)pisoEnProc++;
+    else pisoPend++;
+  });
+
+  function renderFlag(dep,key,label){
+    var g=getGestion(dep);
+    var d=g[key]||{};
+    return h('div',{key:key,style:{background:'var(--bg3)',borderRadius:8,padding:'9px 10px',marginBottom:6,
+      border:'1px solid '+(d.ok?'rgba(34,197,94,.4)':'var(--border)'),display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}},
+      h('div',{style:{flex:1,minWidth:140,fontSize:11,fontWeight:700,color:'var(--text)'}},label),
+      canEdit?h('label',{style:{display:'flex',alignItems:'center',gap:6,cursor:'pointer'}},
+        h('input',{type:'checkbox',checked:!!d.ok,onChange:function(ev){
+          updGestion(dep,key,{ok:ev.target.checked,fecha:ev.target.checked?new Date().toISOString().slice(0,10):d.fecha});
+        }}),
+        h('span',{style:{fontSize:10,color:d.ok?'var(--green)':'var(--text3)',fontWeight:700}},d.ok?'✓ Realizado':'Pendiente')
+      ):h('span',{style:{fontSize:10,color:d.ok?'var(--green)':'var(--text3)',fontWeight:700}},d.ok?'✓ Realizado':'Pendiente'),
+      d.fecha&&h('span',{style:{fontSize:9,color:'var(--text3)'}},d.fecha)
+    );
+  }
+  function renderGestion(dep){
+    return h('div',null,
+      renderFlag(dep,'trazado','Trazado de mueble'),
+      renderFlag(dep,'rectificacion','Rectificación de mueble')
+    );
+  }
+
+  function renderTandaBadge(t){
+    if(!t)return h('span',{style:{fontSize:9,color:'var(--text3)'}},'Sin despacho');
+    var estObj=MUEB_ESTADOS.find(function(e){return e.k===t.estado;});
+    return h('span',{style:{display:'inline-flex',alignItems:'center',gap:4,padding:'2px 7px',borderRadius:6,
+      fontSize:9,fontWeight:700,color:'#111',background:t.color}},
+      t.fecha+' · '+(estObj?estObj.l:t.estado)
+    );
+  }
+
+  function renderTandasPanel(){
+    return h('div',{style:{background:'var(--bg3)',borderRadius:8,padding:'8px 10px',marginBottom:10}},
+      h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6,flexWrap:'wrap',gap:6}},
+        h('div',{style:{fontSize:10,color:'var(--accent)',fontWeight:700,letterSpacing:.5}},'TANDAS DE DESPACHO'),
+        canEdit&&h('button',{onClick:function(){setShowNuevaTanda(!showNuevaTanda);},
+          style:{padding:'3px 9px',borderRadius:6,border:'1px solid var(--accent)',background:'rgba(0,200,255,.1)',
+            color:'var(--accent)',fontSize:10,fontWeight:700,cursor:'pointer'}},'+ Nueva tanda')
+      ),
+      showNuevaTanda&&h('div',{style:{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center',marginBottom:8,
+        padding:'7px 8px',background:'var(--bg2)',borderRadius:6}},
+        h('input',{type:'date',value:nuevaTanda.fecha,
+          onChange:function(ev){setNuevaTanda(Object.assign({},nuevaTanda,{fecha:ev.target.value}));},
+          style:{background:'var(--bg)',border:'1px solid var(--border)',borderRadius:5,padding:'4px 6px',color:'var(--text)',fontSize:10}}),
+        h('input',{type:'color',value:nuevaTanda.color,
+          onChange:function(ev){setNuevaTanda(Object.assign({},nuevaTanda,{color:ev.target.value}));},
+          style:{width:28,height:24,border:'none',borderRadius:5,cursor:'pointer',background:'transparent'}}),
+        h('select',{value:nuevaTanda.estado,
+          onChange:function(ev){setNuevaTanda(Object.assign({},nuevaTanda,{estado:ev.target.value}));},
+          style:{background:'var(--bg)',border:'1px solid var(--border)',borderRadius:5,padding:'4px 6px',color:'var(--text)',fontSize:10}},
+          MUEB_ESTADOS.map(function(e){return h('option',{key:e.k,value:e.k},e.l);})
+        ),
+        h('button',{onClick:crearTanda,style:{padding:'4px 10px',borderRadius:6,border:'1px solid var(--green)',
+          background:'rgba(34,197,94,.12)',color:'var(--green)',fontSize:10,fontWeight:700,cursor:'pointer'}},'Crear')
+      ),
+      tandas.length===0?h('div',{style:{fontSize:10,color:'var(--text)'}},'Sin tandas registradas aún.')
+        :h('div',{style:{display:'flex',flexDirection:'column',gap:5}},
+          tandas.slice().reverse().map(function(t){
+            return h('div',{key:t.id,style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',
+              padding:'5px 7px',background:'var(--bg2)',borderRadius:6}},
+              renderTandaBadge(t),
+              t.guiaUrl
+                ?h('a',{href:t.guiaUrl,target:'_blank',rel:'noopener',style:{fontSize:9,color:'var(--blue)',fontWeight:700}},'📎 '+(t.guiaNombre||'Guía'))
+                :canEdit&&h('label',{style:{fontSize:9,color:'var(--text3)',cursor:'pointer',border:'1px dashed var(--border)',
+                  borderRadius:5,padding:'2px 6px'}},
+                  uploadingTanda===t.id?'Subiendo...':'📎 Adjuntar guía',
+                  h('input',{type:'file',accept:'application/pdf,image/*',style:{display:'none'},
+                    onChange:function(ev){var f=ev.target.files[0];if(f)subirGuia(t.id,f);ev.target.value='';}})
+                )
+            );
+          })
+        )
+    );
+  }
+
+  function renderDespachoItem(dep,m){
+    var it=getItem(dep,m.id);
+    var t=it.tandaId?tandaById(it.tandaId):null;
+    return h('div',{key:m.id,style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',
+      padding:'6px 8px',borderRadius:7,marginBottom:4,background:'var(--bg3)',
+      border:'1px solid '+(t?'rgba(34,197,94,.3)':'var(--border)')}},
+      h('span',{style:{minWidth:38,fontSize:10,fontWeight:700,color:'var(--accent)'}},m.id),
+      h('div',{style:{flex:1,minWidth:140}},
+        h('div',{style:{fontSize:10,color:'var(--text)'}},m.nombre),
+        h('div',{style:{fontSize:8,color:'var(--text3)'}},m.dim)
+      ),
+      canEdit?h('input',{type:'number',min:0,value:it.qty,style:{width:44,background:'var(--bg2)',
+        border:'1px solid var(--border)',borderRadius:5,padding:'3px 5px',color:'var(--text)',fontSize:10},
+        onChange:function(ev){updItem(dep,m.id,{qty:ev.target.value===''?0:Number(ev.target.value)});}})
+        :h('span',{style:{fontSize:10,color:'var(--text2)'}},'x'+it.qty),
+      canEdit?h('select',{value:it.tandaId||'',onChange:function(ev){updItem(dep,m.id,{tandaId:ev.target.value||null});},
+        style:{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:5,padding:'3px 6px',
+          color:'var(--text)',fontSize:10,maxWidth:160}},
+        h('option',{value:''},'Sin despacho'),
+        tandas.map(function(tt){
+          var eo=MUEB_ESTADOS.find(function(e){return e.k===tt.estado;});
+          return h('option',{key:tt.id,value:tt.id},tt.fecha+' · '+(eo?eo.l:tt.estado));
+        })
+      ):renderTandaBadge(t)
+    );
+  }
+
+  function renderDespacho(dep){
+    return h('div',null,
+      renderTandasPanel(),
+      h('div',{style:{fontSize:11,color:'var(--accent)',fontWeight:700,letterSpacing:.5,marginBottom:5,
+        paddingBottom:3,borderBottom:'1px solid var(--border)'}},'MURALES'),
+      MUEB_MURALES.map(function(m){return renderDespachoItem(dep,m);}),
+      h('div',{style:{fontSize:11,color:'var(--accent)',fontWeight:700,letterSpacing:.5,margin:'10px 0 5px',
+        paddingBottom:3,borderBottom:'1px solid var(--border)'}},'BASES'),
+      MUEB_BASES.map(function(m){return renderDespachoItem(dep,m);})
+    );
+  }
+
+  function renderInstalacion(dep){
+    return h('div',null,
+      MUEB_INSTALL_GRUPOS.map(function(grp){
+        var pct=calcDeptoFasePartidas(dep,2,saves,grp.ids);
+        var col=pct>=99?'#22c55e':pct>0?'#f59e0b':'#64748b';
+        return h('div',{key:grp.l,style:{background:'var(--bg3)',borderRadius:8,padding:'8px 10px',marginBottom:6,
+          border:'1px solid '+col+'40'}},
+          h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}},
+            h('span',{style:{fontSize:11,fontWeight:700,color:'var(--text)'}},grp.l),
+            h('span',{style:{fontSize:11,fontWeight:700,color:col}},pct+'%')
+          ),
+          h('div',{style:{display:'flex',flexDirection:'column',gap:3}},
+            grp.ids.map(function(pid){
+              var p=getPartidaPct(dep,2,pid);
+              var c2=p>=99?'#22c55e':p>0?'#f59e0b':'#64748b';
+              return h('div',{key:pid,style:{display:'flex',justifyContent:'space-between',fontSize:9.5}},
+                h('span',{style:{color:'var(--text2)'}},MUEB_INSTALL_LABELS[pid]||('Partida '+pid)),
+                h('span',{style:{color:c2,fontWeight:700}},p+'%')
+              );
+            })
+          )
+        );
+      }),
+      h('div',{style:{fontSize:9,color:'var(--text3)',marginTop:4}},
+        'Datos provenientes del módulo Partidas/Gantt (fase 2, responsable Muebles). Solo lectura — para editarlos ve a Partidas.')
+    );
+  }
+
+  return h('div',{className:'page'},
+    h('div',{style:{marginBottom:10}},
+      h('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:8,flexWrap:'wrap'}},
+        h('div',{style:{fontSize:12,fontWeight:700,color:'var(--text)',letterSpacing:.5}},'🛋️ CONTROL DE MUEBLES'),
+        h('div',{style:{flex:1}})
+      )
+    ),
+    h('div',{style:{display:'flex',gap:5,flexWrap:'wrap',marginBottom:4}},
+      MUEB_PISOS.map(function(p){
+        var act=selPiso===p;
+        var deptos=muebDeptos(p);
+        var compP=deptos.filter(function(d){return bloquePct(d,selBloque)>=100;}).length;
+        var col=compP===deptos.length&&deptos.length>0?'var(--green)':compP>0?'var(--amber)':'var(--text3)';
+        return h('button',{key:p,
+          onClick:function(){setSelPiso(p);setSelDepto(null);},
+          style:{padding:'8px 14px',borderRadius:10,fontSize:12,fontWeight:act?700:500,cursor:'pointer',
+            border:'1px solid '+(act?'var(--accent)':'var(--border)'),
+            background:act?'var(--accent)':'var(--bg2)',
+            color:act?'var(--bg)':'var(--text2)',transition:'all .1s',minWidth:64,textAlign:'center'}
+        },
+          h('div',null,'Piso '+p),
+          h('div',{style:{fontSize:8,color:act?'rgba(0,0,0,.5)':col,marginTop:1}},compP+'/'+deptos.length)
+        );
+      })
+    ),
+    h('div',{style:{display:'flex',gap:5,marginBottom:2,alignItems:'center'}},
+      h('span',{style:{background:'rgba(34,197,94,.12)',color:'var(--green)',padding:'3px 9px',borderRadius:10,fontSize:10,fontWeight:700}},pisoComp+' completos'),
+      h('span',{style:{background:'rgba(245,158,11,.12)',color:'var(--amber)',padding:'3px 9px',borderRadius:10,fontSize:10,fontWeight:700}},pisoEnProc+' en proceso'),
+      h('span',{style:{background:'rgba(100,116,139,.1)',color:'var(--text3)',padding:'3px 9px',borderRadius:10,fontSize:10,fontWeight:700}},pisoPend+' pendientes')
+    ),
+    h('div',{style:{display:'flex',flexWrap:'wrap',gap:5,paddingTop:4}},
+      pisoDeptos.map(function(dep){
+        var pct=bloquePct(dep,selBloque);var ind=deptoInd(dep);var isSel=selDepto===dep;
+        return h('button',{key:dep,
+          onClick:function(){setSelDepto(isSel?null:dep);},
+          style:{padding:'6px 8px',borderRadius:8,border:'1px solid '+(isSel?'var(--accent)':ind.bdr),
+            background:isSel?'rgba(0,200,255,.22)':ind.bg,color:isSel?'var(--accent)':ind.col,
+            fontFamily:'var(--mono)',fontSize:11,fontWeight:700,cursor:'pointer',
+            minWidth:48,textAlign:'center',lineHeight:'1.35',transition:'all .1s',flexShrink:0}
+        },
+          h('div',{style:{fontSize:12}},'D'+dep),
+          h('div',{style:{fontSize:9,opacity:.85}},pct+'%')
+        );
+      })
+    ),
+    selDepto!=null&&h('div',{style:{background:'var(--bg3)',borderRadius:10,padding:'8px 10px',marginTop:6}},
+      h('div',{style:{fontSize:10,fontWeight:700,color:'var(--accent)',marginBottom:8,letterSpacing:.5}},'D'+selDepto+' — Piso '+selPiso),
+      h('div',{style:{display:'flex',gap:6,marginBottom:10,flexWrap:'wrap'}},
+        [{k:'gestion',l:'1. Gestión'},{k:'despacho',l:'2. Despacho'},{k:'instalacion',l:'3. Instalación'}].map(function(b){
+          return h('button',{key:b.k,onClick:function(){setSelBloque(b.k);},
+            style:{padding:'5px 12px',borderRadius:7,border:'1px solid '+(selBloque===b.k?'var(--accent)':'var(--border)'),
+              background:selBloque===b.k?'rgba(0,200,255,.12)':'var(--bg2)',
+              color:selBloque===b.k?'var(--accent)':'var(--text2)',fontSize:10,fontWeight:700,cursor:'pointer'}
+          },b.l);
+        })
+      ),
+      selBloque==='gestion'&&renderGestion(selDepto),
+      selBloque==='despacho'&&renderDespacho(selDepto),
+      selBloque==='instalacion'&&renderInstalacion(selDepto)
     )
   );
 }
@@ -13439,14 +13851,17 @@ function App({initialData}){
   const orgData=state.orgData||{nodes:[]};
   const onOrgSave=(od)=>save({orgData:od});
   const onMatSave=(md)=>save({matData:md});
+  const muebTandas=state.muebTandas||[];
+  const onMuebTandasSave=(t)=>save({muebTandas:t});
   const isSupervisor=auth.role==='Supervisor';
   const userResp=isSupervisor?(USER_RESP_MAP[auth.user]||null):null;
-  const SUPR_TABS=['partidas','pisos','programa','asistencia','control','masividad'];
+  const SUPR_TABS=['partidas','pisos','programa','asistencia','control','masividad','muebles'];
   const navTabs=[
     {id:'dash',icon:'◆',label:'Dashboard'},
     {id:'partidas',icon:'🔍',label:'Partidas'},
     {id:'control',icon:'🪟',label:'Control'},
     {id:'masividad',icon:'🎨',label:'Masividad'},
+    {id:'muebles',icon:'🛋️',label:'Muebles'},
     {id:'pisos',icon:'⬢',label:'Pisos'},
     {id:'gantt',icon:'▤',label:'Gantt'},
     {id:'programa',icon:'📅',label:'Plan Pers.'},
@@ -13466,6 +13881,7 @@ function App({initialData}){
   else if(effectiveTab==='partidas')content=h(PartidasView,{progress,saves,onSave,auth,toast:showToast,userResp});
   else if(effectiveTab==='control')content=h(ControlView,{saves,onSave,ganttData,onGanttSave,auth,toast:showToast});
   else if(effectiveTab==='masividad')content=h(MasividadView,{auth,toast:showToast});
+  else if(effectiveTab==='muebles')content=h(MueblesView,{saves,onSave,muebTandas,onMuebTandasSave,auth,toast:showToast});
   else if(effectiveTab==='pisos')content=h(PisosView,{progress,saves,onSave,auth,toast:showToast,userResp});
   else if(effectiveTab==='gantt')content=h(GanttView,{ganttData,onGanttSave,auth,progress,saves,toast:showToast});
   else if(effectiveTab==='programa')content=h(ProgramaView,{ganttData,onGanttSave,saves,onSave,onWeekSave,weekData,auth,toast:showToast,userResp});
@@ -13659,11 +14075,19 @@ const firebaseConfig={
 };
 firebase.initializeApp(firebaseConfig);
 const db=firebase.firestore();
+const storage=firebase.storage();
+// ── Sube un archivo (foto/PDF) a Firebase Storage y devuelve su URL pública ──
+window.fbUploadFile=function(path,file){
+  var ref=storage.ref().child(path);
+  return ref.put(file).then(function(snap){return snap.ref.getDownloadURL();});
+};
 // DOC legacy: se mantiene solo para migración de datos al arrancar
 const DOC=db.collection('obra').doc('state');
 // Nueva estructura granular: cada depto es un documento independiente
 const OBRA_REF=db.collection('obras').doc('victoria');
 const SAVES_COL=OBRA_REF.collection('saves');
+// Masividad: un documento Firestore por depto (items + historial de revisiones)
+const MASIV_COL=OBRA_REF.collection('masiv');
 
 // ── Global sync flag ──
 window._fbReady=false;
@@ -13720,6 +14144,30 @@ window.fbSave=function(data){
   },800);
 };
 
+// ── Save granular de Masividad: un documento Firestore por depto (items + revisiones) ──
+var _fbMasivTimer=null;
+var _fbMasivPending={};
+window.fbSaveMasiv=function(dep,items,revisiones){
+  _fbMasivPending[dep]={items:items,revisiones:revisiones};
+  clearTimeout(_fbMasivTimer);
+  _fbMasivTimer=setTimeout(function doSaveMasiv(){
+    var pend=_fbMasivPending;
+    if(!Object.keys(pend).length)return;
+    _fbMasivPending={};
+    var batch=db.batch();
+    Object.keys(pend).forEach(function(dep){
+      batch.set(MASIV_COL.doc(dep),pend[dep]);
+    });
+    batch.commit().catch(function(e){
+      console.warn('Firebase Masividad save error:',e);
+      Object.keys(pend).forEach(function(dep){
+        if(!_fbMasivPending[dep])_fbMasivPending[dep]=pend[dep];
+      });
+      _fbMasivTimer=setTimeout(doSaveMasiv,3000);
+    });
+  },800);
+};
+
 // ── Boot: load from Firestore first, fallback to localStorage ──
 const root=ReactDOM.createRoot(document.getElementById('root'));
 // Timeout: si Firebase tarda más de 5s, cargar desde localStorage
@@ -13745,9 +14193,10 @@ var _fbTimeout=setTimeout(function(){
 Promise.all([
   OBRA_REF.get(),
   SAVES_COL.get(),
-  DOC.get()
+  DOC.get(),
+  MASIV_COL.get()
 ]).then(function(results){
-  var metaSnap=results[0],savesSnap=results[1],legacySnap=results[2];
+  var metaSnap=results[0],savesSnap=results[1],legacySnap=results[2],masivSnap=results[3];
   var localData=null;
   try{var ls=localStorage.getItem('obra_v6');if(ls)localData=JSON.parse(ls);}catch(e){}
 
@@ -13756,6 +14205,15 @@ Promise.all([
   savesSnap.forEach(function(doc){cloudSaves[doc.id]=doc.data();});
   var hasSavesCol=Object.keys(cloudSaves).length>0;
   var metaData=metaSnap.exists?metaSnap.data():null;
+
+  // Reconstruir datos de Masividad desde sub-colección granular (un doc por depto)
+  var cloudMasivItems={},cloudMasivRev={};
+  masivSnap.forEach(function(doc){
+    var dd=doc.data()||{};var dep=doc.id;
+    Object.keys(dd.items||{}).forEach(function(elId){cloudMasivItems[dep+'_'+elId]=dd.items[elId];});
+    if(dd.revisiones&&dd.revisiones.length)cloudMasivRev[dep]=dd.revisiones;
+  });
+  window._masivCloudData={items:cloudMasivItems,rev:cloudMasivRev};
 
   // Migración única: si SAVES_COL está vacía y DOC legacy tiene datos, migrar
   if(!hasSavesCol&&legacySnap.exists){
@@ -13849,6 +14307,23 @@ if(needsSeed||versionChanged){
     window.setSyncState('error');
   });
 
+  // ── Listener en tiempo real: Masividad (un doc por depto) ──
+  var _lastMasivSnapTime=Date.now();
+  function applyRemoteMasiv(items,rev){
+    _lastMasivSnapTime=Date.now();
+    window.dispatchEvent(new CustomEvent('fb-masiv-update',{detail:{items:items,rev:rev}}));
+  }
+  MASIV_COL.onSnapshot(function(snap){
+    if(!window._fbReady)return;
+    var items={},rev={};
+    snap.forEach(function(doc){
+      var dd=doc.data()||{};var dep=doc.id;
+      Object.keys(dd.items||{}).forEach(function(elId){items[dep+'_'+elId]=dd.items[elId];});
+      rev[dep]=dd.revisiones||[];
+    });
+    applyRemoteMasiv(items,rev);
+  },function(err){console.warn('onSnapshot Masividad error:',err);});
+
   // ── Polling fallback cada 30 s: si el WebSocket cayó, forza un get() manual ──
   setInterval(function(){
     if(!window._fbReady)return;
@@ -13860,6 +14335,18 @@ if(needsSeed||versionChanged){
         applyRemoteSaves(newSaves);
         window.setSyncState('synced');
       }).catch(function(){window.setSyncState('error');});
+    }
+    var elapsedMasiv=Date.now()-_lastMasivSnapTime;
+    if(elapsedMasiv>28000){
+      MASIV_COL.get().then(function(snap){
+        var items={},rev={};
+        snap.forEach(function(doc){
+          var dd=doc.data()||{};var dep=doc.id;
+          Object.keys(dd.items||{}).forEach(function(elId){items[dep+'_'+elId]=dd.items[elId];});
+          rev[dep]=dd.revisiones||[];
+        });
+        applyRemoteMasiv(items,rev);
+      }).catch(function(){});
     }
   },30000);
 
