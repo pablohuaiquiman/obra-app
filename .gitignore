@@ -1,0 +1,14 @@
+# Datos sensibles / credenciales
+pass.txt
+.claude/
+
+# Archivos de datos pesados o con info de personal (no van a un repo publico)
+*.xlsx
+*.mpp
+*.pdf
+~$*
+_xlsx_data.json
+
+# Backups locales de trabajo (quedan solo en disco, no en git)
+*_backup_*.html
+*.bak
