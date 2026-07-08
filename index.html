@@ -12350,22 +12350,23 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
                     borderRadius:6,padding:'4px 7px',color:'var(--text)',fontSize:11,fontFamily:'var(--font)'}})
               )
             ),
-            iD.llegada&&(function(){
-              var d=Math.round((new Date(iD.llegada+'T12:00:00')-new Date(today+'T12:00:00'))/86400000);
-              var sc=d<0?'var(--red)':d===0?'var(--blue)':d<=3?'var(--amber)':d<=7?'#a855f7':'var(--green)';
-              return h('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}},
-                !iD.llegadaReal&&h('div',{style:{padding:'4px 8px',borderRadius:7,fontSize:10,fontWeight:700,
+            h('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}},
+              iD.llegada&&!iD.llegadaReal&&(function(){
+                var d=Math.round((new Date(iD.llegada+'T12:00:00')-new Date(today+'T12:00:00'))/86400000);
+                var sc=d<0?'var(--red)':d===0?'var(--blue)':d<=3?'var(--amber)':d<=7?'#a855f7':'var(--green)';
+                return h('div',{style:{padding:'4px 8px',borderRadius:7,fontSize:10,fontWeight:700,
                   color:sc,border:'1px solid '+sc+'50',background:sc+'15'}},
-                  d<0?'🚨 Vencida '+Math.abs(d)+'d':d===0?'🔔 HOY':'📅 '+d+'d'),
-                iD.llegadaReal
-                  ?h('span',{style:{fontSize:10,color:'var(--green)',fontWeight:700}},'✓ Recibida '+iD.llegadaReal)
-                  :canEdit&&h('button',{
-                    onClick:function(){updItem(item.id,{llegadaReal:today});toast&&toast('✓ Recibida');},
-                    style:{padding:'4px 10px',borderRadius:7,border:'1px solid var(--green)',
-                      background:'rgba(34,197,94,.1)',color:'var(--green)',fontSize:10,fontWeight:700,cursor:'pointer'}
-                  },'✓ Marcar recibida')
-              );
-            })()
+                  d<0?'🚨 Vencida '+Math.abs(d)+'d':d===0?'🔔 HOY':'📅 '+d+'d');
+              })(),
+              // "Marcar recibida" no requiere haber puesto antes la fecha de llegada estimada
+              iD.llegadaReal
+                ?h('span',{style:{fontSize:10,color:'var(--green)',fontWeight:700}},'✓ Recibida '+iD.llegadaReal)
+                :canEdit&&h('button',{
+                  onClick:function(){updItem(item.id,{llegadaReal:today});toast&&toast('✓ Recibida');},
+                  style:{padding:'4px 10px',borderRadius:7,border:'1px solid var(--green)',
+                    background:'rgba(34,197,94,.1)',color:'var(--green)',fontSize:10,fontWeight:700,cursor:'pointer'}
+                },'✓ Marcar recibida')
+            )
           )
         ),
         // ── INSTALACIÓN: atraso vs. programado + etapas paralelas ──────────
