@@ -11921,6 +11921,21 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
     window.addEventListener('fb-vent-update',onVentUpdate);
     return function(){window.removeEventListener('fb-vent-update',onVentUpdate);};
   },[]);
+  // ── Migración única: sube a Firebase el historial local acumulado antes de que
+  // existiera la sincronización de Ventanas (localStorage → nube, una sola vez por dispositivo) ──
+  useEffect(function(){
+    if(localStorage.getItem('ctrl_vent_migrated_v1'))return;
+    var deps=[...new Set(VENT_SCHEDULE_EXP.map(function(i){return i.depto;}))];
+    var pushed=0;
+    deps.forEach(function(dep){
+      var tieneDatos=VENT_SCHEDULE_EXP.some(function(i){return i.depto===dep&&itemData[i.id];});
+      if(!tieneDatos)return;
+      pushVentCloud(dep,itemData,revData);
+      pushed++;
+    });
+    localStorage.setItem('ctrl_vent_migrated_v1','1');
+    if(pushed)console.log('Migración Ventanas: '+pushed+' deptos subidos a Firebase');
+  },[]);
 
   // ── Programa de pedidos ────────────────────────────────────────────────────
   const[progData,setProgData]=useState(function(){
