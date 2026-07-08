@@ -11858,18 +11858,69 @@ var VENT_SCHEDULE_EXP=(function(){
 function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
   var canEdit=!auth||auth.role==='Admin'||auth.role==='Jefe Obra'||auth.role==='Supervisor';
   const[selPiso,setSelPiso]=useState(VENT_PISOS[0]||'Piso 2');
-  const[selBloque,setSelBloque]=useState('gestion'); // 'gestion'|'despacho'|'instalacion'
+  const[selBloque,setSelBloque]=useState('gestion'); // 'gestion'|'despacho'|'instalacion'|'informe'
   const[agrupar,setAgrupar]=useState('piso'); // 'piso'|'tipo' — antes pestañas "Por Piso"/"Por Tipo"
+  const[hideDone,setHideDone]=useState(false); // Informe: ocultar deptos ya al 100%
   const[showAlertas,setShowAlertas]=useState(false); // acordeón de alertas dentro de Despacho
   const[selDepto,setSelDepto]=useState(null);
   const[selItemId,setSelItemId]=useState(null);
   const[itemData,setItemData]=useState(function(){
-    try{return JSON.parse(localStorage.getItem('ctrl_vent_est_v2')||'{}');}catch(e){return{};}
+    var local={};try{local=JSON.parse(localStorage.getItem('ctrl_vent_est_v2')||'{}');}catch(e){}
+    var cloud=window._ventCloudData&&window._ventCloudData.items;
+    return cloud?Object.assign({},local,cloud):local;
   });
+  const[uploadingFoto,setUploadingFoto]=useState({}); // {itemId_etapaKey:true} mientras sube una foto
   var today=new Date().toISOString().slice(0,10);
   // Índice numérico de cada estado (para comparar avance)
   var EST_ORDER={pendiente:0,rasgo:1,medida:2,transito:3,marco:4,termopanel:5,completo:6};
   function saveItemData(nd){setItemData(nd);try{localStorage.setItem('ctrl_vent_est_v2',JSON.stringify(nd));}catch(e){}}
+  // ── Historial de controles (con fecha, % y fotos) por depto ──────────────
+  const[revData,setRevData]=useState(function(){
+    var local={};try{local=JSON.parse(localStorage.getItem('ctrl_vent_rev_v1')||'{}');}catch(e){}
+    var cloud=window._ventCloudData&&window._ventCloudData.rev;
+    return cloud?Object.assign({},local,cloud):local;
+  });
+  function saveRevData(nd){setRevData(nd);try{localStorage.setItem('ctrl_vent_rev_v1',JSON.stringify(nd));}catch(e){}}
+  // Marca un depto como "recién editado localmente" por 6s para que el listener remoto no lo pise
+  function markVentDirty(dep){
+    window._ventLocalDirty=window._ventLocalDirty||{};
+    window._ventLocalDirty[dep]=true;
+    setTimeout(function(){if(window._ventLocalDirty)delete window._ventLocalDirty[dep];},6000);
+  }
+  function pushVentCloud(dep,itemsSrc,revSrc){
+    if(!window.fbSaveVent)return;
+    var items={};
+    VENT_SCHEDULE_EXP.filter(function(i){return i.depto===dep;}).forEach(function(it){
+      if(itemsSrc[it.id])items[it.id]=itemsSrc[it.id];
+    });
+    window.fbSaveVent(dep,items,revSrc[dep]||[]);
+  }
+  // ── Sincronización en tiempo real: mergea cambios de otros dispositivos ──
+  useEffect(function(){
+    function onVentUpdate(e){
+      var remote=e.detail;if(!remote)return;
+      setItemData(function(cur){
+        var merged=Object.assign({},cur);
+        Object.keys(remote.items||{}).forEach(function(itemId){
+          var it=VENT_SCHEDULE_EXP.find(function(i){return i.id===itemId;});
+          var dep=it?it.depto:null;
+          if(dep==null||!window._ventLocalDirty||!window._ventLocalDirty[dep])merged[itemId]=remote.items[itemId];
+        });
+        try{localStorage.setItem('ctrl_vent_est_v2',JSON.stringify(merged));}catch(e){}
+        return merged;
+      });
+      setRevData(function(cur){
+        var merged=Object.assign({},cur);
+        Object.keys(remote.rev||{}).forEach(function(dep){
+          if(!window._ventLocalDirty||!window._ventLocalDirty[dep])merged[dep]=remote.rev[dep];
+        });
+        try{localStorage.setItem('ctrl_vent_rev_v1',JSON.stringify(merged));}catch(e){}
+        return merged;
+      });
+    }
+    window.addEventListener('fb-vent-update',onVentUpdate);
+    return function(){window.removeEventListener('fb-vent-update',onVentUpdate);};
+  },[]);
 
   // ── Programa de pedidos ────────────────────────────────────────────────────
   const[progData,setProgData]=useState(function(){
@@ -12028,7 +12079,11 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
     nd[id]=Object.assign({},nd[id]||{},patch);
     saveItemData(nd);
     var it=VENT_SCHEDULE_EXP.find(function(i){return i.id===id;});
-    if(!it||typeof it.depto!=='number')return;
+    if(!it)return;
+    // Sync a Firebase (deptos numerados y áreas comunes)
+    markVentDirty(it.depto);
+    pushVentCloud(it.depto,nd,revData);
+    if(typeof it.depto!=='number')return;
     var dep=it.depto;
     var depItems=VENT_SCHEDULE_EXP.filter(function(i){return i.depto===dep;});
     var total=depItems.length;if(!total)return;
@@ -12048,6 +12103,110 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
     sv.f1['10']=Math.round(mCnt/total*100);
     sv.f1['38']=Math.round(instSum/total);
     onSave(dep,sv);
+  }
+  // ── Foto de evidencia por etapa (Marco/Termopanel/Quincallería) ──────────
+  var FOTO_FIELD={marco:'fotoMarco',termopanel:'fotoTermopanel',quinc:'fotoQuinc'};
+  function onPickFoto(itemId,etapaKey,file){
+    if(!file||!FOTO_FIELD[etapaKey])return;
+    var uk=itemId+'_'+etapaKey;
+    setUploadingFoto(function(cur){var n=Object.assign({},cur);n[uk]=true;return n;});
+    window.compressImage(file,1000,0.7)
+      .then(function(blob){
+        var path='ventanas/'+itemId+'/'+etapaKey+'_'+Date.now()+'.jpg';
+        return window.fbUploadFile(path,blob);
+      })
+      .then(function(url){
+        var patch={};patch[FOTO_FIELD[etapaKey]]=url;
+        updItem(itemId,patch);
+        toast&&toast('✓ Foto adjuntada');
+      })
+      .catch(function(e){console.warn('Error subiendo foto:',e);toast&&toast('Error subiendo la foto');})
+      .finally(function(){setUploadingFoto(function(cur){var n=Object.assign({},cur);delete n[uk];return n;});});
+  }
+  // ── Historial de controles: registra fecha + % + fotos de TODAS las ventanas de un depto ──
+  function getRevisionesVent(dep){return revData[dep]||[];}
+  function registrarControlVentanas(dep){
+    var items={};
+    VENT_SCHEDULE_EXP.filter(function(i){return i.depto===dep;}).forEach(function(it){
+      var d=itemData[it.id]||{};
+      items[it.id]={
+        marco:d.marco||0,termopanel:d.termopanel||0,quinc:d.quinc||0,
+        estado:d.estado||'pendiente',
+        fotoMarco:d.fotoMarco||null,fotoTermopanel:d.fotoTermopanel||null,fotoQuinc:d.fotoQuinc||null
+      };
+    });
+    if(!Object.keys(items).length){toast&&toast('Sin ventanas para registrar en este depto');return;}
+    var list=getRevisionesVent(dep).slice();
+    var numero=list.length+1;
+    list.push({numero:numero,fecha:today,items:items});
+    var nd=Object.assign({},revData);nd[dep]=list;
+    saveRevData(nd);
+    markVentDirty(dep);
+    pushVentCloud(dep,itemData,nd);
+    toast&&toast('✓ Control '+numero+' registrado — '+today);
+  }
+  // Tarjeta de línea de tiempo: un control + delta de días/% vs. el control anterior
+  function renderTimelineCard(rev,prev){
+    var diasDelta=prev?Math.round((new Date(rev.fecha+'T12:00:00')-new Date(prev.fecha+'T12:00:00'))/86400000):null;
+    function avgEtapa(revX,key){
+      var ids=Object.keys(revX.items||{});if(!ids.length)return 0;
+      return Math.round(ids.reduce(function(s,id){return s+(revX.items[id][key]||0);},0)/ids.length);
+    }
+    var etapas=['marco','termopanel','quinc'];
+    var fotos=[];
+    Object.keys(rev.items||{}).forEach(function(id){
+      var it=rev.items[id];
+      ['fotoMarco','fotoTermopanel','fotoQuinc'].forEach(function(fk){if(it[fk])fotos.push({key:id+fk,url:it[fk]});});
+    });
+    return h('div',{key:rev.numero,style:{border:'1px solid var(--border)',borderRadius:8,marginBottom:6,padding:'8px 10px'}},
+      h('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:6,flexWrap:'wrap'}},
+        h('span',{style:{fontSize:11,fontWeight:700,color:'var(--accent)'}},'Control '+rev.numero),
+        h('span',{style:{fontSize:10,color:'var(--text2)',flex:1}},rev.fecha.split('-').reverse().join('/')),
+        diasDelta!==null&&h('span',{style:{fontSize:9,color:'var(--text3)'}},'+'+diasDelta+' días desde el anterior')
+      ),
+      h('div',{style:{display:'flex',gap:10,flexWrap:'wrap'}},
+        etapas.map(function(k){
+          var cur=avgEtapa(rev,k);
+          var before=prev?avgEtapa(prev,k):null;
+          var delta=before!=null?cur-before:null;
+          var e=INST_ETAPAS[k];
+          return h('div',{key:k,style:{minWidth:90}},
+            h('div',{style:{fontSize:9,color:e.col,fontWeight:700}},e.ic+' '+e.l),
+            h('div',{style:{fontSize:13,fontWeight:800,color:'var(--text)'}},cur+'%',
+              delta!=null&&h('span',{style:{fontSize:10,fontWeight:700,marginLeft:5,
+                color:delta>0?'var(--green)':delta<0?'var(--red)':'var(--text3)'}},
+                (delta>0?'+':'')+delta+'%'))
+          );
+        })
+      ),
+      fotos.length>0&&h('div',{style:{display:'flex',gap:4,marginTop:6,flexWrap:'wrap'}},
+        fotos.map(function(f){
+          return h('img',{key:f.key,src:f.url,style:{width:28,height:22,objectFit:'cover',
+            borderRadius:4,cursor:'pointer',border:'1px solid var(--border)'},
+            onClick:function(){window.open(f.url,'_blank');}});
+        })
+      )
+    );
+  }
+  // Botón "Registrar control de hoy" + línea de tiempo, para un depto (numerado o área común)
+  function renderTimelineBlock(dep){
+    var revs=getRevisionesVent(dep);
+    return h(React.Fragment,null,
+      canEdit&&h('div',{style:{display:'flex',gap:6,alignItems:'center',marginBottom:8,paddingBottom:8,
+        borderBottom:'1px solid var(--border)'}},
+        h('span',{style:{fontSize:9,color:'var(--text3)',flex:1}},
+          revs.length?'Último control: '+revs[revs.length-1].fecha.split('-').reverse().join('/'):'Sin controles registrados'),
+        h('button',{onClick:function(){registrarControlVentanas(dep);},
+          style:{padding:'5px 12px',borderRadius:8,border:'1px solid var(--accent)',background:'rgba(0,200,255,.12)',
+            color:'var(--accent)',fontSize:11,fontWeight:700,cursor:'pointer'}
+        },'📋 Registrar control de hoy ('+(revs.length+1)+')')
+      ),
+      revs.length>0&&h('div',{style:{marginTop:10}},
+        h('div',{style:{fontSize:9,color:'var(--text3)',fontWeight:700,letterSpacing:.5,marginBottom:6,
+          textTransform:'uppercase'}},'LÍNEA DE TIEMPO — AVANCE ENTRE CONTROLES'),
+        revs.slice().reverse().map(function(rev,idx,arr){return renderTimelineCard(rev,arr[idx+1]);})
+      )
+    );
   }
   // Agrupar schedule EXPANDIDO por piso (unidades independientes)
   var schedByPiso={};
@@ -12104,6 +12263,13 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
     return Math.round(sum/items.length);
   }
   function deptoInd(dep,pisoScope){return pctStyle(bloquePct(dep,selBloque,pisoScope));}
+  // % promedio de una etapa (marco/termopanel/quinc) entre todas las unidades de un depto
+  function deptoEtapaPct(dep,key){
+    var items=VENT_SCHEDULE_EXP.filter(function(i){return i.depto===dep;});
+    if(!items.length)return 0;
+    var sum=items.reduce(function(s,i){return s+((itemData[i.id]||{})[key]||0);},0);
+    return Math.round(sum/items.length);
+  }
   // Render single item row
   function renderItem(item){
     var ed=getED(item.id);var isSel=selItemId===item.id;
@@ -12260,6 +12426,26 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
                 h('div',{style:{height:6,background:'var(--bg2)',borderRadius:3,marginBottom:5,overflow:'hidden'}},
                   h('div',{style:{height:'100%',width:barW,background:pct>=100?'var(--green)':col,borderRadius:3,transition:'width .2s'}})
                 ),
+                // Foto de evidencia (solo Marco/Termopanel/Quincallería)
+                FOTO_FIELD[key]&&(function(){
+                  var fotoUrl=iD[FOTO_FIELD[key]];
+                  var uploading=uploadingFoto[item.id+'_'+key];
+                  return h('div',{style:{display:'flex',alignItems:'center',gap:6,marginBottom:5}},
+                    canEdit&&h('label',{style:{display:'flex',alignItems:'center',gap:4,
+                      cursor:uploading?'default':'pointer',padding:'3px 8px',borderRadius:6,fontSize:9,fontWeight:600,
+                      border:'1px dashed '+(fotoUrl?'var(--green)':col),
+                      background:fotoUrl?'rgba(34,197,94,.08)':col+'10',
+                      color:fotoUrl?'var(--green)':col,opacity:uploading?.6:1}},
+                      h('span',null,uploading?'⏳':'📷'),
+                      h('span',null,uploading?'Subiendo...':(fotoUrl?'Reemplazar foto':'Foto '+label)),
+                      !uploading&&h('input',{type:'file',accept:'image/*',capture:'environment',style:{display:'none'},
+                        onChange:function(ev){onPickFoto(item.id,key,ev.target.files[0]);ev.target.value='';}})
+                    ),
+                    fotoUrl&&h('img',{src:fotoUrl,style:{width:34,height:26,objectFit:'cover',borderRadius:5,
+                      border:'1px solid var(--border)',cursor:'pointer'},
+                      onClick:function(){window.open(fotoUrl,'_blank');},title:'Clic para ampliar'})
+                  );
+                })(),
                 // Botones %
                 canEdit&&h('div',{style:{display:'flex',gap:4,flexWrap:'wrap'}},
                   [0,25,50,75,100].map(function(v){
@@ -12580,9 +12766,9 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
         h('span',{style:{color:'var(--text3)',fontSize:10,padding:'3px 6px',marginLeft:'auto'}},'Total: '+VENT_SCHEDULE_EXP.length+' unidades')
       )
     ),
-    // ── Pestañas Gestión / Despacho / Instalación (siempre visibles) ─────────
+    // ── Pestañas Gestión / Despacho / Instalación / Informe (siempre visibles) ──
     h('div',{style:{display:'flex',gap:6,marginBottom:6,flexWrap:'wrap'}},
-      [{k:'gestion',l:'1. Gestión'},{k:'despacho',l:'2. Despacho'},{k:'instalacion',l:'3. Instalación'}].map(function(b){
+      [{k:'gestion',l:'1. Gestión'},{k:'despacho',l:'2. Despacho'},{k:'instalacion',l:'3. Instalación'},{k:'informe',l:'4. Informe'}].map(function(b){
         var act=selBloque===b.k;
         return h('button',{key:b.k,onClick:function(){setSelBloque(b.k);},
           style:{padding:'5px 12px',borderRadius:7,border:'1px solid '+(act?'var(--accent)':'var(--border)'),
@@ -12745,8 +12931,45 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
         )
       )
     ),
+    // ── INFORME: qué falta por depto, con switch ocultar completos ──────────
+    selBloque==='informe'&&h('div',{style:{display:'flex',flexDirection:'column',gap:8,marginBottom:8}},
+      h('div',{style:{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}},
+        h('button',{onClick:function(){setHideDone(!hideDone);},
+          style:{padding:'4px 12px',borderRadius:7,fontSize:10,fontWeight:700,cursor:'pointer',
+            border:'1px solid '+(hideDone?'var(--green)':'var(--border)'),
+            background:hideDone?'rgba(34,197,94,.12)':'var(--bg2)',
+            color:hideDone?'var(--green)':'var(--text3)'}},
+          hideDone?'▶ Ver completos':'✓ Ocultar completos (100%)'),
+        h('div',{style:{flex:1}}),
+        h('button',{onClick:function(){generarDashboardVentanas(selPiso);},
+          style:{padding:'4px 12px',borderRadius:14,fontSize:10,fontWeight:700,cursor:'pointer',
+            background:'var(--bg2)',color:'var(--blue)',border:'1px solid var(--blue)'}
+        },'📊 Exportar PDF')
+      ),
+      pisoNumDepts.concat(pisoAreas).map(function(dep){
+        var stats={marco:deptoEtapaPct(dep,'marco'),termopanel:deptoEtapaPct(dep,'termopanel'),quinc:deptoEtapaPct(dep,'quinc')};
+        var allDone=stats.marco>=100&&stats.termopanel>=100&&stats.quinc>=100;
+        if(hideDone&&allDone)return null;
+        var falta=Object.keys(stats).filter(function(k){return stats[k]<100;})
+          .map(function(k){return INST_ETAPAS[k].l;});
+        var lbl=typeof dep==='number'?'D'+dep:((pisoDepsMap[dep]&&pisoDepsMap[dep][0]&&pisoDepsMap[dep][0].label)||dep);
+        return h('div',{key:String(dep),style:{background:'var(--bg3)',borderRadius:8,padding:'8px 10px',
+          border:'1px solid '+(allDone?'rgba(34,197,94,.4)':'var(--border)')}},
+          h('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:allDone?0:5,flexWrap:'wrap'}},
+            h('span',{style:{fontSize:12,fontWeight:800,fontFamily:'var(--mono)',color:allDone?'var(--green)':'var(--text)'}},lbl),
+            allDone&&h('span',{style:{fontSize:10,color:'var(--green)',fontWeight:700}},'✓ Completo'),
+            h('div',{style:{flex:1}}),
+            ['marco','termopanel','quinc'].map(function(k){
+              return h('span',{key:k,style:{fontSize:9,fontWeight:700,color:INST_ETAPAS[k].col,marginLeft:8}},
+                INST_ETAPAS[k].ic+' '+stats[k]+'%');
+            })
+          ),
+          !allDone&&h('div',{style:{fontSize:10,color:'var(--amber)'}},'Falta: '+falta.join(', '))
+        );
+      })
+    ),
     // ── POR TIPO (agrupación alternativa) ─────────────────────────────────────
-    agrupar==='tipo'&&h('div',{style:{display:'flex',flexDirection:'column',gap:6}},
+    selBloque!=='informe'&&agrupar==='tipo'&&h('div',{style:{display:'flex',flexDirection:'column',gap:6}},
       Object.keys(byTipo).sort().map(function(tipo){
         var items=byTipo[tipo];
         var comp=items.filter(function(i){return getEst(i.id)==='completo';}).length;
@@ -12766,7 +12989,7 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
       })
     ),
     // ── POR PISO (vista principal) ─────────────────────────────────────────
-    agrupar==='piso'&&h('div',{style:{display:'flex',flexDirection:'column',gap:8}},
+    selBloque!=='informe'&&agrupar==='piso'&&h('div',{style:{display:'flex',flexDirection:'column',gap:8}},
       // Selector de piso
       h('div',{style:{display:'flex',gap:5,flexWrap:'wrap',marginBottom:4}},
         VENT_PISOS.map(function(p){
@@ -12811,6 +13034,7 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
       selDepto!=null&&typeof selDepto==='number'&&pisoDepsMap[selDepto]&&
         h('div',{style:{background:'var(--bg3)',borderRadius:10,padding:'8px 10px'}},
           h('div',{style:{fontSize:10,fontWeight:700,color:'var(--accent)',marginBottom:8,letterSpacing:.5}},'D'+selDepto+' — '+selPiso),
+          renderTimelineBlock(selDepto),
           pisoDepsMap[selDepto].map(function(item){return renderItem(item);})
         ),
       // Áreas comunes
@@ -12827,6 +13051,7 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
           h('div',{style:{background:'var(--bg3)',borderRadius:10,padding:'8px 10px'}},
             h('div',{style:{fontSize:10,fontWeight:700,color:'var(--accent)',marginBottom:8,letterSpacing:.5}},
               (pisoDepsMap[selDepto][0]&&pisoDepsMap[selDepto][0].label)||selDepto),
+            renderTimelineBlock(selDepto),
             pisoDepsMap[selDepto].map(function(item){return renderItem(item);})
           )
       )
@@ -14505,6 +14730,28 @@ window.fbUploadFile=function(path,file){
   var ref=storage.ref().child(path);
   return ref.put(file).then(function(snap){return snap.ref.getDownloadURL();});
 };
+// ── Comprime una imagen en el navegador antes de subirla (evita gastar datos móviles/Storage) ──
+// maxW: ancho máximo en px (alto se escala proporcional). quality: calidad JPEG 0-1.
+window.compressImage=function(file,maxW,quality){
+  maxW=maxW||1000;quality=quality||0.7;
+  return new Promise(function(resolve,reject){
+    var url=URL.createObjectURL(file);
+    var img=new Image();
+    img.onload=function(){
+      URL.revokeObjectURL(url);
+      var scale=Math.min(1,maxW/img.width);
+      var w=Math.round(img.width*scale),hh=Math.round(img.height*scale);
+      var canvas=document.createElement('canvas');
+      canvas.width=w;canvas.height=hh;
+      canvas.getContext('2d').drawImage(img,0,0,w,hh);
+      canvas.toBlob(function(blob){
+        blob?resolve(blob):reject(new Error('No se pudo comprimir la imagen'));
+      },'image/jpeg',quality);
+    };
+    img.onerror=function(e){URL.revokeObjectURL(url);reject(e);};
+    img.src=url;
+  });
+};
 // DOC legacy: se mantiene solo para migración de datos al arrancar
 const DOC=db.collection('obra').doc('state');
 // Nueva estructura granular: cada depto es un documento independiente
@@ -14512,6 +14759,8 @@ const OBRA_REF=db.collection('obras').doc('victoria');
 const SAVES_COL=OBRA_REF.collection('saves');
 // Masividad: un documento Firestore por depto (items + historial de revisiones)
 const MASIV_COL=OBRA_REF.collection('masiv');
+// Ventanas: un documento Firestore por depto (items con fotos + historial de controles)
+const VENT_COL=OBRA_REF.collection('vent');
 
 // ── Global sync flag ──
 window._fbReady=false;
@@ -14594,6 +14843,31 @@ window.fbSaveMasiv=function(dep,items,revisiones){
   _fbMasivTimer=setTimeout(_fbDoSaveMasiv,800);
 };
 
+// ── Save granular de Ventanas: un documento Firestore por depto (items con fotos + historial de controles) ──
+var _fbVentTimer=null;
+var _fbVentPending={};
+function _fbDoSaveVent(){
+  var pend=_fbVentPending;
+  if(!Object.keys(pend).length)return;
+  _fbVentPending={};
+  var batch=db.batch();
+  Object.keys(pend).forEach(function(dep){
+    batch.set(VENT_COL.doc(String(dep)),pend[dep]);
+  });
+  batch.commit().catch(function(e){
+    console.warn('Firebase Ventanas save error:',e);
+    Object.keys(pend).forEach(function(dep){
+      if(!_fbVentPending[dep])_fbVentPending[dep]=pend[dep];
+    });
+    _fbVentTimer=setTimeout(_fbDoSaveVent,3000);
+  });
+}
+window.fbSaveVent=function(dep,items,revisiones){
+  _fbVentPending[dep]={items:items,revisiones:revisiones};
+  clearTimeout(_fbVentTimer);
+  _fbVentTimer=setTimeout(_fbDoSaveVent,800);
+};
+
 // ── Flush forzado: si el celular bloquea pantalla, cambia de app o cierra la
 // pestaña antes de que el debounce de 800ms dispare, el guardado pendiente se
 // pierde (el setTimeout no llega a ejecutar). Forzamos el envío inmediato apenas
@@ -14601,6 +14875,7 @@ window.fbSaveMasiv=function(dep,items,revisiones){
 function _fbFlushPending(){
   if(_fbSaveTimer){clearTimeout(_fbSaveTimer);_fbSaveTimer=null;_fbDoSave();}
   if(_fbMasivTimer){clearTimeout(_fbMasivTimer);_fbMasivTimer=null;_fbDoSaveMasiv();}
+  if(_fbVentTimer){clearTimeout(_fbVentTimer);_fbVentTimer=null;_fbDoSaveVent();}
 }
 document.addEventListener('visibilitychange',function(){
   if(document.visibilityState==='hidden')_fbFlushPending();
@@ -14633,9 +14908,10 @@ Promise.all([
   OBRA_REF.get(),
   SAVES_COL.get(),
   DOC.get(),
-  MASIV_COL.get()
+  MASIV_COL.get(),
+  VENT_COL.get()
 ]).then(function(results){
-  var metaSnap=results[0],savesSnap=results[1],legacySnap=results[2],masivSnap=results[3];
+  var metaSnap=results[0],savesSnap=results[1],legacySnap=results[2],masivSnap=results[3],ventSnap=results[4];
   var localData=null;
   try{var ls=localStorage.getItem('obra_v6');if(ls)localData=JSON.parse(ls);}catch(e){}
 
@@ -14653,6 +14929,15 @@ Promise.all([
     if(dd.revisiones&&dd.revisiones.length)cloudMasivRev[dep]=dd.revisiones;
   });
   window._masivCloudData={items:cloudMasivItems,rev:cloudMasivRev};
+
+  // Reconstruir datos de Ventanas desde sub-colección granular (un doc por depto)
+  var cloudVentItems={},cloudVentRev={};
+  ventSnap.forEach(function(doc){
+    var dd=doc.data()||{};var dep=doc.id;
+    Object.keys(dd.items||{}).forEach(function(itemId){cloudVentItems[itemId]=dd.items[itemId];});
+    if(dd.revisiones&&dd.revisiones.length)cloudVentRev[dep]=dd.revisiones;
+  });
+  window._ventCloudData={items:cloudVentItems,rev:cloudVentRev};
 
   // Migración única: si SAVES_COL está vacía y DOC legacy tiene datos, migrar
   if(!hasSavesCol&&legacySnap.exists){
@@ -14763,6 +15048,23 @@ if(needsSeed||versionChanged){
     applyRemoteMasiv(items,rev);
   },function(err){console.warn('onSnapshot Masividad error:',err);});
 
+  // ── Listener en tiempo real: Ventanas (un doc por depto) ──
+  var _lastVentSnapTime=Date.now();
+  function applyRemoteVent(items,rev){
+    _lastVentSnapTime=Date.now();
+    window.dispatchEvent(new CustomEvent('fb-vent-update',{detail:{items:items,rev:rev}}));
+  }
+  VENT_COL.onSnapshot(function(snap){
+    if(!window._fbReady)return;
+    var items={},rev={};
+    snap.forEach(function(doc){
+      var dd=doc.data()||{};var dep=doc.id;
+      Object.keys(dd.items||{}).forEach(function(itemId){items[itemId]=dd.items[itemId];});
+      rev[dep]=dd.revisiones||[];
+    });
+    applyRemoteVent(items,rev);
+  },function(err){console.warn('onSnapshot Ventanas error:',err);});
+
   // ── Polling fallback cada 30 s: si el WebSocket cayó, forza un get() manual ──
   setInterval(function(){
     if(!window._fbReady)return;
@@ -14785,6 +15087,18 @@ if(needsSeed||versionChanged){
           rev[dep]=dd.revisiones||[];
         });
         applyRemoteMasiv(items,rev);
+      }).catch(function(){});
+    }
+    var elapsedVent=Date.now()-_lastVentSnapTime;
+    if(elapsedVent>28000){
+      VENT_COL.get().then(function(snap){
+        var items={},rev={};
+        snap.forEach(function(doc){
+          var dd=doc.data()||{};var dep=doc.id;
+          Object.keys(dd.items||{}).forEach(function(itemId){items[itemId]=dd.items[itemId];});
+          rev[dep]=dd.revisiones||[];
+        });
+        applyRemoteVent(items,rev);
       }).catch(function(){});
     }
   },30000);
