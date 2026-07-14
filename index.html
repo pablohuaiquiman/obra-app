@@ -12798,148 +12798,6 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
         },a.l);
       })
     ),
-    // ── DESPACHO: alertas de llegada + programa de pedidos ────────────────────
-    selBloque==='despacho'&&h('div',{style:{display:'flex',flexDirection:'column',gap:8,marginBottom:8}},
-      h('div',{className:'card'},
-        h('div',{onClick:function(){setShowAlertas(!showAlertas);},
-          style:{display:'flex',alignItems:'center',gap:8,cursor:'pointer'}},
-          h('div',{style:{fontSize:11,fontWeight:700,color:alertItems.length?'var(--red)':'var(--green)',flex:1}},
-            (alertItems.length?'🔔':'✓')+' Alertas de llegada ('+alertItems.length+')'),
-          h('span',{style:{fontSize:10,color:'var(--text3)'}},showAlertas?'▲':'▼')
-        ),
-        showAlertas&&h('div',{style:{display:'flex',flexDirection:'column',gap:5,marginTop:8}},
-          alertItems.length===0
-            ?h('div',{style:{textAlign:'center',color:'var(--green)',padding:'14px 0',fontSize:11,fontWeight:600}},'✓ Sin alertas activas')
-            :alertItems.map(function(a){
-              var d=a.dias;
-              var col=d<0?'var(--red)':d===0?'var(--blue)':d<=3?'var(--amber)':'#a855f7';
-              var ic=d<0?'🚨':d===0?'🔔':d<=3?'⚠️':'📅';
-              var msg=d<0?'Vencida '+Math.abs(d)+' días':d===0?'LLEGA HOY':'En '+d+' día'+(d!==1?'s':'');
-              return h('div',{key:a.item.id,style:{background:col+'15',border:'1px solid '+col+'50',
-                borderRadius:10,padding:'9px 12px',display:'flex',alignItems:'center',gap:10}},
-                h('span',{style:{fontSize:18,flexShrink:0}},ic),
-                h('div',{style:{flex:1}},
-                  h('div',{style:{fontSize:12,color:col,fontWeight:700}},msg+' — '+a.item.tipo+' x'+a.item.cant+' D'+a.item.depto),
-                  h('div',{style:{fontSize:10,color:'var(--text3)',marginTop:1}},a.item.lugar+' · '+a.item.piso)
-                ),
-                canEdit&&d<=3&&h('button',{
-                  onClick:function(){updItem(a.item.id,{llegadaReal:today,estado:'marco'});toast&&toast('✓ Recibida');},
-                  style:{padding:'5px 10px',borderRadius:8,border:'1px solid '+col,background:col+'22',
-                    color:col,fontSize:10,fontWeight:700,cursor:'pointer',flexShrink:0}
-                },'✓ Recibida')
-              );
-            })
-        )
-      ),
-      // Corrección rápida si hay errores detectados
-      canEdit&&h('div',{style:{background:'rgba(239,68,68,.08)',border:'1px solid rgba(239,68,68,.25)',
-        borderRadius:10,padding:'10px 14px',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}},
-        h('div',{style:{fontSize:12,fontWeight:700,color:'var(--red)',flex:1}},
-          '⚠ D606, D621, D622 — Ventanas programadas en agosto, deberían estar en julio'),
-        h('button',{
-          onClick:function(){moverDeptoGantt([606,621,622],'2026-05-01','2026-09-30',-28);},
-          style:{padding:'7px 16px',borderRadius:8,border:'1px solid var(--red)',
-            background:'rgba(239,68,68,.15)',color:'var(--red)',fontSize:11,fontWeight:700,cursor:'pointer'}
-        },'✓ Aplicar corrección: mover D606, D621, D622 a julio')
-      ),
-      // Tabla de pedidos
-      h('div',{className:'card'},
-        h('div',{style:{fontWeight:700,fontSize:11,letterSpacing:1,color:'var(--text)',marginBottom:10,display:'flex',alignItems:'center',gap:6}},
-          h('span',{style:{background:'var(--blue)',color:'#fff',padding:'1px 7px',borderRadius:3,fontSize:9}},'P'),
-          'PROGRAMA DE PEDIDOS — VENTANAS'),
-        h('div',{style:{display:'flex',flexDirection:'column',gap:6}},
-          pedidos.map(function(ped){
-            var pd=progData[ped.key]||{};
-            var llegada=pd.llegada||'';var medida=pd.medida||'';
-            // Fecha sugerida desde el Gantt (primer depto del pedido)
-            var ganttSug=ped.deptos.length?getGanttDateForDept(ped.deptos[0]):null;
-            // Estado promedio del pedido
-            var avgEst=Math.round(ped.items.reduce(function(s,it){
-              var est=getEst?getEst(it.id):0;
-              return s+(EST_ORDER[est]||0);
-            },0)/ped.items.length);
-            var estED=VENT_EST[avgEst]||VENT_EST[0];
-            // Días hasta llegada
-            var today2=new Date().toISOString().slice(0,10);
-            var diasLlegada=llegada?Math.round((new Date(llegada+'T12:00:00')-new Date(today2+'T12:00:00'))/86400000):null;
-            var dCol=diasLlegada===null?'var(--text3)':diasLlegada<0?'var(--red)':diasLlegada<=7?'var(--amber)':'var(--green)';
-            return h('div',{key:ped.key,style:{background:'var(--bg3)',borderRadius:10,padding:'10px 12px',
-              border:'1px solid var(--border)'}},
-              // Encabezado del pedido
-              h('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:8,flexWrap:'wrap'}},
-                h('div',{style:{fontFamily:'var(--mono)',fontSize:16,fontWeight:800,color:'var(--accent)',minWidth:52}},ped.tipo),
-                h('div',{style:{fontSize:10,color:'var(--text2)',flex:1}},
-                  ped.piso+' · '+ped.deptos.length+' dptos · '+ped.totalUnits+' unidades'),
-                h('div',{style:{padding:'2px 8px',borderRadius:8,fontSize:10,fontWeight:700,
-                  color:estED.col,background:estED.col+'18',border:'1px solid '+estED.col+'40'}},
-                  estED.ic+' '+estED.l),
-                diasLlegada!==null&&h('div',{style:{fontSize:10,fontWeight:700,color:dCol}},
-                  diasLlegada<0?'⚠ Vencida '+Math.abs(diasLlegada)+'d':diasLlegada===0?'🔔 HOY':'📅 '+diasLlegada+'d')
-              ),
-              // Fechas de programación
-              h('div',{style:{display:'flex',gap:8,flexWrap:'wrap',marginBottom:6}},
-                h('div',{style:{flex:1,minWidth:140}},
-                  h('div',{style:{fontSize:9,color:'var(--text3)',marginBottom:3,fontWeight:600}},
-                    '📏 FECHA MEDIDA'+(medida?'':' (sugerida: '+(llegada?(function(){var d=new Date(llegada+'T12:00:00');d.setDate(d.getDate()-28);return d.toISOString().slice(0,10).split('-').reverse().join('/');})():'—')+')')),
-                  h('input',{type:'date',value:medida,
-                    onChange:function(e){var nd=Object.assign({},progData);nd[ped.key]=Object.assign({},nd[ped.key]||{},{medida:e.target.value});saveProgData(nd);},
-                    style:{width:'100%',background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:6,
-                      padding:'5px 8px',color:'var(--text)',fontSize:11,fontFamily:'var(--font)'}})
-                ),
-                h('div',{style:{flex:1,minWidth:140}},
-                  h('div',{style:{fontSize:9,color:'var(--text3)',marginBottom:3,fontWeight:600}},
-                    '🚛 FECHA LLEGADA A OBRA'+(ganttSug&&!llegada?' (Gantt: '+ganttSug.split('-').reverse().join('/')+')'!==''?(' (Gantt: '+ganttSug.split('-').reverse().join('/')+')'):'':'')),
-                  h('input',{type:'date',value:llegada,
-                    onChange:function(e){setPedidoLlegada(ped.key,e.target.value);},
-                    style:{width:'100%',background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:6,
-                      padding:'5px 8px',color:'var(--text)',fontSize:11,fontFamily:'var(--font)'}})
-                ),
-                ganttSug&&!llegada&&h('button',{
-                  onClick:function(){setPedidoLlegada(ped.key,ganttSug);},
-                  style:{padding:'5px 10px',borderRadius:8,border:'1px solid var(--blue)',
-                    background:'rgba(14,165,233,.1)',color:'var(--blue)',fontSize:10,fontWeight:700,
-                    cursor:'pointer',alignSelf:'flex-end'}
-                },'↓ Usar fecha Gantt')
-              ),
-              // Mini timeline
-              llegada&&h('div',{style:{background:'var(--bg2)',borderRadius:6,padding:'6px 10px',
-                fontSize:9,color:'var(--text3)',display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}},
-                h('span',null,'📐 Rasgos: antes de '+(medida||llegada?((function(){var d=new Date((medida||llegada)+'T12:00:00');d.setDate(d.getDate()-14);return d.toISOString().slice(0,10).split('-').reverse().slice(0,2).join('/');})()):'-')),
-                h('span',{style:{color:'rgba(255,255,255,.2)'}},'|'),
-                h('span',null,'📏 Medida: '+(medida?medida.split('-').reverse().join('/'):'—')),
-                h('span',{style:{color:'rgba(255,255,255,.2)'}},'|'),
-                h('span',null,'🚛 Llegada: '+llegada.split('-').reverse().join('/')),
-                h('span',{style:{color:'rgba(255,255,255,.2)'}},'|'),
-                h('span',null,'🔧 Inst.: +'+(function(){var d=new Date(llegada+'T12:00:00');d.setDate(d.getDate()+7);return d.toISOString().slice(0,10).split('-').reverse().slice(0,2).join('/');}())()),
-                canEdit&&h('button',{
-                  onClick:function(){
-                    // Mover todos los deptos del pedido al mes de llegada en el Gantt
-                    var llegadaD=new Date(llegada+'T12:00:00');
-                    var mesIni=new Date(llegadaD.getFullYear(),llegadaD.getMonth(),1).toISOString().slice(0,10);
-                    var mesFin=new Date(llegadaD.getFullYear(),llegadaD.getMonth()+1,0).toISOString().slice(0,10);
-                    // Obtener fecha Gantt actual del primer depto
-                    var ganttActual=getGanttDateForDept(ped.deptos[0]);
-                    if(ganttActual){
-                      var delta=d2n(llegada)-d2n(ganttActual);
-                      if(delta!==0)moverDeptoGantt(ped.deptos.filter(function(d){return typeof d==='number';}),ganttActual,(function(){var gD=new Date(ganttActual+'T12:00:00');gD.setDate(gD.getDate()+35);return gD.toISOString().slice(0,10);}()),delta);
-                    }
-                  },
-                  style:{padding:'4px 10px',borderRadius:6,border:'1px solid var(--purple)',
-                    background:'rgba(168,85,247,.1)',color:'var(--purple)',fontSize:9,fontWeight:700,
-                    cursor:'pointer',marginLeft:'auto'}
-                },'↕ Sincronizar con Gantt')
-              ),
-              // Nota
-              h('input',{value:pd.notas||'',placeholder:'Observaciones (proveedor, condiciones, etc.)...',
-                onChange:function(e){var nd=Object.assign({},progData);nd[ped.key]=Object.assign({},nd[ped.key]||{},{notas:e.target.value});saveProgData(nd);},
-                style:{width:'100%',background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:6,
-                  padding:'5px 8px',color:'var(--text)',fontSize:11,outline:'none',
-                  fontFamily:'var(--font)',boxSizing:'border-box',marginTop:4}})
-            );
-          })
-        )
-      )
-    ),
     // ── INFORME: cuadros por piso (igual que la vista principal) + filtro por etapa ──
     selBloque==='informe'&&h('div',{style:{display:'flex',flexDirection:'column',gap:8,marginBottom:8}},
       h('div',{style:{display:'flex',gap:5,flexWrap:'wrap',alignItems:'center'}},
@@ -13087,6 +12945,148 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
             renderTimelineBlock(selDepto),
             pisoDepsMap[selDepto].map(function(item){return renderItem(item);})
           )
+      )
+    ),
+    // ── DESPACHO: alertas de llegada + programa de pedidos (debajo de los cuadros) ──
+    selBloque==='despacho'&&h('div',{style:{display:'flex',flexDirection:'column',gap:8,marginBottom:8}},
+      h('div',{className:'card'},
+        h('div',{onClick:function(){setShowAlertas(!showAlertas);},
+          style:{display:'flex',alignItems:'center',gap:8,cursor:'pointer'}},
+          h('div',{style:{fontSize:11,fontWeight:700,color:alertItems.length?'var(--red)':'var(--green)',flex:1}},
+            (alertItems.length?'🔔':'✓')+' Alertas de llegada ('+alertItems.length+')'),
+          h('span',{style:{fontSize:10,color:'var(--text3)'}},showAlertas?'▲':'▼')
+        ),
+        showAlertas&&h('div',{style:{display:'flex',flexDirection:'column',gap:5,marginTop:8}},
+          alertItems.length===0
+            ?h('div',{style:{textAlign:'center',color:'var(--green)',padding:'14px 0',fontSize:11,fontWeight:600}},'✓ Sin alertas activas')
+            :alertItems.map(function(a){
+              var d=a.dias;
+              var col=d<0?'var(--red)':d===0?'var(--blue)':d<=3?'var(--amber)':'#a855f7';
+              var ic=d<0?'🚨':d===0?'🔔':d<=3?'⚠️':'📅';
+              var msg=d<0?'Vencida '+Math.abs(d)+' días':d===0?'LLEGA HOY':'En '+d+' día'+(d!==1?'s':'');
+              return h('div',{key:a.item.id,style:{background:col+'15',border:'1px solid '+col+'50',
+                borderRadius:10,padding:'9px 12px',display:'flex',alignItems:'center',gap:10}},
+                h('span',{style:{fontSize:18,flexShrink:0}},ic),
+                h('div',{style:{flex:1}},
+                  h('div',{style:{fontSize:12,color:col,fontWeight:700}},msg+' — '+a.item.tipo+' x'+a.item.cant+' D'+a.item.depto),
+                  h('div',{style:{fontSize:10,color:'var(--text3)',marginTop:1}},a.item.lugar+' · '+a.item.piso)
+                ),
+                canEdit&&d<=3&&h('button',{
+                  onClick:function(){updItem(a.item.id,{llegadaReal:today,estado:'marco'});toast&&toast('✓ Recibida');},
+                  style:{padding:'5px 10px',borderRadius:8,border:'1px solid '+col,background:col+'22',
+                    color:col,fontSize:10,fontWeight:700,cursor:'pointer',flexShrink:0}
+                },'✓ Recibida')
+              );
+            })
+        )
+      ),
+      // Corrección rápida si hay errores detectados
+      canEdit&&h('div',{style:{background:'rgba(239,68,68,.08)',border:'1px solid rgba(239,68,68,.25)',
+        borderRadius:10,padding:'10px 14px',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}},
+        h('div',{style:{fontSize:12,fontWeight:700,color:'var(--red)',flex:1}},
+          '⚠ D606, D621, D622 — Ventanas programadas en agosto, deberían estar en julio'),
+        h('button',{
+          onClick:function(){moverDeptoGantt([606,621,622],'2026-05-01','2026-09-30',-28);},
+          style:{padding:'7px 16px',borderRadius:8,border:'1px solid var(--red)',
+            background:'rgba(239,68,68,.15)',color:'var(--red)',fontSize:11,fontWeight:700,cursor:'pointer'}
+        },'✓ Aplicar corrección: mover D606, D621, D622 a julio')
+      ),
+      // Tabla de pedidos
+      h('div',{className:'card'},
+        h('div',{style:{fontWeight:700,fontSize:11,letterSpacing:1,color:'var(--text)',marginBottom:10,display:'flex',alignItems:'center',gap:6}},
+          h('span',{style:{background:'var(--blue)',color:'#fff',padding:'1px 7px',borderRadius:3,fontSize:9}},'P'),
+          'PROGRAMA DE PEDIDOS — VENTANAS'),
+        h('div',{style:{display:'flex',flexDirection:'column',gap:6}},
+          pedidos.map(function(ped){
+            var pd=progData[ped.key]||{};
+            var llegada=pd.llegada||'';var medida=pd.medida||'';
+            // Fecha sugerida desde el Gantt (primer depto del pedido)
+            var ganttSug=ped.deptos.length?getGanttDateForDept(ped.deptos[0]):null;
+            // Estado promedio del pedido
+            var avgEst=Math.round(ped.items.reduce(function(s,it){
+              var est=getEst?getEst(it.id):0;
+              return s+(EST_ORDER[est]||0);
+            },0)/ped.items.length);
+            var estED=VENT_EST[avgEst]||VENT_EST[0];
+            // Días hasta llegada
+            var today2=new Date().toISOString().slice(0,10);
+            var diasLlegada=llegada?Math.round((new Date(llegada+'T12:00:00')-new Date(today2+'T12:00:00'))/86400000):null;
+            var dCol=diasLlegada===null?'var(--text3)':diasLlegada<0?'var(--red)':diasLlegada<=7?'var(--amber)':'var(--green)';
+            return h('div',{key:ped.key,style:{background:'var(--bg3)',borderRadius:10,padding:'10px 12px',
+              border:'1px solid var(--border)'}},
+              // Encabezado del pedido
+              h('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:8,flexWrap:'wrap'}},
+                h('div',{style:{fontFamily:'var(--mono)',fontSize:16,fontWeight:800,color:'var(--accent)',minWidth:52}},ped.tipo),
+                h('div',{style:{fontSize:10,color:'var(--text2)',flex:1}},
+                  ped.piso+' · '+ped.deptos.length+' dptos · '+ped.totalUnits+' unidades'),
+                h('div',{style:{padding:'2px 8px',borderRadius:8,fontSize:10,fontWeight:700,
+                  color:estED.col,background:estED.col+'18',border:'1px solid '+estED.col+'40'}},
+                  estED.ic+' '+estED.l),
+                diasLlegada!==null&&h('div',{style:{fontSize:10,fontWeight:700,color:dCol}},
+                  diasLlegada<0?'⚠ Vencida '+Math.abs(diasLlegada)+'d':diasLlegada===0?'🔔 HOY':'📅 '+diasLlegada+'d')
+              ),
+              // Fechas de programación
+              h('div',{style:{display:'flex',gap:8,flexWrap:'wrap',marginBottom:6}},
+                h('div',{style:{flex:1,minWidth:140}},
+                  h('div',{style:{fontSize:9,color:'var(--text3)',marginBottom:3,fontWeight:600}},
+                    '📏 FECHA MEDIDA'+(medida?'':' (sugerida: '+(llegada?(function(){var d=new Date(llegada+'T12:00:00');d.setDate(d.getDate()-28);return d.toISOString().slice(0,10).split('-').reverse().join('/');})():'—')+')')),
+                  h('input',{type:'date',value:medida,
+                    onChange:function(e){var nd=Object.assign({},progData);nd[ped.key]=Object.assign({},nd[ped.key]||{},{medida:e.target.value});saveProgData(nd);},
+                    style:{width:'100%',background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:6,
+                      padding:'5px 8px',color:'var(--text)',fontSize:11,fontFamily:'var(--font)'}})
+                ),
+                h('div',{style:{flex:1,minWidth:140}},
+                  h('div',{style:{fontSize:9,color:'var(--text3)',marginBottom:3,fontWeight:600}},
+                    '🚛 FECHA LLEGADA A OBRA'+(ganttSug&&!llegada?' (Gantt: '+ganttSug.split('-').reverse().join('/')+')'!==''?(' (Gantt: '+ganttSug.split('-').reverse().join('/')+')'):'':'')),
+                  h('input',{type:'date',value:llegada,
+                    onChange:function(e){setPedidoLlegada(ped.key,e.target.value);},
+                    style:{width:'100%',background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:6,
+                      padding:'5px 8px',color:'var(--text)',fontSize:11,fontFamily:'var(--font)'}})
+                ),
+                ganttSug&&!llegada&&h('button',{
+                  onClick:function(){setPedidoLlegada(ped.key,ganttSug);},
+                  style:{padding:'5px 10px',borderRadius:8,border:'1px solid var(--blue)',
+                    background:'rgba(14,165,233,.1)',color:'var(--blue)',fontSize:10,fontWeight:700,
+                    cursor:'pointer',alignSelf:'flex-end'}
+                },'↓ Usar fecha Gantt')
+              ),
+              // Mini timeline
+              llegada&&h('div',{style:{background:'var(--bg2)',borderRadius:6,padding:'6px 10px',
+                fontSize:9,color:'var(--text3)',display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}},
+                h('span',null,'📐 Rasgos: antes de '+(medida||llegada?((function(){var d=new Date((medida||llegada)+'T12:00:00');d.setDate(d.getDate()-14);return d.toISOString().slice(0,10).split('-').reverse().slice(0,2).join('/');})()):'-')),
+                h('span',{style:{color:'rgba(255,255,255,.2)'}},'|'),
+                h('span',null,'📏 Medida: '+(medida?medida.split('-').reverse().join('/'):'—')),
+                h('span',{style:{color:'rgba(255,255,255,.2)'}},'|'),
+                h('span',null,'🚛 Llegada: '+llegada.split('-').reverse().join('/')),
+                h('span',{style:{color:'rgba(255,255,255,.2)'}},'|'),
+                h('span',null,'🔧 Inst.: +'+(function(){var d=new Date(llegada+'T12:00:00');d.setDate(d.getDate()+7);return d.toISOString().slice(0,10).split('-').reverse().slice(0,2).join('/');}())()),
+                canEdit&&h('button',{
+                  onClick:function(){
+                    // Mover todos los deptos del pedido al mes de llegada en el Gantt
+                    var llegadaD=new Date(llegada+'T12:00:00');
+                    var mesIni=new Date(llegadaD.getFullYear(),llegadaD.getMonth(),1).toISOString().slice(0,10);
+                    var mesFin=new Date(llegadaD.getFullYear(),llegadaD.getMonth()+1,0).toISOString().slice(0,10);
+                    // Obtener fecha Gantt actual del primer depto
+                    var ganttActual=getGanttDateForDept(ped.deptos[0]);
+                    if(ganttActual){
+                      var delta=d2n(llegada)-d2n(ganttActual);
+                      if(delta!==0)moverDeptoGantt(ped.deptos.filter(function(d){return typeof d==='number';}),ganttActual,(function(){var gD=new Date(ganttActual+'T12:00:00');gD.setDate(gD.getDate()+35);return gD.toISOString().slice(0,10);}()),delta);
+                    }
+                  },
+                  style:{padding:'4px 10px',borderRadius:6,border:'1px solid var(--purple)',
+                    background:'rgba(168,85,247,.1)',color:'var(--purple)',fontSize:9,fontWeight:700,
+                    cursor:'pointer',marginLeft:'auto'}
+                },'↕ Sincronizar con Gantt')
+              ),
+              // Nota
+              h('input',{value:pd.notas||'',placeholder:'Observaciones (proveedor, condiciones, etc.)...',
+                onChange:function(e){var nd=Object.assign({},progData);nd[ped.key]=Object.assign({},nd[ped.key]||{},{notas:e.target.value});saveProgData(nd);},
+                style:{width:'100%',background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:6,
+                  padding:'5px 8px',color:'var(--text)',fontSize:11,outline:'none',
+                  fontFamily:'var(--font)',boxSizing:'border-box',marginTop:4}})
+            );
+          })
+        )
       )
     )
   );
