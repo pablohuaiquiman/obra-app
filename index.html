@@ -8459,6 +8459,190 @@ function DayByTeams({orgData,dayNum,casaW,subcW,onConfigureOrg,isAdmin}){
   );
 }
 
+function _hexToRgb(hex){
+  var n=parseInt(String(hex).replace('#',''),16);
+  return[(n>>16)&255,(n>>8)&255,n&255];
+}
+
+function generarPDFAsistenciaEquipos(dayLabel,dayNum,casaW,subcW,orgData){
+  var doc=new jspdf.jsPDF({orientation:'portrait',unit:'mm',format:'letter'});
+  var pw=216,pph=279,margin=14,y=18;
+  function chkP(need){if(y+need>pph-16){doc.addPage();y=18;}}
+  try{doc.addImage(_LOGO,'PNG',margin,y-6,28,8);}catch(e){}
+  doc.setFontSize(13);doc.setFont('helvetica','bold');doc.setTextColor(10,20,60);
+  doc.text('ASISTENCIA POR EQUIPOS',pw/2,y,{align:'center'});
+  y+=5;
+  doc.setFontSize(9);doc.setFont('helvetica','normal');doc.setTextColor(80,80,80);
+  doc.text(dayLabel,pw/2,y,{align:'center'});
+  doc.setFontSize(7.5);
+  doc.text('Generado: '+new Date().toLocaleDateString('es-CL'),pw-margin,y,{align:'right'});
+  y+=5;
+  doc.setDrawColor(180,180,200);doc.setLineWidth(.4);doc.line(margin,y,pw-margin,y);
+  y+=7;
+
+  // Asistencia combinada (Casa + Subcontratos)
+  var subcList=[];Object.entries(subcW||{}).forEach(function(kv){kv[1].forEach(function(w){subcList.push(Object.assign({},w,{empresa:kv[0]}));});});
+  var allList=(casaW||[]).concat(subcList);
+  function estOf(w){return(w.dias&&w.dias[dayNum])||'';}
+  var prN=allList.filter(function(w){return estOf(w)==='X';}).length;
+  var peN=allList.filter(function(w){return estOf(w)==='P';}).length;
+  var auN=allList.length-prN-peN;
+
+  var bw=(pw-margin*2-8)/3;
+  [['PRESENTES',prN,[22,163,74]],['PERMISOS',peN,[217,119,6]],['AUSENTES',auN,[220,38,38]]].forEach(function(s,i){
+    var bx=margin+i*(bw+4);
+    doc.setDrawColor(s[2][0],s[2][1],s[2][2]);doc.setFillColor(s[2][0],s[2][1],s[2][2]);
+    doc.setFillColor(250,250,252);doc.rect(bx,y,bw,16,'FD');
+    doc.setFontSize(15);doc.setFont('helvetica','bold');doc.setTextColor(s[2][0],s[2][1],s[2][2]);
+    doc.text(String(s[1]),bx+bw/2,y+9,{align:'center'});
+    doc.setFontSize(6.5);doc.setFont('helvetica','bold');
+    doc.text(s[0],bx+bw/2,y+13.5,{align:'center'});
+  });
+  y+=16+8;
+
+  var nodes=(orgData&&orgData.nodes)||[];
+  var roots=nodes.length?buildOrgTree(nodes):[];
+  var pabloRoot=roots.find(function(r){return nameKey(r.nombre)!==ADMIN_ROOT_KEY;});
+
+  if(pabloRoot){
+    var equipos=pabloRoot.children||[];
+    function findEq(key){return equipos.find(function(e){return nameKey(e.nombre)===key;});}
+    function totOf(node){return node?getTeamStats(node,null,casaW).total:0;}
+    var presentesHoy=getTeamStats(pabloRoot,dayNum,casaW).presentes;
+    var aseo=findEq(nameKey('MONTECINOS MUÑOZ ANA MARIA'));
+    var bodega=findEq(nameKey('VARGAS MORA JUAN CARLOS'));
+    var mantenimiento=findEq(nameKey('PADILLA ZAMBRANO JULIO CESAR'));
+    var trazado1=findEq(nameKey('NILO ROJAS RODRIGO ANIBAL'));
+    var trazado2=findEq(nameKey('OLIVA ARAVENA CRISTIAN MAURICIO'));
+    var patio=findEq(nameKey('RAMIREZ TORRES LUIS EDUARDO'));
+    var obraGruesa=findEq(nameKey('JIMENEZ RIVEROS IVAN MARCELO'));
+    var castroG=findEq(TERMINACIONES_LEAD_KEY);
+    var elgueta=findEq(nameKey('ELGUETA ROJAS VALERIA CAROLINE'));
+    var farias=findEq(nameKey('FARIAS GUTIERREZ ANGELICA DEL CARMEN'));
+    var villablanca=findEq(nameKey('VILLABLANCA MARILICAN HANS GABRIEL'));
+    var castroGTot=totOf(castroG),elguetaTot=totOf(elgueta),fariasTot=totOf(farias),villablancaTot=totOf(villablanca);
+    var terminacionesTot=castroGTot+elguetaTot+fariasTot+villablancaTot;
+    var badges=[['Aseo',totOf(aseo)],['Bodega',totOf(bodega)],['Mantenimiento',totOf(mantenimiento)],
+      ['Trazado',totOf(trazado1)+totOf(trazado2)],['Jefe de Patio',totOf(patio)],['Obra Gruesa',totOf(obraGruesa)]];
+    chkP(50);
+    var boxH=44;
+    doc.setFillColor(245,247,250);doc.rect(margin,y,pw-margin*2,boxH,'F');
+    doc.setDrawColor(200,205,215);doc.rect(margin,y,pw-margin*2,boxH,'S');
+    doc.setFontSize(8);doc.setFont('helvetica','bold');doc.setTextColor(90,95,110);
+    doc.text('TOTAL PERSONAL EN OBRA (PRESENTES)',margin+4,y+7);
+    doc.setFontSize(13);doc.setTextColor(22,163,74);
+    doc.text(String(presentesHoy),pw-margin-4,y+7,{align:'right'});
+    var by=y+13,colW=(pw-margin*2-8)/2;
+    badges.forEach(function(b,i){
+      var bx=margin+4+(i%2)*(colW+4),byy=by+Math.floor(i/2)*7;
+      doc.setFontSize(8);doc.setFont('helvetica','normal');doc.setTextColor(60,60,70);
+      doc.text(b[0],bx,byy);
+      doc.setFont('helvetica','bold');doc.setTextColor(20,80,180);
+      doc.text(String(b[1]),bx+colW-6,byy,{align:'right'});
+    });
+    var ty=by+Math.ceil(badges.length/2)*7+3;
+    doc.setDrawColor(210,210,220);doc.line(margin+4,ty,pw-margin-4,ty);ty+=5;
+    doc.setFontSize(8);doc.setFont('helvetica','bold');doc.setTextColor(30,30,40);
+    doc.text('Terminaciones (Total)',margin+4,ty);
+    doc.setTextColor(20,80,180);
+    doc.text(String(terminacionesTot),pw-margin-4,ty,{align:'right'});
+    y+=boxH+6;
+  }
+
+  function drawTeamCard(node,color){
+    var ts=getTeamStats(node,dayNum,casaW);
+    var members=[];
+    function collect(n,level){
+      var w=(casaW||[]).find(function(x){return x.rut===n.rut;});
+      if(w)members.push({worker:w,level:level,st:(w.dias&&w.dias[dayNum])||''});
+      (n.children||[]).forEach(function(c){collect(c,level+1);});
+    }
+    collect(node,0);
+    var rgb=_hexToRgb(color);
+    chkP(9+members.length*7);
+    doc.setFillColor(rgb[0],rgb[1],rgb[2]);doc.rect(margin,y,pw-margin*2,7,'F');
+    doc.setFontSize(8.5);doc.setFont('helvetica','bold');doc.setTextColor(255,255,255);
+    doc.text(node.nombre.split(' ').slice(0,3).join(' ')+(node.cargo?' — '+node.cargo:''),margin+3,y+5);
+    doc.text(ts.presentes+'/'+ts.total+' ('+ts.pct+'%)',pw-margin-3,y+5,{align:'right'});
+    y+=9;
+    members.forEach(function(m){
+      chkP(7);
+      var col=m.st==='X'?[22,163,74]:m.st==='P'?[217,119,6]:[170,170,178];
+      var lbl=m.st==='X'?'Presente':m.st==='P'?'Permiso':m.st==='#'?'Feriado':'Ausente';
+      doc.setFillColor(col[0],col[1],col[2]);doc.circle(margin+3+m.level*3,y+1.8,1,'F');
+      doc.setFontSize(7.5);doc.setFont('helvetica','normal');doc.setTextColor(40,40,45);
+      doc.text(m.worker.nombre,margin+7+m.level*3,y+2.6);
+      doc.setFontSize(6.5);doc.setTextColor(130,130,140);
+      doc.text(m.worker.cargo||'',margin+7+m.level*3,y+5.6);
+      doc.setFontSize(7);doc.setFont('helvetica','bold');doc.setTextColor(col[0],col[1],col[2]);
+      doc.text(lbl,pw-margin-3,y+3.8,{align:'right'});
+      y+=7;
+    });
+    y+=3;
+  }
+
+  if(roots.length){
+    var adminRoots=roots.filter(function(r){return nameKey(r.nombre)===ADMIN_ROOT_KEY;});
+    var pabloEquipos=(pabloRoot&&pabloRoot.children)||[];
+    var supTerm=pabloEquipos.filter(function(eq){return TERMINACIONES_SUP_KEYS.indexOf(nameKey(eq.nombre))>=0;});
+    var mainEquipos=pabloEquipos.filter(function(eq){return TERMINACIONES_SUP_KEYS.indexOf(nameKey(eq.nombre))<0;});
+    var supTermColors=supTerm.map(function(eq,i){return TEAM_COLORS[(adminRoots.length+mainEquipos.length+i)%TEAM_COLORS.length];});
+
+    chkP(10);
+    doc.setFontSize(9.5);doc.setFont('helvetica','bold');doc.setTextColor(20,20,30);
+    doc.text('EQUIPOS CASA',margin,y);y+=6;
+
+    adminRoots.forEach(function(r,i){drawTeamCard(r,TEAM_COLORS[i%TEAM_COLORS.length]);});
+    mainEquipos.forEach(function(eq,i){
+      var color=TEAM_COLORS[(adminRoots.length+i)%TEAM_COLORS.length];
+      drawTeamCard(eq,color);
+      if(nameKey(eq.nombre)===TERMINACIONES_LEAD_KEY&&supTerm.length){
+        chkP(7);
+        doc.setFontSize(7.5);doc.setFont('helvetica','bold');doc.setTextColor(120,120,130);
+        doc.text('SUPERVISORES A CARGO',margin+3,y);y+=5;
+        supTerm.forEach(function(seq,si){drawTeamCard(seq,supTermColors[si]);});
+      }
+    });
+  }
+
+  var subcCompanies=Object.keys(subcW||{}).map(function(emp){
+    var workers=subcW[emp]||[];
+    var tot=workers.length;
+    var pr=workers.filter(function(w){return w.dias&&w.dias[dayNum]==='X';}).length;
+    return{empresa:emp,total:tot,presentes:pr,pct:tot?Math.round(pr/tot*100):0};
+  }).filter(function(c){return c.total>0;});
+  subcCompanies.sort(function(a,b){return b.pct-a.pct;});
+
+  if(subcCompanies.length){
+    chkP(10);
+    doc.setFontSize(9.5);doc.setFont('helvetica','bold');doc.setTextColor(20,20,30);
+    doc.text('SUBCONTRATOS',margin,y);y+=6;
+    subcCompanies.forEach(function(c,i){
+      chkP(11);
+      var col=_hexToRgb(TEAM_COLORS[i%TEAM_COLORS.length]);
+      doc.setDrawColor(col[0],col[1],col[2]);doc.setFillColor(250,250,252);
+      doc.rect(margin,y,pw-margin*2,10,'FD');
+      doc.setFontSize(8);doc.setFont('helvetica','bold');doc.setTextColor(30,30,40);
+      doc.text(c.empresa,margin+3,y+4);
+      doc.setFontSize(7);doc.setTextColor(col[0],col[1],col[2]);
+      doc.text(c.presentes+'/'+c.total+' ('+c.pct+'%)',margin+3,y+8);
+      doc.setFillColor(230,230,235);doc.rect(pw-margin-50,y+7,50,1.4,'F');
+      doc.setFillColor(col[0],col[1],col[2]);doc.rect(pw-margin-50,y+7,50*c.pct/100,1.4,'F');
+      y+=13;
+    });
+  }
+
+  var nPg=doc.getNumberOfPages();
+  for(var pg=1;pg<=nPg;pg++){
+    doc.setPage(pg);
+    doc.setFontSize(7.5);doc.setFont('helvetica','normal');doc.setTextColor(160,160,160);
+    doc.text('Pág. '+pg+' / '+nPg,pw-margin,pph-8,{align:'right'});
+    doc.text('Edificio Victoria — Control de Obra',margin,pph-8);
+  }
+  var fname='asistencia-equipos-'+String(dayLabel).replace(/[\s\/]/g,'-')+'.pdf';
+  doc.save(fname);
+}
+
 function parseXlsxCasa(buffer){
   var wb=XLSX.read(new Uint8Array(buffer),{type:'array'});
   var wsName=wb.SheetNames.find(function(n){return n.trim().toUpperCase().includes('ASISTENCIA');})||wb.SheetNames[0];
@@ -8564,7 +8748,7 @@ function AsistenciaView({asistData,onAsistSave,orgData,onOrgSave,auth,toast}){
     var dl=dn+' de '+MONTH_NAMES[mo]+' '+yr;
     var casaList=casaW.map(function(w){return Object.assign({},w,{estado:(w.dias&&w.dias[dn])||'',empresa:'Casa'});});
     var subcList=[];Object.entries(subcW).forEach(function(kv){kv[1].forEach(function(w){subcList.push(Object.assign({},w,{empresa:kv[0],estado:(w.dias&&w.dias[dn])||''}));});});
-    var list=tab==='casa'?casaList:subcList;
+    var list=tab==='casa'?casaList:tab==='equipos'?casaList.concat(subcList):subcList;
     var pr=list.filter(function(w){return w.estado==='X';}),pe=list.filter(function(w){return w.estado==='P';}),au=list.filter(function(w){return w.estado!=='X'&&w.estado!=='P';});
     var all=[].concat(pr,pe,au);
     function ecol(e){return e==='X'?'var(--green)':e==='P'?'var(--amber)':'var(--text3)';}
@@ -8578,10 +8762,17 @@ function AsistenciaView({asistData,onAsistSave,orgData,onOrgSave,auth,toast}){
           h('div',{style:{fontSize:11,color:'var(--text3)'}},pr.length+' presentes \xb7 '+pe.length+' permisos \xb7 '+au.length+' ausentes')
         )
       ),
-      h('div',{className:'ftabs',style:{marginBottom:10}},
-        [{k:'casa',l:'Casa ('+casaW.length+')'},{k:'subcontratos',l:'Subctos.'},{k:'equipos',l:'Por Equipos'}].map(function(t){
-          return h('button',{key:t.k,className:'ftab '+(tab===t.k?'on':''),onClick:function(){setTab(t.k);}},t.l);
-        })
+      h('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',marginBottom:10}},
+        h('div',{className:'ftabs',style:{margin:0}},
+          [{k:'casa',l:'Casa ('+casaW.length+')'},{k:'subcontratos',l:'Subctos.'},{k:'equipos',l:'Por Equipos'}].map(function(t){
+            return h('button',{key:t.k,className:'ftab '+(tab===t.k?'on':''),onClick:function(){setTab(t.k);}},t.l);
+          })
+        ),
+        tab==='equipos'&&h('button',{onClick:function(){
+          if(typeof jspdf==='undefined'){toast&&toast('Error: jsPDF no disponible');return;}
+          generarPDFAsistenciaEquipos(dl,dn,casaW,subcW,orgData);
+          toast&&toast('PDF generado');
+        },style:{background:'var(--blue)',border:'none',borderRadius:6,padding:'6px 12px',color:'#fff',cursor:'pointer',fontSize:11,fontWeight:700,whiteSpace:'nowrap'}},'📄 Generar PDF')
       ),
       h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6,marginBottom:10}},
         h('div',{style:{textAlign:'center',padding:'8px',background:'rgba(34,197,94,.1)',borderRadius:8,border:'1px solid rgba(34,197,94,.2)'}},
@@ -11675,9 +11866,10 @@ function InformeSemanalView({ganttData,saves,onSave,onGanttSave,reportData,onRep
 // ── CONTROL VIEW — Seguimiento ventanas por piso ─────────────────────────
 const VENT_SCHEDULE=[
   // ── PISO 2 ──────────────────────────────────────────────────────────────
-  {id:'202a',depto:202,tipo:'V30',cant:2,lugar:'Baños',       piso:'Piso 2'},
+  {id:'202a',depto:202,tipo:'V30',cant:3,lugar:'Baños',       piso:'Piso 2'},
   {id:'202b',depto:202,tipo:'V28',cant:2,lugar:'Patio de Luz',piso:'Piso 2'},
   {id:'202c',depto:202,tipo:'V29',cant:1,lugar:'Patio de Luz',piso:'Piso 2'},
+  {id:'202d',depto:202,tipo:'V32',cant:2,lugar:'Patio de Luz',piso:'Piso 2'},
   {id:'203a',depto:203,tipo:'V33',cant:1,lugar:'Dormitorio',  piso:'Piso 2'},
   {id:'204a',depto:204,tipo:'V10',cant:1,lugar:'Dormitorio',  piso:'Piso 2'},
   {id:'205a',depto:205,tipo:'V10',cant:1,lugar:'Dormitorio',  piso:'Piso 2'},
@@ -11694,22 +11886,18 @@ const VENT_SCHEDULE=[
   {id:'216a',depto:216,tipo:'V10',cant:1,lugar:'Dormitorio',  piso:'Piso 2'},
   {id:'217a',depto:217,tipo:'V10',cant:1,lugar:'Dormitorio',  piso:'Piso 2'},
   {id:'218a',depto:218,tipo:'V10',cant:1,lugar:'Dormitorio',  piso:'Piso 2'},
-  {id:'219a',depto:219,tipo:'V25',cant:2,lugar:'Dormitorio',  piso:'Piso 2'},
-  {id:'219b',depto:219,tipo:'V26',cant:1,lugar:'Dormitorio',  piso:'Piso 2'},
-  {id:'220a',depto:220,tipo:'V25',cant:1,lugar:'Dormitorio',  piso:'Piso 2'},
-  {id:'220b',depto:220,tipo:'V26',cant:1,lugar:'Dormitorio',  piso:'Piso 2'},
-  {id:'221a',depto:221,tipo:'V25',cant:1,lugar:'Dormitorio',  piso:'Piso 2'},
-  {id:'221b',depto:221,tipo:'V26',cant:1,lugar:'Dormitorio',  piso:'Piso 2'},
-  {id:'222a',depto:222,tipo:'V25',cant:1,lugar:'Dormitorio',  piso:'Piso 2'},
-  {id:'222b',depto:222,tipo:'V26',cant:1,lugar:'Dormitorio',  piso:'Piso 2'},
+  {id:'219a',depto:219,tipo:'V10',cant:1,lugar:'Dormitorio',  piso:'Piso 2'},
+  {id:'220a',depto:220,tipo:'V10',cant:1,lugar:'Dormitorio',  piso:'Piso 2'},
+  {id:'221a',depto:221,tipo:'V10',cant:1,lugar:'Dormitorio',  piso:'Piso 2'},
+  {id:'222a',depto:222,tipo:'V10',cant:1,lugar:'Dormitorio',  piso:'Piso 2'},
   {id:'p2ce1',depto:'P2-CE1',tipo:'V33',cant:1,lugar:'Escalera',piso:'Piso 2',label:'Caja Escala 1'},
   {id:'p2ce2',depto:'P2-CE2',tipo:'V33',cant:1,lugar:'Escalera',piso:'Piso 2',label:'Caja Escala 2'},
   {id:'p2asc',depto:'P2-ASC',tipo:'V33',cant:1,lugar:'Ascensor',piso:'Piso 2',label:'Hall Ascensor'},
   // ── PISO 3 ──────────────────────────────────────────────────────────────
   {id:'302a',depto:302,tipo:'V30',cant:2,lugar:'Baños',       piso:'Piso 3'},
   {id:'302b',depto:302,tipo:'V28',cant:2,lugar:'Patio de Luz',piso:'Piso 3'},
-  {id:'302c',depto:302,tipo:'V30',cant:1,lugar:'Patio de Luz',piso:'Piso 3'},
-  {id:'302d',depto:302,tipo:'V31',cant:1,lugar:'Dormitorio',  piso:'Piso 3'},
+  {id:'302c',depto:302,tipo:'V30',cant:2,lugar:'Patio de Luz',piso:'Piso 3'},
+  {id:'302d',depto:302,tipo:'V31',cant:2,lugar:'Dormitorio',  piso:'Piso 3'},
   {id:'303a',depto:303,tipo:'V01',cant:1,lugar:'Dormitorio',  piso:'Piso 3'},
   {id:'304a',depto:304,tipo:'V01',cant:1,lugar:'Dormitorio',  piso:'Piso 3'},
   {id:'305a',depto:305,tipo:'V01',cant:1,lugar:'Dormitorio',  piso:'Piso 3'},
@@ -11726,18 +11914,20 @@ const VENT_SCHEDULE=[
   {id:'316a',depto:316,tipo:'V01',cant:1,lugar:'Dormitorio',  piso:'Piso 3'},
   {id:'317a',depto:317,tipo:'V01',cant:1,lugar:'Dormitorio',  piso:'Piso 3'},
   {id:'318a',depto:318,tipo:'V20',cant:1,lugar:'Dormitorio',  piso:'Piso 3'},
-  {id:'319a',depto:319,tipo:'V26',cant:2,lugar:'Dormitorio',  piso:'Piso 3'},
+  {id:'319a',depto:319,tipo:'V26',cant:1,lugar:'Dormitorio',  piso:'Piso 3'},
+  {id:'319b',depto:319,tipo:'V25',cant:2,lugar:'Dormitorio',  piso:'Piso 3'},
   {id:'320a',depto:320,tipo:'V26',cant:1,lugar:'Dormitorio',  piso:'Piso 3'},
   {id:'320b',depto:320,tipo:'V26',cant:1,lugar:'Dormitorio',  piso:'Piso 3'},
   {id:'321a',depto:321,tipo:'V25',cant:2,lugar:'Dormitorio',  piso:'Piso 3'},
-  {id:'322a',depto:322,tipo:'V25',cant:1,lugar:'Dormitorio',  piso:'Piso 3'},
+  {id:'322a',depto:322,tipo:'V25',cant:2,lugar:'Dormitorio',  piso:'Piso 3'},
+  {id:'322b',depto:322,tipo:'V26',cant:1,lugar:'Dormitorio',  piso:'Piso 3'},
   {id:'p3ce1',depto:'P3-CE1',tipo:'V24',cant:1,lugar:'Escalera',piso:'Piso 3',label:'Caja Escala 1'},
   {id:'p3ce2',depto:'P3-CE2',tipo:'V24',cant:1,lugar:'Escalera',piso:'Piso 3',label:'Caja Escala 2'},
   {id:'p3asc',depto:'P3-ASC',tipo:'V24',cant:1,lugar:'Ascensor',piso:'Piso 3',label:'Hall Ascensor'},
-  {id:'p3pas_v27', depto:'P3-PAS',tipo:'V27',   cant:16,lugar:'Pasillo',piso:'Piso 3',label:'Pasillo'},
-  {id:'p3pas_v27m',depto:'P3-PAS',tipo:'V27MOD',cant:2, lugar:'Pasillo',piso:'Piso 3',label:'Pasillo'},
+  {id:'p3pas_v27', depto:'P3-PAS',tipo:'V27',   cant:18,lugar:'Pasillo',piso:'Piso 3',label:'Pasillo'},
   // ── PISO 4 ──────────────────────────────────────────────────────────────
   {id:'403a',depto:403,tipo:'V20',cant:1,lugar:'Dormitorio',  piso:'Piso 4'},
+  {id:'403b',depto:403,tipo:'V21',cant:1,lugar:'Dormitorio',  piso:'Piso 4'},
   {id:'404a',depto:404,tipo:'V19',cant:3,lugar:'Dormitorio',  piso:'Piso 4'},
   {id:'405a',depto:405,tipo:'V19',cant:3,lugar:'Dormitorio',  piso:'Piso 4'},
   {id:'406a',depto:406,tipo:'V19',cant:3,lugar:'Dormitorio',  piso:'Piso 4'},
@@ -11747,22 +11937,23 @@ const VENT_SCHEDULE=[
   {id:'410a',depto:410,tipo:'V19',cant:3,lugar:'Dormitorio',  piso:'Piso 4'},
   {id:'411a',depto:411,tipo:'V19',cant:3,lugar:'Dormitorio',  piso:'Piso 4'},
   {id:'412a',depto:412,tipo:'V19',cant:3,lugar:'Dormitorio',  piso:'Piso 4'},
-  {id:'413a',depto:413,tipo:'V19',cant:3,lugar:'Dormitorio',  piso:'Piso 4'},
+  {id:'413a',depto:413,tipo:'V19',cant:2,lugar:'Dormitorio',  piso:'Piso 4'},
   {id:'414a',depto:414,tipo:'V19',cant:3,lugar:'Dormitorio',  piso:'Piso 4'},
   {id:'415a',depto:415,tipo:'V19',cant:3,lugar:'Dormitorio',  piso:'Piso 4'},
   {id:'416a',depto:416,tipo:'V19',cant:3,lugar:'Dormitorio',  piso:'Piso 4'},
   {id:'417a',depto:417,tipo:'V19',cant:3,lugar:'Dormitorio',  piso:'Piso 4'},
   {id:'418a',depto:418,tipo:'V19',cant:3,lugar:'Dormitorio',  piso:'Piso 4'},
   {id:'419a',depto:419,tipo:'V19',cant:3,lugar:'Dormitorio',  piso:'Piso 4'},
-  {id:'420a',depto:420,tipo:'V22',cant:3,lugar:'Dormitorio',  piso:'Piso 4'},
+  {id:'420a',depto:420,tipo:'V23',cant:1,lugar:'Dormitorio',  piso:'Piso 4'},
   {id:'421a',depto:421,tipo:'V22',cant:1,lugar:'Dormitorio',  piso:'Piso 4'},
-  {id:'422a',depto:422,tipo:'V23',cant:3,lugar:'Dormitorio',  piso:'Piso 4'},
+  {id:'422a',depto:422,tipo:'V22',cant:2,lugar:'Dormitorio',  piso:'Piso 4'},
   {id:'p4ce1',depto:'P4-CE1',tipo:'V20',cant:1,lugar:'Escalera',piso:'Piso 4',label:'Caja Escala 1'},
+  {id:'p4ce2',depto:'P4-CE2',tipo:'V20',cant:1,lugar:'Escalera',piso:'Piso 4',label:'Caja Escala 2'},
   {id:'p4asc',depto:'P4-ASC',tipo:'V20',cant:1,lugar:'Ascensor',piso:'Piso 4',label:'Hall Ascensor'},
-  {id:'p4pas_v21', depto:'P4-PAS',tipo:'V21',   cant:16,lugar:'Pasillo',piso:'Piso 4',label:'Pasillo'},
-  {id:'p4pas_v21m',depto:'P4-PAS',tipo:'V21MOD',cant:2, lugar:'Pasillo',piso:'Piso 4',label:'Pasillo'},
+  {id:'p4pas_v21', depto:'P4-PAS',tipo:'V21',   cant:17,lugar:'Pasillo',piso:'Piso 4',label:'Pasillo'},
   // ── PISO 5 ──────────────────────────────────────────────────────────────
   {id:'503a',depto:503,tipo:'V05',cant:1,lugar:'Dormitorio',  piso:'Piso 5'},
+  {id:'503b',depto:503,tipo:'V15',cant:1,lugar:'Dormitorio',  piso:'Piso 5'},
   {id:'504a',depto:504,tipo:'V11',cant:1,lugar:'Dormitorio',  piso:'Piso 5'},
   {id:'505a',depto:505,tipo:'V11',cant:1,lugar:'Dormitorio',  piso:'Piso 5'},
   {id:'506a',depto:506,tipo:'V11',cant:1,lugar:'Dormitorio',  piso:'Piso 5'},
@@ -11780,14 +11971,18 @@ const VENT_SCHEDULE=[
   {id:'518a',depto:518,tipo:'V11',cant:1,lugar:'Dormitorio',  piso:'Piso 5'},
   {id:'519a',depto:519,tipo:'V13',cant:2,lugar:'Dormitorio',  piso:'Piso 5'},
   {id:'520a',depto:520,tipo:'V14',cant:1,lugar:'Dormitorio',  piso:'Piso 5'},
-  {id:'521a',depto:521,tipo:'V11',cant:1,lugar:'Dormitorio',  piso:'Piso 5'},
+  {id:'521a',depto:521,tipo:'V13',cant:1,lugar:'Dormitorio',  piso:'Piso 5'},
+  {id:'521b',depto:521,tipo:'V14',cant:1,lugar:'Dormitorio',  piso:'Piso 5'},
   {id:'522a',depto:522,tipo:'V13',cant:1,lugar:'Dormitorio',  piso:'Piso 5'},
-  {id:'p5ce1',depto:'P5-CE1',tipo:'V06',cant:1,lugar:'Escalera',piso:'Piso 5',label:'Caja Escala 1'},
+  {id:'522b',depto:522,tipo:'V14',cant:1,lugar:'Dormitorio',  piso:'Piso 5'},
+  {id:'p5ce1',depto:'P5-CE1',tipo:'V05',cant:1,lugar:'Escalera',piso:'Piso 5',label:'Caja Escala 1'},
+  {id:'p5ce2',depto:'P5-CE2',tipo:'V06',cant:1,lugar:'Escalera',piso:'Piso 5',label:'Caja Escala 2'},
   {id:'p5asc',depto:'P5-ASC',tipo:'V06',cant:1,lugar:'Ascensor',piso:'Piso 5',label:'Hall Ascensor'},
   {id:'p5pas_v13',depto:'P5-PAS',tipo:'V13',cant:1,lugar:'Pasillo',piso:'Piso 5',label:'Pasillo'},
   {id:'p5pas_v14',depto:'P5-PAS',tipo:'V14',cant:5,lugar:'Pasillo',piso:'Piso 5',label:'Pasillo'},
   // ── PISO 6 ──────────────────────────────────────────────────────────────
   {id:'603a',depto:603,tipo:'V16',cant:1,lugar:'Dormitorio',  piso:'Piso 6'},
+  {id:'603b',depto:603,tipo:'V04',cant:1,lugar:'Dormitorio',  piso:'Piso 6'},
   {id:'604a',depto:604,tipo:'V02',cant:1,lugar:'Dormitorio',  piso:'Piso 6'},
   {id:'605a',depto:605,tipo:'V02',cant:1,lugar:'Dormitorio',  piso:'Piso 6'},
   {id:'606a',depto:606,tipo:'V02',cant:1,lugar:'Dormitorio',  piso:'Piso 6'},
@@ -11803,14 +11998,14 @@ const VENT_SCHEDULE=[
   {id:'616a',depto:616,tipo:'V02',cant:1,lugar:'Dormitorio',  piso:'Piso 6'},
   {id:'617a',depto:617,tipo:'V02',cant:1,lugar:'Dormitorio',  piso:'Piso 6'},
   {id:'618a',depto:618,tipo:'V03',cant:1,lugar:'Dormitorio',  piso:'Piso 6'},
-  {id:'619a',depto:619,tipo:'V08',cant:2,lugar:'Dormitorio',  piso:'Piso 6'},
+  {id:'619a',depto:619,tipo:'V09',cant:1,lugar:'Dormitorio',  piso:'Piso 6'},
   {id:'620a',depto:620,tipo:'V09',cant:1,lugar:'Dormitorio',  piso:'Piso 6'},
   {id:'621a',depto:621,tipo:'V09',cant:1,lugar:'Dormitorio',  piso:'Piso 6'},
   {id:'622a',depto:622,tipo:'V09',cant:1,lugar:'Dormitorio',  piso:'Piso 6'},
+  {id:'622b',depto:622,tipo:'V16',cant:1,lugar:'Dormitorio',  piso:'Piso 6'},
   {id:'p6ce1',depto:'P6-CE1',tipo:'V04',cant:1,lugar:'Escalera',piso:'Piso 6',label:'Caja Escala 1'},
   {id:'p6asc',depto:'P6-ASC',tipo:'V07',cant:1,lugar:'Ascensor',piso:'Piso 6',label:'Hall Ascensor'},
-  {id:'p6pas_v17',depto:'P6-PAS',tipo:'V17',cant:1,lugar:'Pasillo',piso:'Piso 6',label:'Pasillo'},
-  {id:'p6pas_v18',depto:'P6-PAS',tipo:'V18',cant:8,lugar:'Pasillo',piso:'Piso 6',label:'Pasillo'},
+  {id:'p6pas_v17',depto:'P6-PAS',tipo:'V17',cant:9,lugar:'Pasillo',piso:'Piso 6',label:'Pasillo'},
 ];
 // Estados de instalación (secuenciales)
 // Estados lineales (flujo principal)
@@ -11858,12 +12053,15 @@ var VENT_SCHEDULE_EXP=(function(){
   });
   return out;
 })();
+// Lista de tipos de ventana conocidos (para el selector al corregir el tipo de una unidad)
+var VENT_TIPOS=[...new Set(VENT_SCHEDULE.map(function(i){return i.tipo;}))].sort();
 function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
   var canEdit=!auth||auth.role==='Admin'||auth.role==='Jefe Obra'||auth.role==='Supervisor';
   const[selPiso,setSelPiso]=useState(VENT_PISOS[0]||'Piso 2');
   const[selBloque,setSelBloque]=useState('gestion'); // 'gestion'|'despacho'|'instalacion'|'informe'
   const[agrupar,setAgrupar]=useState('piso'); // 'piso'|'tipo' — antes pestañas "Por Piso"/"Por Tipo"
   const[hideDone,setHideDone]=useState(false); // Informe: ocultar deptos ya al 100%
+  const[editingTipoId,setEditingTipoId]=useState(null); // item.id cuyo tipo se está corrigiendo
   const[informeFiltro,setInformeFiltro]=useState('todas'); // Informe: 'todas'|'marco'|'termopanel'|'quinc'|'accesorios'
   const[showAlertas,setShowAlertas]=useState(false); // acordeón de alertas dentro de Despacho
   const[selDepto,setSelDepto]=useState(null);
@@ -12282,6 +12480,7 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
   function renderItem(item){
     var ed=getED(item.id);var isSel=selItemId===item.id;
     var iD=itemData[item.id]||{};
+    var tipoEff=iD.tipoOverride||item.tipo;
     var diasLlegada=iD.llegada&&!iD.llegadaReal?Math.round((new Date(iD.llegada+'T12:00:00')-new Date(today+'T12:00:00'))/86400000):null;
     var alertIc=diasLlegada!==null?(diasLlegada<0?'🚨':diasLlegada===0?'🔔':diasLlegada<=3?'⚠️':diasLlegada<=7?'📅':''):'';
     return h('div',{key:item.id,style:{marginBottom:5}},
@@ -12291,9 +12490,11 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
           borderRadius:isSel?'8px 8px 0 0':8,
           border:'1px solid '+(isSel?'var(--accent)':ed.col+'45'),
           background:isSel?'rgba(0,10,24,.85)':ed.bg,transition:'all .1s'}},
-        h('div',{style:{width:36,height:36,borderRadius:8,display:'flex',flexDirection:'column',alignItems:'center',
-          justifyContent:'center',background:ed.col+'22',flexShrink:0}},
-          h('div',{style:{fontSize:10,fontWeight:800,color:ed.col,lineHeight:1}},item.tipo),
+        h('div',{onClick:function(ev){if(canEdit){ev.stopPropagation();setEditingTipoId(editingTipoId===item.id?null:item.id);}},
+          title:canEdit?'Clic para corregir el tipo de ventana':undefined,
+          style:{width:36,height:36,borderRadius:8,display:'flex',flexDirection:'column',alignItems:'center',
+          justifyContent:'center',background:ed.col+'22',flexShrink:0,cursor:canEdit?'pointer':'default'}},
+          h('div',{style:{fontSize:10,fontWeight:800,color:ed.col,lineHeight:1}},tipoEff),
           item._totalUnidad>1
             ?h('div',{style:{fontSize:9,color:ed.col,fontWeight:700}},'#'+item._unidad+'/'+item._totalUnidad)
             :null),
@@ -12306,6 +12507,25 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
         h('div',{style:{padding:'3px 9px',borderRadius:12,fontSize:10,fontWeight:700,
           color:ed.col,background:ed.col+'18',border:'1px solid '+ed.col+'40',flexShrink:0,whiteSpace:'nowrap'}},
           ed.ic+' '+ed.l)
+      ),
+      // Corrección de tipo (aparece al hacer clic en el badge de tipo)
+      editingTipoId===item.id&&h('div',{style:{display:'flex',alignItems:'center',gap:6,padding:'6px 10px',
+        background:'var(--bg3)',borderRadius:8,marginTop:4,flexWrap:'wrap'}},
+        h('span',{style:{fontSize:9,color:'var(--text3)'}},'Corregir tipo de ventana:'),
+        h('select',{value:tipoEff,
+          onChange:function(ev){
+            var v=ev.target.value;
+            updItem(item.id,{tipoOverride:v===item.tipo?null:v});
+            setEditingTipoId(null);
+            toast&&toast('✓ Tipo actualizado a '+v);
+          },
+          style:{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:6,padding:'4px 8px',
+            color:'var(--text)',fontSize:11,fontFamily:'var(--font)'}},
+          VENT_TIPOS.map(function(t){return h('option',{key:t,value:t},t);})
+        ),
+        h('button',{onClick:function(){setEditingTipoId(null);},
+          style:{padding:'4px 8px',borderRadius:6,border:'1px solid var(--border)',background:'var(--bg2)',
+            color:'var(--text3)',fontSize:10,cursor:'pointer'}},'Cancelar')
       ),
       // Expanded panel — el contenido se filtra según la pestaña activa (selBloque)
       isSel&&h('div',{style:{border:'1px solid var(--accent)',borderTop:'none',
@@ -12378,7 +12598,9 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
           )
         ),
         // ── INSTALACIÓN: atraso vs. programado + etapas paralelas ──────────
-        selBloque==='instalacion'&&h('div',{style:{display:'flex',flexDirection:'column',gap:10}},
+        // También visible desde "4. Informe" para poder cargar avances sin cambiar de pestaña
+        // — es el mismo itemData, así que se refleja solo en Gestión/Despacho/Instalación.
+        (selBloque==='instalacion'||selBloque==='informe')&&h('div',{style:{display:'flex',flexDirection:'column',gap:10}},
         (function(){
           var fechaProg=getGanttEndDateForDept(item.depto);
           var fechaReal=iD.fechaReal;
@@ -12502,9 +12724,12 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
     else if(typeof item.depto==='string'&&pisoAreas.indexOf(item.depto)<0)pisoAreas.push(item.depto);
   });
   pisoNumDepts.sort(function(a,b){return a-b;});
-  // Por tipo global
+  // Por tipo global (usa el tipo corregido si se editó manualmente)
   var byTipo={};
-  VENT_SCHEDULE_EXP.forEach(function(item){if(!byTipo[item.tipo])byTipo[item.tipo]=[];byTipo[item.tipo].push(item);});
+  VENT_SCHEDULE_EXP.forEach(function(item){
+    var t=(itemData[item.id]||{}).tipoOverride||item.tipo;
+    if(!byTipo[t])byTipo[t]=[];byTipo[t].push(item);
+  });
   // Helper: botón de depto
   function deptBtn(dep,ind,items){
     var isSel=selDepto===dep;
