@@ -11828,11 +11828,14 @@ const INST_ETAPAS={
   marco:      {l:'Marco',             col:'#78350f',bg:'rgba(120,53,15,.2)',  ic:'🔲'},
   termopanel: {l:'Termopanel',        col:'#1d4ed8',bg:'rgba(29,78,216,.2)', ic:'🪟'},
   quinc:      {l:'Quincallería',      col:'#6d28d9',bg:'rgba(109,40,217,.2)',ic:'🔩'},
+  accesorios: {l:'Accesorios',        col:'#be185d',bg:'rgba(190,24,93,.2)', ic:'🔧'},
   selladoInt: {l:'Sellado Interior',  col:'#0e7490',bg:'rgba(14,116,144,.2)',ic:'🧴'},
   selladoExt: {l:'Sellado Exterior',  col:'#0369a1',bg:'rgba(3,105,161,.2)', ic:'🧱'},
   retiroPapel:{l:'Retiro Papel Ext.', col:'#a16207',bg:'rgba(161,98,7,.2)',  ic:'📜'},
   botaAgua:   {l:'Bota Agua',         col:'#15803d',bg:'rgba(21,128,61,.2)', ic:'🌧️'},
 };
+// Sub-etapas que se controlan/filtran en la pestaña Informe (las 4 que le importan al usuario en obra)
+const INFORME_ETAPAS=['marco','termopanel','quinc','accesorios'];
 function ventEstDef(estado){return VENT_EST.find(function(e){return e.k===estado;})||VENT_EST[0];}
 // Pre-compute pisos list and groupings
 var VENT_PISOS=[...new Set(VENT_SCHEDULE.map(function(i){return i.piso;}))].sort();
@@ -11861,6 +11864,7 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
   const[selBloque,setSelBloque]=useState('gestion'); // 'gestion'|'despacho'|'instalacion'|'informe'
   const[agrupar,setAgrupar]=useState('piso'); // 'piso'|'tipo' — antes pestañas "Por Piso"/"Por Tipo"
   const[hideDone,setHideDone]=useState(false); // Informe: ocultar deptos ya al 100%
+  const[informeFiltro,setInformeFiltro]=useState('todas'); // Informe: 'todas'|'marco'|'termopanel'|'quinc'|'accesorios'
   const[showAlertas,setShowAlertas]=useState(false); // acordeón de alertas dentro de Despacho
   const[selDepto,setSelDepto]=useState(null);
   const[selItemId,setSelItemId]=useState(null);
@@ -12065,27 +12069,15 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
     return stored;
   }
 
-  // ── Leer estado desde saves ──────────────────────────────────────────────
-  function estIdxFromSaves(dep){
-    if(typeof dep!=='number')return 0;
-    var sv=saves[dep]||{};var f1=sv.f1||{};var lk=_D.lf1||{};
-    function gv(pid){return f1[pid]!=null?f1[pid]:(lk[dep]?lk[dep][pid]||0:0);}
-    if(gv('38')>=100)return 6; // completo
-    if(gv('38')>0)   return 5; // instalando
-    if(gv('10')>=100)return 3; // transito
-    if(gv('10')>0)   return 2; // medida
-    if(gv('7')>=100) return 1; // rasgo
-    return 0;
-  }
-
   // ── getEst: estado efectivo del item ────────────────────────────────────
-  function getEst(id){
-    var effState=calcEst(id);
-    var effIdx=EST_ORDER[effState]||0;
-    var item=VENT_SCHEDULE_EXP.find(function(i){return i.id===id;});
-    if(item){var savesIdx=estIdxFromSaves(item.depto);effIdx=Math.max(effIdx,savesIdx);}
-    return VENT_EST[effIdx]?VENT_EST[effIdx].k:effState;
-  }
+  // Cada ventana depende EXCLUSIVAMENTE de su propio itemData (calcEst). Antes se
+  // le aplicaba además un "piso" heredado del promedio agregado del depto
+  // (saves[dep].f1) — pero ese agregado se recalcula a partir de las mismas
+  // ventanas individuales, así que avanzar UNA ventana inflaba el promedio y
+  // ese promedio se "contagiaba" a todas sus hermanas (aunque nunca se hubieran
+  // tocado), haciendo que parecieran cambiar de estado juntas. Las ventanas
+  // deben ser independientes entre sí.
+  function getEst(id){return calcEst(id);}
   function getED(id){return ventEstDef(getEst(id));}
 
   // ── updItem: guarda y sincroniza con Pisos/Partidas ──────────────────────
@@ -12119,8 +12111,8 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
     sv.f1['38']=Math.round(instSum/total);
     onSave(dep,sv);
   }
-  // ── Foto de evidencia por etapa (Marco/Termopanel/Quincallería) ──────────
-  var FOTO_FIELD={marco:'fotoMarco',termopanel:'fotoTermopanel',quinc:'fotoQuinc'};
+  // ── Foto de evidencia por etapa (Marco/Termopanel/Quincallería/Accesorios) ──
+  var FOTO_FIELD={marco:'fotoMarco',termopanel:'fotoTermopanel',quinc:'fotoQuinc',accesorios:'fotoAccesorios'};
   function onPickFoto(itemId,etapaKey,file){
     if(!file||!FOTO_FIELD[etapaKey])return;
     var uk=itemId+'_'+etapaKey;
@@ -12145,9 +12137,10 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
     VENT_SCHEDULE_EXP.filter(function(i){return i.depto===dep;}).forEach(function(it){
       var d=itemData[it.id]||{};
       items[it.id]={
-        marco:d.marco||0,termopanel:d.termopanel||0,quinc:d.quinc||0,
+        marco:d.marco||0,termopanel:d.termopanel||0,quinc:d.quinc||0,accesorios:d.accesorios||0,
         estado:d.estado||'pendiente',
-        fotoMarco:d.fotoMarco||null,fotoTermopanel:d.fotoTermopanel||null,fotoQuinc:d.fotoQuinc||null
+        fotoMarco:d.fotoMarco||null,fotoTermopanel:d.fotoTermopanel||null,fotoQuinc:d.fotoQuinc||null,
+        fotoAccesorios:d.fotoAccesorios||null
       };
     });
     if(!Object.keys(items).length){toast&&toast('Sin ventanas para registrar en este depto');return;}
@@ -12167,11 +12160,11 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
       var ids=Object.keys(revX.items||{});if(!ids.length)return 0;
       return Math.round(ids.reduce(function(s,id){return s+(revX.items[id][key]||0);},0)/ids.length);
     }
-    var etapas=['marco','termopanel','quinc'];
+    var etapas=['marco','termopanel','quinc','accesorios'];
     var fotos=[];
     Object.keys(rev.items||{}).forEach(function(id){
       var it=rev.items[id];
-      ['fotoMarco','fotoTermopanel','fotoQuinc'].forEach(function(fk){if(it[fk])fotos.push({key:id+fk,url:it[fk]});});
+      ['fotoMarco','fotoTermopanel','fotoQuinc','fotoAccesorios'].forEach(function(fk){if(it[fk])fotos.push({key:id+fk,url:it[fk]});});
     });
     return h('div',{key:rev.numero,style:{border:'1px solid var(--border)',borderRadius:8,marginBottom:6,padding:'8px 10px'}},
       h('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:6,flexWrap:'wrap'}},
@@ -12947,8 +12940,20 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
         )
       )
     ),
-    // ── INFORME: qué falta por depto, con switch ocultar completos ──────────
+    // ── INFORME: cuadros por piso (igual que la vista principal) + filtro por etapa ──
     selBloque==='informe'&&h('div',{style:{display:'flex',flexDirection:'column',gap:8,marginBottom:8}},
+      h('div',{style:{display:'flex',gap:5,flexWrap:'wrap',alignItems:'center'}},
+        h('span',{style:{fontSize:9,color:'var(--text3)',fontWeight:700}},'Filtrar por avance de:'),
+        ['todas'].concat(INFORME_ETAPAS).map(function(k){
+          var act=informeFiltro===k;
+          var lbl=k==='todas'?'Todas':INST_ETAPAS[k].l;
+          return h('button',{key:k,onClick:function(){setInformeFiltro(k);},
+            style:{padding:'3px 10px',borderRadius:12,fontSize:10,fontWeight:act?700:400,cursor:'pointer',
+              background:act?'var(--accent)':'var(--bg2)',color:act?'var(--bg)':'var(--text2)',
+              border:'1px solid '+(act?'var(--accent)':'var(--border)')}
+          },lbl);
+        })
+      ),
       h('div',{style:{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}},
         h('button',{onClick:function(){setHideDone(!hideDone);},
           style:{padding:'4px 12px',borderRadius:7,fontSize:10,fontWeight:700,cursor:'pointer',
@@ -12962,27 +12967,39 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
             background:'var(--bg2)',color:'var(--blue)',border:'1px solid var(--blue)'}
         },'📊 Exportar PDF')
       ),
-      pisoNumDepts.concat(pisoAreas).map(function(dep){
-        var stats={marco:deptoEtapaPct(dep,'marco'),termopanel:deptoEtapaPct(dep,'termopanel'),quinc:deptoEtapaPct(dep,'quinc')};
-        var allDone=stats.marco>=100&&stats.termopanel>=100&&stats.quinc>=100;
-        if(hideDone&&allDone)return null;
-        var falta=Object.keys(stats).filter(function(k){return stats[k]<100;})
-          .map(function(k){return INST_ETAPAS[k].l;});
-        var lbl=typeof dep==='number'?'D'+dep:((pisoDepsMap[dep]&&pisoDepsMap[dep][0]&&pisoDepsMap[dep][0].label)||dep);
-        return h('div',{key:String(dep),style:{background:'var(--bg3)',borderRadius:8,padding:'8px 10px',
-          border:'1px solid '+(allDone?'rgba(34,197,94,.4)':'var(--border)')}},
-          h('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:allDone?0:5,flexWrap:'wrap'}},
-            h('span',{style:{fontSize:12,fontWeight:800,fontFamily:'var(--mono)',color:allDone?'var(--green)':'var(--text)'}},lbl),
-            allDone&&h('span',{style:{fontSize:10,color:'var(--green)',fontWeight:700}},'✓ Completo'),
-            h('div',{style:{flex:1}}),
-            ['marco','termopanel','quinc'].map(function(k){
-              return h('span',{key:k,style:{fontSize:9,fontWeight:700,color:INST_ETAPAS[k].col,marginLeft:8}},
-                INST_ETAPAS[k].ic+' '+stats[k]+'%');
+      // Cuadros por depto (mismo componente deptBtn que la vista principal)
+      h('div',{style:{display:'flex',flexWrap:'wrap',gap:5}},
+        pisoNumDepts.concat(pisoAreas).map(function(dep){
+          var stats={};INFORME_ETAPAS.forEach(function(k){stats[k]=deptoEtapaPct(dep,k);});
+          var pctRef=informeFiltro==='todas'
+            ?Math.round(INFORME_ETAPAS.reduce(function(s,k){return s+stats[k];},0)/INFORME_ETAPAS.length)
+            :stats[informeFiltro];
+          var doneRef=informeFiltro==='todas'
+            ?INFORME_ETAPAS.every(function(k){return stats[k]>=100;})
+            :stats[informeFiltro]>=100;
+          if(hideDone&&doneRef)return null;
+          var items=pisoDepsMap[dep]||[];
+          return deptBtn(dep,pctStyle(pctRef),items);
+        })
+      ),
+      // Detalle del depto seleccionado — misma vista que Gestión/Instalación
+      selDepto!=null&&pisoDepsMap[selDepto]&&(function(){
+        var stats={};INFORME_ETAPAS.forEach(function(k){stats[k]=deptoEtapaPct(selDepto,k);});
+        var falta=INFORME_ETAPAS.filter(function(k){return stats[k]<100;}).map(function(k){return INST_ETAPAS[k].l;});
+        var lbl=typeof selDepto==='number'?'D'+selDepto:((pisoDepsMap[selDepto][0]&&pisoDepsMap[selDepto][0].label)||selDepto);
+        return h('div',{style:{background:'var(--bg3)',borderRadius:10,padding:'8px 10px'}},
+          h('div',{style:{fontSize:10,fontWeight:700,color:'var(--accent)',marginBottom:6,letterSpacing:.5}},lbl+' — '+selPiso),
+          h('div',{style:{display:'flex',gap:10,flexWrap:'wrap',marginBottom:8}},
+            INFORME_ETAPAS.map(function(k){
+              return h('span',{key:k,style:{fontSize:10,fontWeight:700,color:INST_ETAPAS[k].col}},
+                INST_ETAPAS[k].ic+' '+INST_ETAPAS[k].l+': '+stats[k]+'%');
             })
           ),
-          !allDone&&h('div',{style:{fontSize:10,color:'var(--amber)'}},'Falta: '+falta.join(', '))
+          falta.length>0&&h('div',{style:{fontSize:10,color:'var(--amber)',marginBottom:8}},'Falta: '+falta.join(', ')),
+          renderTimelineBlock(selDepto),
+          pisoDepsMap[selDepto].map(function(item){return renderItem(item);})
         );
-      })
+      })()
     ),
     // ── POR TIPO (agrupación alternativa) ─────────────────────────────────────
     selBloque!=='informe'&&agrupar==='tipo'&&h('div',{style:{display:'flex',flexDirection:'column',gap:6}},
