@@ -14210,6 +14210,179 @@ function MueblesView({saves,onSave,muebTandas,onMuebTandasSave,auth,toast}){
   );
 }
 
+// ── CONTROL DE PINTURA — resumen agrupado de las partidas de pintura (fase 2) ──
+// Escribe/lee el MISMO saves[dep].f2[pid] que Partidas/Pisos/Gantt — no hay
+// colección aparte, queda sincronizado automáticamente en todas las vistas.
+const PINTURA_PISOS=['2','3','4','5','6'];
+function pinturaDeptos(piso){return (_D.fl||{})['piso '+piso]||[];}
+const PINTURA_GRUPOS=[
+  {l:'Preparación (lijado/cornisas)',ids:['5','6','7','10','11','12','16','17','18']},
+  {l:'Pasta (Empaste)',ids:['3','4','8','9','14','15']},
+  {l:'1 Mano Pintura',ids:['19','20','21','26','27','28','32','33','34']},
+  {l:'2 Manos Pintura',ids:['51','52','53','54','55','56','57','58','59']},
+];
+const PINTURA_LABELS={
+  5:'Cornisa dormitorios/closet/pasillos',6:'Lijado cielos dorm./closet/pasillos',7:'Lijado muros dorm./closet/pasillos',
+  10:'Cornisa baños',11:'Lijado cielos baños',12:'Lijado muros baños',
+  16:'Cornisa cocina',17:'Lijado cielos cocina',18:'Lijado muros cocina',
+  3:'Empaste cielos dorm./closet/pasillos',4:'Empaste muros dorm./closet/pasillos',
+  8:'Empaste cielos baños',9:'Empaste muros baños',
+  14:'Empaste cielos cocina',15:'Empaste muros cocina',
+  19:'1 mano cielos cocina',20:'1 mano cornisa cocina',21:'1 mano muros cocina',
+  26:'1 mano cielos dorm./closet/pasillos',27:'1 mano cornisas dorm./closet/pasillos',28:'1 mano muros dorm./closet/pasillos',
+  32:'1 mano cielos baños',33:'1 mano cornisa baños',34:'1 mano muros baños',
+  51:'2 mano cielos baños',52:'2 mano cornisa baños',53:'2 mano muros baños',
+  54:'2 mano cielos dorm./closet/pasillos',55:'2 mano cornisas dorm./closet/pasillos',56:'2 mano muros dorm./closet/pasillos',
+  57:'2 mano cielos cocina',58:'2 mano cornisa cocina',59:'2 mano muros cocina',
+};
+function PinturaView({saves,onSave,auth,toast}){
+  var canEdit=!auth||auth.role==='Admin'||auth.role==='Jefe Obra'||auth.role==='Supervisor';
+  const[selPiso,setSelPiso]=useState(PINTURA_PISOS[0]);
+  const[selDepto,setSelDepto]=useState(null);
+  const[selPartida,setSelPartida]=useState(null); // colorea la grilla por una partida puntual
+
+  function getPartidaPct(dep,pid){
+    var sv=saves&&saves[dep];
+    var lk=_D.lf2||{};
+    return sv&&sv.f2&&sv.f2[pid]!=null?sv.f2[pid]:(lk[dep]?(lk[dep][pid]||0):0);
+  }
+  function setPct(dep,pid,pct){
+    var sv=(saves&&saves[dep])||{};
+    var nf2=Object.assign({},sv.f2||{});
+    nf2[pid]=pct;
+    onSave(dep,Object.assign({},sv,{f2:nf2}));
+    toast&&toast('✓ D'+dep+' — '+pct+'%');
+  }
+  function grupoPct(dep,grp){return calcDeptoFasePartidas(dep,2,saves,grp.ids);}
+  function overallPct(dep){
+    var sum=0;PINTURA_GRUPOS.forEach(function(g){sum+=grupoPct(dep,g);});
+    return Math.round(sum/PINTURA_GRUPOS.length);
+  }
+  function gridPct(dep){return selPartida?getPartidaPct(dep,selPartida):overallPct(dep);}
+  function pctStyle(pct){
+    if(pct>=100)return{col:'#22c55e',bg:'rgba(34,197,94,.22)',bdr:'rgba(34,197,94,.55)'};
+    if(pct>=50)return{col:'#f97316',bg:'rgba(249,115,22,.18)',bdr:'rgba(249,115,22,.5)'};
+    if(pct>0)return{col:'#eab308',bg:'rgba(234,179,8,.18)',bdr:'rgba(234,179,8,.5)'};
+    return{col:'#3b82f6',bg:'rgba(59,130,246,.16)',bdr:'rgba(59,130,246,.45)'};
+  }
+  var pisoDeptos=pinturaDeptos(selPiso);
+  var pisoComp=0,pisoEnProc=0,pisoPend=0;
+  pisoDeptos.forEach(function(dep){var pct=gridPct(dep);if(pct>=100)pisoComp++;else if(pct>0)pisoEnProc++;else pisoPend++;});
+
+  function renderDeptoDetail(dep){
+    return h('div',null,
+      PINTURA_GRUPOS.map(function(grp){
+        var pct=grupoPct(dep,grp);
+        var col=pct>=99?'#22c55e':pct>0?'#f59e0b':'#64748b';
+        return h('div',{key:grp.l,style:{background:'var(--bg3)',borderRadius:8,padding:'8px 10px',marginBottom:6,
+          border:'1px solid '+col+'40'}},
+          h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}},
+            h('span',{style:{fontSize:11,fontWeight:700,color:'var(--text)'}},grp.l),
+            h('span',{style:{fontSize:11,fontWeight:700,color:col}},pct+'%')
+          ),
+          h('div',{style:{display:'flex',flexDirection:'column',gap:3}},
+            grp.ids.map(function(pid){
+              var p=getPartidaPct(dep,pid);
+              var c2=p>=99?'#22c55e':p>0?'#f59e0b':'#64748b';
+              return h('div',{key:pid,style:{display:'flex',justifyContent:'space-between',alignItems:'center',
+                flexWrap:'wrap',gap:6,fontSize:9.5,padding:'2px 0'}},
+                h('span',{style:{color:'var(--text2)'}},PINTURA_LABELS[pid]||('Partida '+pid)),
+                canEdit
+                  ?h('div',{style:{display:'flex',gap:3}},
+                      [0,25,50,75,100].map(function(v){
+                        var act=p===v;
+                        return h('button',{key:v,onClick:function(){setPct(dep,pid,v);},
+                          style:{padding:'2px 6px',borderRadius:4,fontSize:8,fontWeight:700,cursor:'pointer',
+                            border:'1px solid '+(act?c2:'var(--border)'),
+                            background:act?c2+'33':'var(--bg2)',
+                            color:act?c2:'var(--text3)'}
+                        },v+'%');
+                      })
+                    )
+                  :h('span',{style:{color:c2,fontWeight:700}},p+'%')
+              );
+            })
+          )
+        );
+      }),
+      h('div',{style:{fontSize:9,color:'var(--text3)',marginTop:4}},
+        canEdit
+          ?'Editar aquí actualiza el mismo dato que Partidas y Pisos (fase 2) — queda sincronizado automáticamente en todas las vistas.'
+          :'Datos provenientes del módulo Partidas/Gantt (fase 2, responsable Pintura). Solo lectura.')
+    );
+  }
+
+  return h('div',{className:'page'},
+    h('div',{style:{marginBottom:10}},
+      h('div',{style:{fontSize:12,fontWeight:700,color:'var(--text)',letterSpacing:.5}},'🖌️ CONTROL DE PINTURA')
+    ),
+    h('div',{style:{display:'flex',gap:5,flexWrap:'wrap',marginBottom:6}},
+      PINTURA_PISOS.map(function(p){
+        var act=selPiso===p;
+        var deptos=pinturaDeptos(p);
+        var compP=deptos.filter(function(d){return overallPct(d)>=100;}).length;
+        var col=compP===deptos.length&&deptos.length>0?'var(--green)':compP>0?'var(--amber)':'var(--text3)';
+        return h('button',{key:p,onClick:function(){setSelPiso(p);setSelDepto(null);},
+          style:{padding:'8px 14px',borderRadius:10,fontSize:12,fontWeight:act?700:500,cursor:'pointer',
+            border:'1px solid '+(act?'var(--accent)':'var(--border)'),
+            background:act?'var(--accent)':'var(--bg2)',
+            color:act?'var(--bg)':'var(--text2)',transition:'all .1s',minWidth:64,textAlign:'center'}
+        },
+          h('div',null,'Piso '+p),
+          h('div',{style:{fontSize:8,color:act?'rgba(0,0,0,.5)':col,marginTop:1}},compP+'/'+deptos.length)
+        );
+      })
+    ),
+    h('div',{style:{display:'flex',flexWrap:'wrap',gap:8,marginBottom:6,
+      padding:'7px 8px',background:'var(--bg3)',borderRadius:8}},
+      h('button',{onClick:function(){setSelPartida(null);},
+        style:{padding:'3px 9px',borderRadius:6,border:'1px solid '+(!selPartida?'var(--accent)':'var(--border)'),
+          background:!selPartida?'rgba(0,200,255,.12)':'var(--bg2)',
+          color:!selPartida?'var(--accent)':'var(--text3)',fontSize:9,fontWeight:700,cursor:'pointer'}
+      },'Ver total'),
+      PINTURA_GRUPOS.map(function(grp){
+        return h('div',{key:grp.l,style:{display:'flex',alignItems:'center',gap:4,flexWrap:'wrap'}},
+          h('span',{style:{fontSize:8,color:'var(--text3)',fontWeight:700}},grp.l+':'),
+          grp.ids.map(function(pid){
+            var act=selPartida===pid;
+            return h('button',{key:pid,onClick:function(){setSelPartida(act?null:pid);},
+              style:{padding:'3px 8px',borderRadius:6,border:'1px solid '+(act?'var(--accent)':'var(--border)'),
+                background:act?'rgba(0,200,255,.12)':'var(--bg2)',
+                color:act?'var(--accent)':'var(--text2)',fontSize:9,fontWeight:600,cursor:'pointer'}
+            },PINTURA_LABELS[pid]||('Partida '+pid));
+          })
+        );
+      })
+    ),
+    h('div',{style:{display:'flex',gap:5,marginBottom:2,alignItems:'center'}},
+      h('span',{style:{background:'rgba(34,197,94,.12)',color:'var(--green)',padding:'3px 9px',borderRadius:10,fontSize:10,fontWeight:700}},pisoComp+(selPartida?' c/partida OK':' completos')),
+      h('span',{style:{background:'rgba(245,158,11,.12)',color:'var(--amber)',padding:'3px 9px',borderRadius:10,fontSize:10,fontWeight:700}},pisoEnProc+' en proceso'),
+      h('span',{style:{background:'rgba(100,116,139,.1)',color:'var(--text3)',padding:'3px 9px',borderRadius:10,fontSize:10,fontWeight:700}},pisoPend+' pendientes')
+    ),
+    selPartida&&h('div',{style:{fontSize:9,color:'var(--accent)',marginBottom:4}},
+      '👁 Mostrando avance de "'+(PINTURA_LABELS[selPartida]||selPartida)+'" por departamento'),
+    h('div',{style:{display:'flex',flexWrap:'wrap',gap:5,paddingTop:4}},
+      pisoDeptos.map(function(dep){
+        var pct=gridPct(dep);var ind=pctStyle(pct);var isSel=selDepto===dep;
+        return h('button',{key:dep,
+          onClick:function(){setSelDepto(isSel?null:dep);},
+          style:{padding:'6px 8px',borderRadius:8,border:'1px solid '+(isSel?'var(--accent)':ind.bdr),
+            background:isSel?'rgba(0,200,255,.22)':ind.bg,color:isSel?'var(--accent)':ind.col,
+            fontFamily:'var(--mono)',fontSize:11,fontWeight:700,cursor:'pointer',
+            minWidth:48,textAlign:'center',lineHeight:'1.35',transition:'all .1s',flexShrink:0}
+        },
+          h('div',{style:{fontSize:12}},'D'+dep),
+          h('div',{style:{fontSize:9,opacity:.85}},pct+'%')
+        );
+      })
+    ),
+    selDepto!=null&&h('div',{style:{background:'var(--bg3)',borderRadius:10,padding:'8px 10px',marginTop:6}},
+      h('div',{style:{fontSize:10,fontWeight:700,color:'var(--accent)',marginBottom:8,letterSpacing:.5}},'D'+selDepto+' — Piso '+selPiso),
+      renderDeptoDetail(selDepto)
+    )
+  );
+}
+
 // ── PLAN MAESTRO VIEW ────────────────────────────────────────────────────
 const PM_CSS=`.pm-root{font-family:Arial,sans-serif;font-size:12px;background:var(--bg);color:var(--text);min-height:100%;}
 .pm-root .pm-hdr{background:linear-gradient(135deg,#060b14,#0a1628,#060b14);border-bottom:1px solid var(--border);padding:10px 16px;display:flex;align-items:center;justify-content:space-between;position:relative;}
@@ -14812,13 +14985,14 @@ function App({initialData}){
   const onMuebTandasSave=(t)=>save({muebTandas:t});
   const isSupervisor=auth.role==='Supervisor';
   const userResp=isSupervisor?(USER_RESP_MAP[auth.user]||null):null;
-  const SUPR_TABS=['partidas','pisos','programa','asistencia','control','masividad','muebles'];
+  const SUPR_TABS=['partidas','pisos','programa','asistencia','control','masividad','muebles','pintura'];
   const navTabs=[
     {id:'dash',icon:'◆',label:'Dashboard'},
     {id:'partidas',icon:'🔍',label:'Partidas'},
     {id:'control',icon:'🪟',label:'Control'},
     {id:'masividad',icon:'🎨',label:'Masividad'},
     {id:'muebles',icon:'🛋️',label:'Muebles'},
+    {id:'pintura',icon:'🖌️',label:'Pintura'},
     {id:'pisos',icon:'⬢',label:'Pisos'},
     {id:'gantt',icon:'▤',label:'Gantt'},
     {id:'programa',icon:'📅',label:'Plan Pers.'},
@@ -14839,6 +15013,7 @@ function App({initialData}){
   else if(effectiveTab==='control')content=h(ControlView,{saves,onSave,ganttData,onGanttSave,auth,toast:showToast});
   else if(effectiveTab==='masividad')content=h(MasividadView,{auth,toast:showToast});
   else if(effectiveTab==='muebles')content=h(MueblesView,{saves,onSave,muebTandas,onMuebTandasSave,auth,toast:showToast});
+  else if(effectiveTab==='pintura')content=h(PinturaView,{saves,onSave,auth,toast:showToast});
   else if(effectiveTab==='pisos')content=h(PisosView,{progress,saves,onSave,auth,toast:showToast,userResp});
   else if(effectiveTab==='gantt')content=h(GanttView,{ganttData,onGanttSave,auth,progress,saves,toast:showToast});
   else if(effectiveTab==='programa')content=h(ProgramaView,{ganttData,onGanttSave,saves,onSave,onWeekSave,weekData,auth,toast:showToast,userResp});
