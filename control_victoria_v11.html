@@ -380,6 +380,43 @@ const PLAN_PS_MAP={
   87:["13","14"],88:["28","29"],89:["30","31","32"],
   90:["33","34"],91:["35"],92:["36"],93:["37","38"]
 };
+// ── Mapa inverso: '<faseNum>_<pid>' -> índice de tarea (pa[0]) en PLAN_PS_MAP ──
+// Permite que Gantt lea/edite el mismo responsable que Plan Pers. (mismo override
+// pa_<fi>_<localIdx>.ri), en vez de una lista de categorías de mano de obra aparte.
+const PLAN_PS_RANGES={'1':[0,39],'2':[40,73],'3':[74,93]};
+const PID_TO_TASKIDX=(function(){
+  var out={};
+  Object.keys(PLAN_PS_RANGES).forEach(function(fn){
+    var r=PLAN_PS_RANGES[fn];
+    for(var i=r[0];i<=r[1];i++){
+      (PLAN_PS_MAP[i]||[]).forEach(function(pid){out[fn+'_'+pid]=i;});
+    }
+  });
+  return out;
+})();
+// ── Responsable de una partida en Gantt, sincronizado con Plan Pers. ──
+// Si la partida tiene una tarea de Gantt asociada (PLAN.pa), lee/edita el mismo
+// override 'pa_<fi>_<localIdx>.ri' que usa ProgramaView (Plan Pers.) — mismo dato,
+// no una copia. Si no existe tarea asociada (partidas sueltas sin bloque propio en
+// el Gantt, o Fase 4, que no tiene entradas en PLAN_PS_MAP), usa como respaldo el
+// responsable curado de partidas_orden.xlsx (PARTIDA_RESP_MAP / getPartidaRespName).
+function resolvePartidaResp(fi,faseNum,pid,overrides){
+  var taskIdx=PID_TO_TASKIDX[faseNum+'_'+pid];
+  if(taskIdx!=null&&fi!=null){
+    var faList=PLAN.pa.filter(function(pa){return pa[5]===fi;});
+    var localIdx=-1;
+    for(var i=0;i<faList.length;i++){if(faList[i][0]===taskIdx){localIdx=i;break;}}
+    if(localIdx>=0){
+      var pa=faList[localIdx];
+      var ovKey='pa_'+fi+'_'+localIdx;
+      var ov=(overrides||{})[ovKey]||{};
+      var respIdx=ov.ri!=null?ov.ri:pa[3];
+      return{ovKey:ovKey,respIdx:respIdx,resp:planResp(respIdx)};
+    }
+  }
+  var curKey=getPartidaRespName(faseNum,String(pid));
+  return{ovKey:null,respIdx:null,resp:curKey?(RESP_LABEL[curKey]||curKey):''};
+}
 // ── Helpers ──────────────────────────────────────────────
 const pc=(v)=>v>=80?'var(--green)':v>=50?'var(--blue)':v>=25?'var(--amber)':'var(--red)';
 const pcl=(v)=>v>=80?'pill-green':v>=50?'pill-blue':v>=25?'pill-amber':'pill-red';
@@ -2570,7 +2607,7 @@ function GanttView({ganttData,onGanttSave,auth,saves,toast,progress}){
     const psBase=faseNum==='1'?_D.ps:faseNum==='2'?_D.ps2:faseNum==='3'?_D.ps3:(_D.ps4||[]);
     const partidaScopeKey=navDep+'_'+faseNum;
     const ps=applyOrder(psBase,p=>p.id,ganttOrderPartidas[partidaScopeKey]||[]);
-    const espMap=faseNum==='1'?ESPEC_F1:faseNum==='2'?ESPEC_F2:faseNum==='3'?ESPEC_F3:(typeof ESPEC_F4!=='undefined'?ESPEC_F4:{});
+    const fiPartida=isFase4?null:navFase; // índice de fase (fi) para sincronizar responsable con Plan Pers.
     // Rango de días de la fase para interpolar fechas de partidas
     var faseStartN,faseEndN;
     if(isFase4){
@@ -2588,14 +2625,15 @@ function GanttView({ganttData,onGanttSave,auth,saves,toast,progress}){
     ps.forEach(function(p,idx){
       var pid=p.id;
       var name=p.name;
-      var defaultResp=espMap[String(pid)]||'';
-      var ovKey='pa2_'+faseNum+'_'+navDep+'_'+pid;
+      var ovKey='pa2_'+faseNum+'_'+navDep+'_'+pid; // fechas de esta partida en Gantt
       var ov=overrides[ovKey]||{};
       var partSN=faseStartN+Math.round(idx/ps.length*span);
       var partEN=faseStartN+Math.round((idx+1)/ps.length*span);
       var s=ov.s!=null?n2d(ov.s):n2d(partSN);
       var e=ov.e!=null?n2d(ov.e):n2d(partEN);
-      var resp=ov.resp!=null?ov.resp:defaultResp;
+      // Responsable: mismo dato que Plan Pers. (override pa_<fi>_<localIdx>.ri)
+      var respInfo=resolvePartidaResp(fiPartida,faseNum,pid,overrides);
+      var resp=respInfo.resp;
       var excelPct=lk[dep.d]?lk[dep.d][pid]||0:0;
       var savedPct=sv[fk]&&sv[fk][pid]!=null?sv[fk][pid]:null;
       var pct=savedPct!=null?savedPct:excelPct;
@@ -2623,24 +2661,33 @@ function GanttView({ganttData,onGanttSave,auth,saves,toast,progress}){
               style:{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:6,
                 padding:'4px 7px',color:'var(--text)',fontSize:12,fontFamily:'var(--mono)',outline:'none'}})
           ),
-          h('div',{style:{display:'flex',flexDirection:'column',gap:3,flex:1,minWidth:160}},
-            h('label',{style:{fontSize:9,color:'var(--text3)',letterSpacing:'.06em',textTransform:'uppercase'}},'Responsable'),
+          respInfo.ovKey&&h('div',{style:{display:'flex',flexDirection:'column',gap:3,flex:1,minWidth:160}},
+            h('label',{style:{fontSize:9,color:'var(--text3)',letterSpacing:'.06em',textTransform:'uppercase'}},'Responsable (igual que Plan Pers.)'),
             h('select',{value:editPartida.rVal,
               onChange:function(ev){sePa(Object.assign({},editPartida,{rVal:ev.target.value}));},
               style:{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:6,
                 padding:'4px 7px',color:'var(--text)',fontSize:12,outline:'none'}},
-              ['jornal','carpintero','canguero','instalador','supervisor',''].map(function(r){
-                return h('option',{key:r,value:r},r||'— sin asignar —');
+              h('option',{value:''},'— sin asignar —'),
+              PLAN.rl.map(function(r,i){
+                return h('option',{key:i,value:i},r);
               })
             )
           ),
           h('div',{style:{display:'flex',gap:6,alignSelf:'flex-end'}},
             h('button',{onClick:function(){
-              var patch={};
-              if(editPartida.sVal)patch.s=d2n(editPartida.sVal);
-              if(editPartida.eVal)patch.e=d2n(editPartida.eVal);
-              if(editPartida.rVal!=null)patch.resp=editPartida.rVal;
-              saveOv(ovKey,patch);sePa(null);
+              var nov=Object.assign({},overrides);
+              if(editPartida.sVal||editPartida.eVal){
+                var datePatch={};
+                if(editPartida.sVal)datePatch.s=d2n(editPartida.sVal);
+                if(editPartida.eVal)datePatch.e=d2n(editPartida.eVal);
+                nov[ovKey]=Object.assign({},nov[ovKey]||{},datePatch);
+              }
+              if(respInfo.ovKey&&editPartida.rVal!=null){
+                nov[respInfo.ovKey]=Object.assign({},nov[respInfo.ovKey]||{},
+                  {ri:editPartida.rVal===''?null:Number(editPartida.rVal)});
+              }
+              sov(nov);onGanttSave(Object.assign({},ganttData,{overrides:nov}));
+              toast('✓ Guardado');sePa(null);
             },style:{padding:'5px 14px',borderRadius:7,background:'var(--blue)',color:'#fff',
               border:'none',fontSize:12,fontWeight:600,cursor:'pointer'}},'Guardar'),
             h('button',{onClick:function(){
@@ -2663,7 +2710,8 @@ function GanttView({ganttData,onGanttSave,auth,saves,toast,progress}){
         indent:1,isDone:pct>=100,isLate:isLate,
         onEdit:isAdmin?function(ev){
           ev&&ev.stopPropagation&&ev.stopPropagation();
-          sePa(isEditing?null:{idx:idx,sVal:s||'',eVal:e||'',rVal:resp});
+          var curRi=respInfo.respIdx===255||respInfo.respIdx==null?'':respInfo.respIdx;
+          sePa(isEditing?null:{idx:idx,sVal:s||'',eVal:e||'',rVal:curRi});
         }:null,
         badge:null,
         dragId:pid,
