@@ -12631,7 +12631,9 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
           );
         })(),
         // ── Sub-etapas paralelas con % (Marco, Termopanel, Quincallería, Sellados, Bota agua) ──
-        (EST_ORDER[ed.k]>=3)&&h('div',{style:{background:'var(--bg3)',borderRadius:8,padding:'8px 10px',position:'relative'}},
+        // Siempre visible (antes exigía haber pasado por Gestión/Despacho hasta "En Tránsito",
+        // pero en obra se carga el avance directo en Instalación sin pasar por esos pasos).
+        h('div',{style:{background:'var(--bg3)',borderRadius:8,padding:'8px 10px',position:'relative'}},
           ed.k==='transito'&&h('div',{style:{
             position:'absolute',inset:0,borderRadius:8,
             background:'rgba(0,0,0,0.45)',zIndex:10,
