@@ -12188,30 +12188,34 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
   },[]);
 
   // ── Comparativo de Avance: snapshots fechados del edificio completo + informe PDF ──
+  // Las fechas se eligen libremente desde un calendario, pero solo hay datos reales
+  // en fechas donde se guardó un snapshot — "hoy" se auto-guarda al generar si falta.
   const[ventSnaps,setVentSnaps]=useState({});
   const[fechaBase,setFechaBase]=useState('');
-  const[fechaComp,setFechaComp]=useState('');
+  const[fechaComp,setFechaComp]=useState(today);
   function fmtDateC(s){return s?s.split('-').reverse().join('/'):'—';}
   useEffect(function(){
     if(!window.fbGetVentSnapshots)return;
     window.fbGetVentSnapshots().then(function(map){
       setVentSnaps(map);
-      var fechas=Object.keys(map).sort();
-      if(fechas.length){
-        setFechaComp(function(cur){return cur||fechas[fechas.length-1];});
-        if(fechas.length>1)setFechaBase(function(cur){return cur||fechas[fechas.length-2];});
-      }
+      var fechasPrevias=Object.keys(map).filter(function(f){return f<today;}).sort();
+      if(fechasPrevias.length)setFechaBase(function(cur){return cur||fechasPrevias[fechasPrevias.length-1];});
     }).catch(function(e){console.warn('Error cargando snapshots Ventanas:',e);});
   },[]);
-  function tomarSnapshotVentanasHoy(){
+  // silent=true: no muestra toast ni cambia la fecha seleccionada (uso interno al generar el PDF)
+  function tomarSnapshotVentanasHoy(silent){
     var items={};
     VENT_SCHEDULE_EXP.forEach(function(it){items[it.id]=getEst(it.id);});
-    if(!window.fbSaveVentSnapshot){toast&&toast('Firebase no disponible');return;}
-    window.fbSaveVentSnapshot(today,items).then(function(){
+    if(!window.fbSaveVentSnapshot){if(!silent)toast&&toast('Firebase no disponible');return Promise.reject();}
+    return window.fbSaveVentSnapshot(today,items).then(function(){
       setVentSnaps(function(cur){var n=Object.assign({},cur);n[today]={fecha:today,items:items};return n;});
-      setFechaComp(today);
-      toast&&toast('✓ Snapshot de hoy ('+fmtDateC(today)+') guardado');
-    }).catch(function(e){console.warn(e);toast&&toast('Error guardando snapshot');});
+      if(!silent){setFechaComp(today);toast&&toast('✓ Snapshot de hoy ('+fmtDateC(today)+') guardado');}
+      return items;
+    }).catch(function(e){
+      console.warn(e);
+      if(!silent)toast&&toast('Error guardando snapshot');
+      throw e;
+    });
   }
 
   // ── Programa de pedidos ────────────────────────────────────────────────────
@@ -13058,10 +13062,12 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
   // ── Comparativo de Avance (PDF): compara dos snapshots fechados, piso por piso ──
   // Réplica del informe manual "Comparativo de avance real — Ventanas": resumen ejecutivo,
   // barras antes/ahora por piso, tabla comparativa, hallazgos automáticos y detalle de movimientos.
-  function generarComparativoVentanas(fA,fB){
+  function generarComparativoVentanas(fA,fB,snapsOverride){
     if(typeof jspdf==='undefined'){toast&&toast('Error: jsPDF no disponible');return;}
-    var snapA=ventSnaps[fA],snapB=ventSnaps[fB];
-    if(!snapA||!snapB){toast&&toast('Selecciona ambas fechas para comparar');return;}
+    var snaps=snapsOverride||ventSnaps;
+    var snapA=snaps[fA],snapB=snaps[fB];
+    if(!snapA){toast&&toast('No hay snapshot guardado para el '+fmtDateC(fA)+'. Guarda uno ese día o elige otra fecha con snapshot.');return;}
+    if(!snapB){toast&&toast('No hay snapshot guardado para el '+fmtDateC(fB)+'. Guarda uno ese día o elige otra fecha con snapshot.');return;}
     var itemsA=snapA.items||{},itemsB=snapB.items||{};
     function bucketOf(est){return est==='completo'?'terminado':(est==='pendiente'||!est)?'pendiente':'incompleto';}
     var BLBL={pendiente:'Pendiente',incompleto:'Incompleto',terminado:'Terminado'};
@@ -13456,23 +13462,19 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
     // ── COMPARATIVO: snapshots fechados + informe PDF comparativo (réplica del informe de avance real) ──
     selBloque==='comparativo'&&h('div',{style:{display:'flex',flexDirection:'column',gap:10,marginBottom:8}},
       h('div',{style:{fontSize:10,color:'var(--text3)',lineHeight:1.4}},
-        'Cada vez que guardas un snapshot queda registrada una foto fechada del estado completo del edificio. Elige dos fechas guardadas para comparar el avance entre ellas y generar el informe PDF.'),
+        'Elige cualquier fecha en el calendario. Solo hay datos reales en fechas donde se guardó un snapshot — si eliges "hoy" se guarda automático al generar; para fechas pasadas necesitas haber guardado un snapshot ese día (revisa la lista de abajo).'),
       h('div',{style:{display:'flex',gap:10,flexWrap:'wrap',alignItems:'flex-end'}},
         h('div',null,
           h('div',{style:{fontSize:9,color:'var(--text3)',marginBottom:3}},'Fecha base (antes)'),
-          h('select',{value:fechaBase,onChange:function(e){setFechaBase(e.target.value);},
-            style:{padding:'6px 8px',borderRadius:7,background:'var(--bg2)',border:'1px solid var(--border)',color:'var(--text)',fontSize:11}},
-            h('option',{value:''},'— Selecciona —'),
-            Object.keys(ventSnaps).sort().map(function(f){return h('option',{key:f,value:f},fmtDateC(f));})
-          )
+          h('input',{type:'date',value:fechaBase,max:today,
+            onChange:function(e){setFechaBase(e.target.value);},
+            style:{padding:'6px 8px',borderRadius:7,background:'var(--bg2)',border:'1px solid var(--border)',color:'var(--text)',fontSize:11}})
         ),
         h('div',null,
           h('div',{style:{fontSize:9,color:'var(--text3)',marginBottom:3}},'Fecha de avance (ahora)'),
-          h('select',{value:fechaComp,onChange:function(e){setFechaComp(e.target.value);},
-            style:{padding:'6px 8px',borderRadius:7,background:'var(--bg2)',border:'1px solid var(--border)',color:'var(--text)',fontSize:11}},
-            h('option',{value:''},'— Selecciona —'),
-            Object.keys(ventSnaps).sort().map(function(f){return h('option',{key:f,value:f},fmtDateC(f));})
-          )
+          h('input',{type:'date',value:fechaComp,max:today,
+            onChange:function(e){setFechaComp(e.target.value);},
+            style:{padding:'6px 8px',borderRadius:7,background:'var(--bg2)',border:'1px solid var(--border)',color:'var(--text)',fontSize:11}})
         ),
         canEdit&&h('button',{onClick:function(){tomarSnapshotVentanasHoy();},
           style:{padding:'7px 12px',borderRadius:7,fontSize:10,fontWeight:700,cursor:'pointer',
@@ -13481,14 +13483,25 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
         h('button',{onClick:function(){
             if(!fechaBase||!fechaComp){toast&&toast('Selecciona ambas fechas');return;}
             if(fechaBase===fechaComp){toast&&toast('Elige dos fechas distintas');return;}
-            generarComparativoVentanas(fechaBase,fechaComp);
+            function proceed(snapsNow){
+              generarComparativoVentanas(fechaBase,fechaComp,snapsNow);
+            }
+            if(fechaComp===today&&!ventSnaps[today]){
+              tomarSnapshotVentanasHoy(true).then(function(items){
+                var merged=Object.assign({},ventSnaps);
+                merged[today]={fecha:today,items:items};
+                proceed(merged);
+              }).catch(function(){toast&&toast('No se pudo guardar el snapshot de hoy');});
+            }else{
+              proceed(ventSnaps);
+            }
           },
           style:{padding:'7px 14px',borderRadius:7,fontSize:11,fontWeight:700,cursor:'pointer',
             background:'var(--blue)',color:'#fff',border:'1px solid var(--blue)'}
         },'📊 Generar Comparativo PDF')
       ),
       Object.keys(ventSnaps).length===0&&h('div',{style:{fontSize:10,color:'var(--amber)'}},
-        'Aún no hay snapshots guardados. Presiona "Guardar snapshot de hoy" para crear el primero — la próxima vez que vuelvas ya podrás compararlo.'),
+        'Aún no hay snapshots guardados. Presiona "Guardar snapshot de hoy" o "Generar Comparativo PDF" con la fecha de hoy para crear el primero — la próxima vez que vuelvas ya podrás compararlo.'),
       Object.keys(ventSnaps).length===1&&h('div',{style:{fontSize:10,color:'var(--amber)'}},
         'Solo hay un snapshot guardado ('+fmtDateC(Object.keys(ventSnaps)[0])+'). Guarda uno nuevo en unos días para poder comparar el avance.'),
       Object.keys(ventSnaps).length>0&&h('div',{style:{display:'flex',flexDirection:'column',gap:4,marginTop:4}},
