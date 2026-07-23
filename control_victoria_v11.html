@@ -12187,6 +12187,33 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
     if(pushed)console.log('Migración Ventanas: '+pushed+' deptos subidos a Firebase');
   },[]);
 
+  // ── Comparativo de Avance: snapshots fechados del edificio completo + informe PDF ──
+  const[ventSnaps,setVentSnaps]=useState({});
+  const[fechaBase,setFechaBase]=useState('');
+  const[fechaComp,setFechaComp]=useState('');
+  function fmtDateC(s){return s?s.split('-').reverse().join('/'):'—';}
+  useEffect(function(){
+    if(!window.fbGetVentSnapshots)return;
+    window.fbGetVentSnapshots().then(function(map){
+      setVentSnaps(map);
+      var fechas=Object.keys(map).sort();
+      if(fechas.length){
+        setFechaComp(function(cur){return cur||fechas[fechas.length-1];});
+        if(fechas.length>1)setFechaBase(function(cur){return cur||fechas[fechas.length-2];});
+      }
+    }).catch(function(e){console.warn('Error cargando snapshots Ventanas:',e);});
+  },[]);
+  function tomarSnapshotVentanasHoy(){
+    var items={};
+    VENT_SCHEDULE_EXP.forEach(function(it){items[it.id]=getEst(it.id);});
+    if(!window.fbSaveVentSnapshot){toast&&toast('Firebase no disponible');return;}
+    window.fbSaveVentSnapshot(today,items).then(function(){
+      setVentSnaps(function(cur){var n=Object.assign({},cur);n[today]={fecha:today,items:items};return n;});
+      setFechaComp(today);
+      toast&&toast('✓ Snapshot de hoy ('+fmtDateC(today)+') guardado');
+    }).catch(function(e){console.warn(e);toast&&toast('Error guardando snapshot');});
+  }
+
   // ── Programa de pedidos ────────────────────────────────────────────────────
   const[progData,setProgData]=useState(function(){
     try{return JSON.parse(localStorage.getItem('ctrl_vent_prog_v1')||'{}');}catch(e){return{};}
@@ -13027,6 +13054,359 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
       window.location.href='mailto:?subject='+encodeURIComponent(asunto)+'&body='+encodeURIComponent(cuerpo+'\n\n(Adjuntar manualmente: '+fname+')');
     },600);
   }
+
+  // ── Comparativo de Avance (PDF): compara dos snapshots fechados, piso por piso ──
+  // Réplica del informe manual "Comparativo de avance real — Ventanas": resumen ejecutivo,
+  // barras antes/ahora por piso, tabla comparativa, hallazgos automáticos y detalle de movimientos.
+  function generarComparativoVentanas(fA,fB){
+    if(typeof jspdf==='undefined'){toast&&toast('Error: jsPDF no disponible');return;}
+    var snapA=ventSnaps[fA],snapB=ventSnaps[fB];
+    if(!snapA||!snapB){toast&&toast('Selecciona ambas fechas para comparar');return;}
+    var itemsA=snapA.items||{},itemsB=snapB.items||{};
+    function bucketOf(est){return est==='completo'?'terminado':(est==='pendiente'||!est)?'pendiente':'incompleto';}
+    var BLBL={pendiente:'Pendiente',incompleto:'Incompleto',terminado:'Terminado'};
+
+    // ── Agregación por piso ──
+    var porPiso=VENT_PISOS.map(function(piso){
+      var its=VENT_SCHEDULE_EXP.filter(function(i){return i.piso===piso;});
+      var cA={terminado:0,incompleto:0,pendiente:0},cB={terminado:0,incompleto:0,pendiente:0};
+      its.forEach(function(it){
+        cA[bucketOf(itemsA[it.id])]++;
+        cB[bucketOf(itemsB[it.id])]++;
+      });
+      return{piso:piso,total:its.length,antes:cA,ahora:cB};
+    }).filter(function(p){return p.total>0;});
+    if(!porPiso.length){toast&&toast('Sin datos para comparar');return;}
+
+    var totG={terminado:0,incompleto:0,pendiente:0},totA={terminado:0,incompleto:0,pendiente:0};
+    porPiso.forEach(function(p){
+      ['terminado','incompleto','pendiente'].forEach(function(k){totG[k]+=p.antes[k];totA[k]+=p.ahora[k];});
+    });
+    var totalVent=porPiso.reduce(function(s,p){return s+p.total;},0);
+    var pisoNums=porPiso.map(function(p){return parseInt(p.piso.replace(/\D/g,''),10);}).sort(function(a,b){return a-b;});
+    var contiguo=pisoNums.every(function(n,i){return i===0||n===pisoNums[i-1]+1;});
+    var pisosTxtShort=pisoNums.join(' · ');
+    var pisosTxt=(contiguo&&pisoNums.length>1)?('pisos '+pisoNums[0]+' al '+pisoNums[pisoNums.length-1]):('piso'+(pisoNums.length>1?'s ':' ')+pisosTxtShort);
+
+    // ── Movimientos individuales (agrupados por depto + transición) ──
+    var movsPorPiso={};porPiso.forEach(function(p){movsPorPiso[p.piso]=[];});
+    var totalMovs=0;
+    VENT_SCHEDULE_EXP.forEach(function(it){
+      var bA=bucketOf(itemsA[it.id]),bB=bucketOf(itemsB[it.id]);
+      if(bA===bB)return;
+      totalMovs++;
+      var arr=movsPorPiso[it.piso];if(!arr)return;
+      var key=it.depto+'|'+bA+'|'+bB;
+      var g=arr.filter(function(m){return m.key===key;})[0];
+      if(!g){g={key:key,depto:it.depto,label:it.label||null,bA:bA,bB:bB,n:0};arr.push(g);}
+      g.n++;
+    });
+    Object.keys(movsPorPiso).forEach(function(piso){
+      movsPorPiso[piso].sort(function(a,b){
+        var an=typeof a.depto==='number',bn=typeof b.depto==='number';
+        if(an&&bn)return a.depto-b.depto;
+        if(an)return -1;if(bn)return 1;
+        return String(a.depto).localeCompare(String(b.depto));
+      });
+    });
+
+    // ── Hallazgos automáticos ──
+    var hallazgos=[];
+    var deltaTerm=totA.terminado-totG.terminado;
+    var pctAntes=totalVent?Math.round(totG.terminado/totalVent*1000)/10:0;
+    var pctAhora=totalVent?Math.round(totA.terminado/totalVent*1000)/10:0;
+    var dias=Math.max(1,Math.round((new Date(fB+'T12:00:00')-new Date(fA+'T12:00:00'))/86400000));
+    hallazgos.push({
+      tag:(deltaTerm>=0?'+':'')+deltaTerm,
+      txt:'Ventanas terminadas '+(deltaTerm>=0?'nuevas':'menos')+' en '+dias+' día'+(dias===1?'':'s')+'. Avance total: '+pctAntes.toString().replace('.',',')+'% → '+pctAhora.toString().replace('.',',')+'% terminado.'
+    });
+    var mejorPiso=null;
+    porPiso.forEach(function(p){
+      var d=p.ahora.terminado-p.antes.terminado;
+      if(!mejorPiso||d>mejorPiso.d)mejorPiso={piso:p.piso,d:d,pct:p.total?Math.round(p.ahora.terminado/p.total*1000)/10:0};
+    });
+    if(mejorPiso&&mejorPiso.d>0){
+      hallazgos.push({tag:mejorPiso.piso,txt:'Mayor avance del periodo: +'+mejorPiso.d+' terminada'+(mejorPiso.d===1?'':'s')+'. Ahora '+mejorPiso.pct.toString().replace('.',',')+'% terminado.'});
+    }
+    var atrasadoPiso=null;
+    porPiso.forEach(function(p){
+      var pct=p.total?p.ahora.terminado/p.total*100:0;
+      if(!atrasadoPiso||pct<atrasadoPiso.pct)atrasadoPiso={piso:p.piso,pct:Math.round(pct*10)/10};
+    });
+    if(atrasadoPiso&&atrasadoPiso.pct<50){
+      hallazgos.push({tag:atrasadoPiso.piso,txt:'Sigue siendo el piso más atrasado: '+atrasadoPiso.pct.toString().replace('.',',')+'% terminado al '+fmtDateC(fB)+'.'});
+    }
+    var pisoMasMovs=null;
+    Object.keys(movsPorPiso).forEach(function(piso){
+      var n=movsPorPiso[piso].reduce(function(s,m){return s+m.n;},0);
+      if(n>0&&(!pisoMasMovs||n>pisoMasMovs.n))pisoMasMovs={piso:piso,n:n};
+    });
+    if(pisoMasMovs&&(!mejorPiso||pisoMasMovs.piso!==mejorPiso.piso)){
+      hallazgos.push({tag:String(pisoMasMovs.n),txt:'ventanas movidas de estado en '+pisoMasMovs.piso+' — el piso con más actividad del periodo.'});
+    }
+
+    // ── Construcción del PDF ──────────────────────────────────────────────
+    var doc=new jspdf.jsPDF({orientation:'portrait',unit:'mm',format:'letter'});
+    var pw=doc.internal.pageSize.getWidth(),ph=doc.internal.pageSize.getHeight(),margin=14,y=16;
+    var CREAM=[247,242,231],NAVY=[17,24,39],GREEN=[22,163,74],ORANGE=[217,119,6],GRAY=[120,113,108],
+        TXT=[30,30,30],TXT2=[110,105,95],CARD=[255,255,255],BORDER=[224,217,203];
+    function pageBg(){doc.setFillColor(CREAM[0],CREAM[1],CREAM[2]);doc.rect(0,0,pw,ph,'F');}
+    function chk(need){if(y+need>ph-14){doc.addPage();pageBg();y=16;}}
+    function footer(){
+      var nPg=doc.getNumberOfPages();
+      for(var pg=1;pg<=nPg;pg++){
+        doc.setPage(pg);
+        doc.setFontSize(7);doc.setFont('helvetica','normal');doc.setTextColor(160,155,145);
+        doc.text('Constructora Bascuñán · Edificio Victoria',margin,ph-8);
+        doc.text('Pág. '+pg+' / '+nPg,pw-margin,ph-8,{align:'right'});
+      }
+    }
+    function bigHeader(titulo,subtitulo){
+      doc.setFillColor(NAVY[0],NAVY[1],NAVY[2]);doc.rect(0,0,pw,32,'F');
+      doc.setFontSize(7.5);doc.setFont('helvetica','bold');doc.setTextColor(148,163,184);
+      doc.text('CONSTRUCTORA BASCUÑÁN · SEGUIMIENTO DE OBRA',margin,11);
+      doc.setFontSize(14);doc.setFont('helvetica','bold');doc.setTextColor(255,255,255);
+      doc.text(titulo,margin,19);
+      doc.setFontSize(8);doc.setFont('helvetica','normal');doc.setTextColor(203,213,225);
+      doc.text(subtitulo,margin,26,{maxWidth:pw-margin*2});
+      y=40;
+    }
+    function sectionTitle(txt,desc){
+      chk(desc?13:8);
+      doc.setFontSize(10.5);doc.setFont('helvetica','bold');doc.setTextColor(TXT[0],TXT[1],TXT[2]);
+      doc.text(txt,margin,y);
+      doc.setDrawColor(ORANGE[0],ORANGE[1],ORANGE[2]);doc.setLineWidth(.6);doc.line(margin,y+1.8,pw-margin,y+1.8);
+      y+=6.5;
+      if(desc){
+        doc.setFontSize(7.5);doc.setFont('helvetica','normal');doc.setTextColor(TXT2[0],TXT2[1],TXT2[2]);
+        doc.text(desc,margin,y,{maxWidth:pw-margin*2});y+=5.5;
+      }
+    }
+
+    pageBg();
+    bigHeader('Comparativo de avance real — Ventanas',
+      'Edificio Victoria · Comparación entre el levantamiento del '+fmtDateC(fA)+' y el avance reportado al '+fmtDateC(fB)+', '+pisosTxt+'.');
+
+    // ── Mini-tarjetas de metadatos ──
+    var mw=(pw-margin*2-9)/4;
+    function miniCard(i,label,val){
+      var x=margin+i*(mw+3);
+      doc.setFillColor(CARD[0],CARD[1],CARD[2]);doc.setDrawColor(BORDER[0],BORDER[1],BORDER[2]);
+      doc.roundedRect(x,y,mw,14,1.3,1.3,'FD');
+      doc.setFontSize(6.3);doc.setFont('helvetica','bold');doc.setTextColor(150,140,120);
+      doc.text(label,x+3,y+5);
+      doc.setFontSize(8.5);doc.setFont('helvetica','bold');doc.setTextColor(TXT[0],TXT[1],TXT[2]);
+      doc.text(val,x+3,y+10.5,{maxWidth:mw-6});
+    }
+    miniCard(0,'CONTACTO','Pablo Huaiquiman');
+    miniCard(1,'LÍNEA BASE',fmtDateC(fA));
+    miniCard(2,'AVANCE REPORTADO',fmtDateC(fB));
+    miniCard(3,'PISOS INCLUIDOS',pisosTxtShort);
+    y+=20;
+
+    // ── Resumen ejecutivo ──
+    sectionTitle('RESUMEN EJECUTIVO — EDIFICIO COMPLETO',
+      totalVent+' ventanas activas en '+pisosTxt+'. Comparación de terminado, incompleto y pendiente entre ambas fechas.');
+    var scW=(pw-margin*2-8)/3;
+    function pctStr(n,d){return d?(Math.round(n/d*1000)/10).toString().replace('.',','):'0';}
+    function summaryCard(i,label,antes,ahora,col){
+      var x=margin+i*(scW+4);
+      doc.setFillColor(CARD[0],CARD[1],CARD[2]);doc.setDrawColor(BORDER[0],BORDER[1],BORDER[2]);
+      doc.roundedRect(x,y,scW,25,1.5,1.5,'FD');
+      doc.setFontSize(7);doc.setFont('helvetica','bold');doc.setTextColor(150,140,120);
+      doc.text(label,x+4,y+6);
+      doc.setFontSize(9);doc.setFont('helvetica','normal');doc.setTextColor(175,170,160);
+      doc.text(String(antes),x+4,y+15);
+      var w1=doc.getTextWidth(String(antes));
+      doc.setDrawColor(175,170,160);doc.setLineWidth(.3);doc.line(x+4,y+13,x+4+w1,y+13);
+      doc.setFontSize(15);doc.setFont('helvetica','bold');doc.setTextColor(TXT[0],TXT[1],TXT[2]);
+      doc.text(String(ahora),x+4+w1+4,y+15.5);
+      var delta=ahora-antes;
+      doc.setFontSize(7.3);doc.setFont('helvetica','bold');doc.setTextColor(col[0],col[1],col[2]);
+      doc.text((delta>=0?'+':'')+delta+' ventanas · '+pctStr(antes,totalVent)+'% → '+pctStr(ahora,totalVent)+'%',x+4,y+21.5);
+    }
+    summaryCard(0,'TERMINADAS',totG.terminado,totA.terminado,GREEN);
+    summaryCard(1,'INCOMPLETAS',totG.incompleto,totA.incompleto,ORANGE);
+    summaryCard(2,'PENDIENTES',totG.pendiente,totA.pendiente,GRAY);
+    y+=31;
+
+    // ── Comparación por piso (barras antes/ahora) ──
+    sectionTitle('COMPARACIÓN POR PISO',
+      'Cada piso muestra la distribución antes ('+fmtDateC(fA)+') y ahora ('+fmtDateC(fB)+'). Ambas barras de una misma categoría comparten escala.');
+    var labelX=margin+22,barX=margin+46,barW=pw-margin-18-barX,valX=pw-margin;
+    var CATS=[{k:'terminado',l:'TERMINADO',col:GREEN},{k:'incompleto',l:'INCOMPLETO',col:ORANGE},{k:'pendiente',l:'PENDIENTE',col:GRAY}];
+    porPiso.forEach(function(p){
+      chk(30);
+      doc.setFontSize(9.5);doc.setFont('helvetica','bold');doc.setTextColor(TXT[0],TXT[1],TXT[2]);
+      doc.text(p.piso,margin,y+3);
+      doc.setFontSize(7);doc.setFont('helvetica','normal');doc.setTextColor(150,145,135);
+      doc.text(p.total+' vent.',margin,y+7.5);
+      var by=y;
+      CATS.forEach(function(c){
+        doc.setFontSize(6.3);doc.setFont('helvetica','bold');doc.setTextColor(c.col[0],c.col[1],c.col[2]);
+        doc.text(c.l,labelX,by+3,{align:'right'});
+        ['ANTES','AHORA'].forEach(function(tag,ti){
+          var val=(tag==='ANTES'?p.antes:p.ahora)[c.k];
+          var by2=by+ti*3.3;
+          doc.setFontSize(5.3);doc.setFont('helvetica','normal');doc.setTextColor(165,160,150);
+          doc.text(tag,labelX+2,by2+2.1);
+          var sinCambio=p.antes[c.k]===p.ahora[c.k];
+          var barCol=sinCambio?[190,185,175]:c.col;
+          var bw=p.total?Math.max(0,barW*val/p.total):0;
+          doc.setFillColor(barCol[0],barCol[1],barCol[2]);
+          if(bw>0.3)doc.rect(barX,by2,bw,2.2,'F');
+          doc.setFontSize(7);doc.setFont('helvetica','bold');doc.setTextColor(sinCambio?165:TXT[0],sinCambio?160:TXT[1],sinCambio?150:TXT[2]);
+          doc.text(String(val),valX,by2+2.1,{align:'right'});
+        });
+        by+=7.8;
+      });
+      y=by+3;
+    });
+    y+=1;
+
+    // ── Leyenda ──
+    chk(8);
+    function legendDot(x,col,txt){
+      doc.setFillColor(col[0],col[1],col[2]);doc.rect(x,y-2.2,2.4,2.4,'F');
+      doc.setFontSize(6.3);doc.setFont('helvetica','normal');doc.setTextColor(120,115,105);
+      doc.text(txt,x+3.3,y);
+    }
+    legendDot(margin,GREEN,'Terminado');
+    legendDot(margin+26,ORANGE,'Incompleto');
+    legendDot(margin+54,GRAY,'Pendiente');
+    doc.setFontSize(6.3);doc.setTextColor(150,145,135);
+    doc.text('Valores en gris = sin cambio entre ambas fechas',margin+82,y);
+    y+=8;
+
+    // ── Tabla comparativa por piso ──
+    chk(10+porPiso.length*4.5);
+    var cols=[margin,margin+24,margin+44,margin+64,margin+78,margin+98,margin+118,margin+132,margin+152,margin+172];
+    var hdrs=['PISO','T.ANTES','T.AHORA','Δ','I.ANTES','I.AHORA','Δ','P.ANTES','P.AHORA','Δ'];
+    doc.setFontSize(6.5);doc.setFont('helvetica','bold');doc.setTextColor(120,115,105);
+    hdrs.forEach(function(hd,i){doc.text(hd,cols[i],y);});
+    y+=1.5;doc.setDrawColor(BORDER[0],BORDER[1],BORDER[2]);doc.line(margin,y,pw-margin,y);y+=3.8;
+    function deltaTxt(a,b){var d=b-a;return(d>0?'+':'')+d;}
+    function deltaCol(a,b,esBueno){
+      var d=b-a;if(d===0)return[170,165,155];
+      var pos=esBueno?d>0:d<0;return pos?GREEN:[190,60,50];
+    }
+    porPiso.forEach(function(p){
+      chk(5);
+      doc.setFontSize(7.3);doc.setFont('helvetica','bold');doc.setTextColor(TXT[0],TXT[1],TXT[2]);
+      doc.text(p.piso,cols[0],y);
+      doc.setFont('helvetica','normal');doc.setTextColor(80,80,80);
+      doc.text(String(p.antes.terminado),cols[1],y);doc.text(String(p.ahora.terminado),cols[2],y);
+      var dc=deltaCol(p.antes.terminado,p.ahora.terminado,true);doc.setTextColor(dc[0],dc[1],dc[2]);doc.setFont('helvetica','bold');doc.text(deltaTxt(p.antes.terminado,p.ahora.terminado),cols[3],y);
+      doc.setFont('helvetica','normal');doc.setTextColor(80,80,80);
+      doc.text(String(p.antes.incompleto),cols[4],y);doc.text(String(p.ahora.incompleto),cols[5],y);
+      dc=deltaCol(p.antes.incompleto,p.ahora.incompleto,false);doc.setTextColor(dc[0],dc[1],dc[2]);doc.setFont('helvetica','bold');doc.text(deltaTxt(p.antes.incompleto,p.ahora.incompleto),cols[6],y);
+      doc.setFont('helvetica','normal');doc.setTextColor(80,80,80);
+      doc.text(String(p.antes.pendiente),cols[7],y);doc.text(String(p.ahora.pendiente),cols[8],y);
+      dc=deltaCol(p.antes.pendiente,p.ahora.pendiente,false);doc.setTextColor(dc[0],dc[1],dc[2]);doc.setFont('helvetica','bold');doc.text(deltaTxt(p.antes.pendiente,p.ahora.pendiente),cols[9],y);
+      y+=4.5;
+    });
+    chk(6);
+    doc.setDrawColor(BORDER[0],BORDER[1],BORDER[2]);doc.line(margin,y-1.5,pw-margin,y-1.5);
+    doc.setFontSize(7.3);doc.setFont('helvetica','bold');doc.setTextColor(TXT[0],TXT[1],TXT[2]);
+    doc.text('Total ('+totalVent+')',cols[0],y);
+    doc.text(String(totG.terminado),cols[1],y);doc.text(String(totA.terminado),cols[2],y);
+    var dc2=deltaCol(totG.terminado,totA.terminado,true);doc.setTextColor(dc2[0],dc2[1],dc2[2]);doc.text(deltaTxt(totG.terminado,totA.terminado),cols[3],y);
+    doc.setTextColor(TXT[0],TXT[1],TXT[2]);
+    doc.text(String(totG.incompleto),cols[4],y);doc.text(String(totA.incompleto),cols[5],y);
+    dc2=deltaCol(totG.incompleto,totA.incompleto,false);doc.setTextColor(dc2[0],dc2[1],dc2[2]);doc.text(deltaTxt(totG.incompleto,totA.incompleto),cols[6],y);
+    doc.setTextColor(TXT[0],TXT[1],TXT[2]);
+    doc.text(String(totG.pendiente),cols[7],y);doc.text(String(totA.pendiente),cols[8],y);
+    dc2=deltaCol(totG.pendiente,totA.pendiente,false);doc.setTextColor(dc2[0],dc2[1],dc2[2]);doc.text(deltaTxt(totG.pendiente,totA.pendiente),cols[9],y);
+    y+=8;
+
+    // ── Página 2: Hallazgos y detalle de movimientos ──
+    doc.addPage();pageBg();
+    bigHeader('Hallazgos y detalle de cambios registrados',
+      totalMovs+' ventana'+(totalMovs===1?'':'s')+' cambiaron de estado entre '+fmtDateC(fA)+' y '+fmtDateC(fB)+'.');
+
+    if(hallazgos.length){
+      var hcW=(pw-margin*2-4)/2;
+      for(var hi=0;hi<hallazgos.length;hi+=2){
+        chk(24);
+        var rowItems=hallazgos.slice(hi,hi+2);
+        rowItems.forEach(function(hI,ci){
+          var x=margin+ci*(hcW+4);
+          doc.setFillColor(CARD[0],CARD[1],CARD[2]);doc.setDrawColor(BORDER[0],BORDER[1],BORDER[2]);doc.setLineWidth(.3);
+          doc.roundedRect(x,y,hcW,24,1.3,1.3,'FD');
+          doc.setDrawColor(ORANGE[0],ORANGE[1],ORANGE[2]);doc.setLineWidth(1);
+          doc.line(x+0.6,y+1.2,x+0.6,y+22.8);
+          doc.setFontSize(10);doc.setFont('helvetica','bold');doc.setTextColor(ORANGE[0],ORANGE[1],ORANGE[2]);
+          doc.text(String(hI.tag),x+5,y+7);
+          doc.setFontSize(6.8);doc.setFont('helvetica','normal');doc.setTextColor(TXT2[0],TXT2[1],TXT2[2]);
+          doc.text(hI.txt,x+5,y+12,{maxWidth:hcW-8});
+        });
+        y+=28;
+      }
+      y+=2;
+    }
+
+    sectionTitle('DETALLE DE MOVIMIENTOS POR PISO','Estado registrado en el levantamiento base ('+fmtDateC(fA)+') versus el estado informado hoy ('+fmtDateC(fB)+').');
+    porPiso.forEach(function(p){
+      var movs=movsPorPiso[p.piso]||[];
+      if(!movs.length)return;
+      var nMov=movs.reduce(function(s,m){return s+m.n;},0);
+      var cardH=8+movs.length*4.6;
+      chk(cardH+4);
+      doc.setFillColor(CARD[0],CARD[1],CARD[2]);doc.setDrawColor(BORDER[0],BORDER[1],BORDER[2]);doc.setLineWidth(.3);
+      doc.roundedRect(margin,y,pw-margin*2,cardH,1.3,1.3,'FD');
+      doc.setFontSize(7.5);doc.setFont('helvetica','bold');doc.setTextColor(TXT[0],TXT[1],TXT[2]);
+      doc.text(p.piso.toUpperCase()+' · '+nMov+' VENTANA'+(nMov===1?'':'S')+' MOVIDA'+(nMov===1?'':'S'),margin+4,y+6);
+      var my=y+11;
+      movs.forEach(function(m){
+        var lbl=(typeof m.depto==='number'?'Dpto '+m.depto:(m.label||String(m.depto)))+(m.n>1?' — '+m.n+' ventanas':'');
+        doc.setFontSize(7);doc.setFont('helvetica','normal');doc.setTextColor(60,60,60);
+        doc.text(lbl,margin+4,my);
+        doc.setFont('helvetica','bold');doc.setTextColor(90,90,90);
+        doc.text(BLBL[m.bA]+' → '+BLBL[m.bB],pw-margin-4,my,{align:'right'});
+        my+=4.6;
+      });
+      y+=cardH+4;
+    });
+
+    // ── Progreso por piso: % terminado antes vs ahora ──
+    sectionTitle('PROGRESO POR PISO — % TERMINADO ANTES VS. AHORA');
+    chk(8+porPiso.length*5);
+    var pc=[margin,margin+50,margin+100,margin+150];
+    doc.setFontSize(6.8);doc.setFont('helvetica','bold');doc.setTextColor(120,115,105);
+    doc.text('PISO',pc[0],y);doc.text('% TERMINADO ANTES',pc[1],y);doc.text('% TERMINADO AHORA',pc[2],y);doc.text('VARIACIÓN',pc[3],y);
+    y+=1.5;doc.setDrawColor(BORDER[0],BORDER[1],BORDER[2]);doc.line(margin,y,pw-margin,y);y+=4.2;
+    porPiso.forEach(function(p){
+      chk(5);
+      var pa=p.total?p.antes.terminado/p.total*100:0,pb=p.total?p.ahora.terminado/p.total*100:0;
+      doc.setFontSize(7.3);doc.setFont('helvetica','bold');doc.setTextColor(TXT[0],TXT[1],TXT[2]);
+      doc.text(p.piso,pc[0],y);
+      doc.setFont('helvetica','normal');doc.setTextColor(80,80,80);
+      doc.text(pa.toFixed(1).replace('.',',')+'%',pc[1],y);
+      doc.text(pb.toFixed(1).replace('.',',')+'%',pc[2],y);
+      var diff=Math.round((pb-pa)*10)/10;
+      var dCol2=diff>0?GREEN:diff<0?[190,60,50]:[170,165,155];
+      doc.setFont('helvetica','bold');doc.setTextColor(dCol2[0],dCol2[1],dCol2[2]);
+      doc.text((diff>0?'+':'')+diff.toString().replace('.',',')+' pp',pc[3],y);
+      y+=5;
+    });
+
+    footer();
+
+    // ── Exportar ──
+    var fname='comparativo-ventanas-'+fA+'-vs-'+fB+'.pdf';
+    try{
+      var blob=doc.output('blob');
+      var file=new File([blob],fname,{type:'application/pdf'});
+      if(navigator.canShare&&navigator.canShare({files:[file]})){
+        navigator.share({files:[file],title:'Comparativo de Avance — Ventanas'}).catch(function(){});
+        toast&&toast('📤 Comparativo listo para compartir/enviar');
+        return;
+      }
+    }catch(e){}
+    doc.save(fname);
+    toast&&toast('PDF descargado: '+fname);
+  }
+
   return h('div',{className:'page'},
     // ── Header ───────────────────────────────────────────────────────────────
     h('div',{style:{marginBottom:10}},
@@ -13052,7 +13432,7 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
     ),
     // ── Pestañas Gestión / Despacho / Instalación / Informe (siempre visibles) ──
     h('div',{style:{display:'flex',gap:6,marginBottom:6,flexWrap:'wrap'}},
-      [{k:'gestion',l:'1. Gestión'},{k:'despacho',l:'2. Despacho'},{k:'instalacion',l:'3. Instalación'},{k:'informe',l:'4. Informe'}].map(function(b){
+      [{k:'gestion',l:'1. Gestión'},{k:'despacho',l:'2. Despacho'},{k:'instalacion',l:'3. Instalación'},{k:'informe',l:'4. Informe'},{k:'comparativo',l:'5. Comparativo'}].map(function(b){
         var act=selBloque===b.k;
         return h('button',{key:b.k,onClick:function(){setSelBloque(b.k);},
           style:{padding:'5px 12px',borderRadius:7,border:'1px solid '+(act?'var(--accent)':'var(--border)'),
@@ -13062,7 +13442,7 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
       })
     ),
     // ── Agrupar por Piso | Tipo (antes pestañas separadas) ────────────────────
-    h('div',{style:{display:'flex',gap:5,marginBottom:6,alignItems:'center'}},
+    selBloque!=='comparativo'&&h('div',{style:{display:'flex',gap:5,marginBottom:6,alignItems:'center'}},
       h('span',{style:{fontSize:9,color:'var(--text3)',fontWeight:700}},'Agrupar por:'),
       [{k:'piso',l:'Piso'},{k:'tipo',l:'Tipo'}].map(function(a){
         var act=agrupar===a.k;
@@ -13072,6 +13452,57 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
             border:'1px solid '+(act?'var(--accent)':'var(--border)')}
         },a.l);
       })
+    ),
+    // ── COMPARATIVO: snapshots fechados + informe PDF comparativo (réplica del informe de avance real) ──
+    selBloque==='comparativo'&&h('div',{style:{display:'flex',flexDirection:'column',gap:10,marginBottom:8}},
+      h('div',{style:{fontSize:10,color:'var(--text3)',lineHeight:1.4}},
+        'Cada vez que guardas un snapshot queda registrada una foto fechada del estado completo del edificio. Elige dos fechas guardadas para comparar el avance entre ellas y generar el informe PDF.'),
+      h('div',{style:{display:'flex',gap:10,flexWrap:'wrap',alignItems:'flex-end'}},
+        h('div',null,
+          h('div',{style:{fontSize:9,color:'var(--text3)',marginBottom:3}},'Fecha base (antes)'),
+          h('select',{value:fechaBase,onChange:function(e){setFechaBase(e.target.value);},
+            style:{padding:'6px 8px',borderRadius:7,background:'var(--bg2)',border:'1px solid var(--border)',color:'var(--text)',fontSize:11}},
+            h('option',{value:''},'— Selecciona —'),
+            Object.keys(ventSnaps).sort().map(function(f){return h('option',{key:f,value:f},fmtDateC(f));})
+          )
+        ),
+        h('div',null,
+          h('div',{style:{fontSize:9,color:'var(--text3)',marginBottom:3}},'Fecha de avance (ahora)'),
+          h('select',{value:fechaComp,onChange:function(e){setFechaComp(e.target.value);},
+            style:{padding:'6px 8px',borderRadius:7,background:'var(--bg2)',border:'1px solid var(--border)',color:'var(--text)',fontSize:11}},
+            h('option',{value:''},'— Selecciona —'),
+            Object.keys(ventSnaps).sort().map(function(f){return h('option',{key:f,value:f},fmtDateC(f));})
+          )
+        ),
+        canEdit&&h('button',{onClick:function(){tomarSnapshotVentanasHoy();},
+          style:{padding:'7px 12px',borderRadius:7,fontSize:10,fontWeight:700,cursor:'pointer',
+            background:'var(--bg2)',color:'var(--accent)',border:'1px solid var(--accent)'}
+        },'📸 Guardar snapshot de hoy'),
+        h('button',{onClick:function(){
+            if(!fechaBase||!fechaComp){toast&&toast('Selecciona ambas fechas');return;}
+            if(fechaBase===fechaComp){toast&&toast('Elige dos fechas distintas');return;}
+            generarComparativoVentanas(fechaBase,fechaComp);
+          },
+          style:{padding:'7px 14px',borderRadius:7,fontSize:11,fontWeight:700,cursor:'pointer',
+            background:'var(--blue)',color:'#fff',border:'1px solid var(--blue)'}
+        },'📊 Generar Comparativo PDF')
+      ),
+      Object.keys(ventSnaps).length===0&&h('div',{style:{fontSize:10,color:'var(--amber)'}},
+        'Aún no hay snapshots guardados. Presiona "Guardar snapshot de hoy" para crear el primero — la próxima vez que vuelvas ya podrás compararlo.'),
+      Object.keys(ventSnaps).length===1&&h('div',{style:{fontSize:10,color:'var(--amber)'}},
+        'Solo hay un snapshot guardado ('+fmtDateC(Object.keys(ventSnaps)[0])+'). Guarda uno nuevo en unos días para poder comparar el avance.'),
+      Object.keys(ventSnaps).length>0&&h('div',{style:{display:'flex',flexDirection:'column',gap:4,marginTop:4}},
+        h('div',{style:{fontSize:9,fontWeight:700,color:'var(--text3)'}},'Snapshots guardados:'),
+        Object.keys(ventSnaps).sort().reverse().map(function(f){
+          var itMap=ventSnaps[f].items||{};
+          var vals=Object.keys(itMap).map(function(k){return itMap[k];});
+          var nTerm=vals.filter(function(e){return e==='completo';}).length;
+          return h('div',{key:f,style:{fontSize:10,color:'var(--text2)',display:'flex',gap:8}},
+            h('span',{style:{fontWeight:700,minWidth:70}},fmtDateC(f)),
+            h('span',null,nTerm+'/'+VENT_SCHEDULE_EXP.length+' terminadas')
+          );
+        })
+      )
     ),
     // ── INFORME: cuadros por piso (igual que la vista principal) + filtro por etapa ──
     selBloque==='informe'&&h('div',{style:{display:'flex',flexDirection:'column',gap:8,marginBottom:8}},
@@ -13135,7 +13566,7 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
       })()
     ),
     // ── POR TIPO (agrupación alternativa) ─────────────────────────────────────
-    selBloque!=='informe'&&agrupar==='tipo'&&h('div',{style:{display:'flex',flexDirection:'column',gap:6}},
+    selBloque!=='informe'&&selBloque!=='comparativo'&&agrupar==='tipo'&&h('div',{style:{display:'flex',flexDirection:'column',gap:6}},
       Object.keys(byTipo).sort().map(function(tipo){
         var items=byTipo[tipo];
         var comp=items.filter(function(i){return getEst(i.id)==='completo';}).length;
@@ -13155,7 +13586,7 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
       })
     ),
     // ── POR PISO (vista principal) ─────────────────────────────────────────
-    selBloque!=='informe'&&agrupar==='piso'&&h('div',{style:{display:'flex',flexDirection:'column',gap:8}},
+    selBloque!=='informe'&&selBloque!=='comparativo'&&agrupar==='piso'&&h('div',{style:{display:'flex',flexDirection:'column',gap:8}},
       // Selector de piso
       h('div',{style:{display:'flex',gap:5,flexWrap:'wrap',marginBottom:4}},
         VENT_PISOS.map(function(p){
@@ -13623,19 +14054,22 @@ function MasividadView({auth,toast}){
       if(y>240){doc.addPage();header();}
       doc.setFontSize(10);doc.setFont('helvetica','bold');doc.setTextColor(14,100,160);
       doc.text('PISO '+piso,margin,y);y+=6;
+      var c=[margin,margin+58,margin+82,margin+112,margin+142];
+      function drawDeptoHeader(dep,st,cont){
+        doc.setFontSize(9);doc.setFont('helvetica','bold');doc.setTextColor(20,20,20);
+        doc.text('D'+dep+'  ('+st.n+'/'+st.total+' OK)'+(cont?' (continuación)':''),margin,y);y+=4.5;
+        doc.setFontSize(7.5);doc.setFont('helvetica','bold');doc.setTextColor(90,90,90);
+        doc.text('ELEMENTO',c[0],y);doc.text('RETARDO',c[1],y);doc.text('REQ.(µm)',c[2],y);doc.text('MEDIDO(µm)',c[3],y);doc.text('CUMPLE',c[4],y);
+        y+=1.5;doc.setDrawColor(200,200,200);doc.line(margin,y,pw-margin,y);y+=3.5;
+        doc.setFontSize(7.5);doc.setFont('helvetica','normal');doc.setTextColor(40,40,40);
+      }
       deptos.forEach(function(dep){
         if(y>235){doc.addPage();header();}
         var st=deptoStats(dep);
-        doc.setFontSize(9);doc.setFont('helvetica','bold');doc.setTextColor(20,20,20);
-        doc.text('D'+dep+'  ('+st.n+'/'+st.total+' OK)',margin,y);y+=4.5;
-        doc.setFontSize(7.5);doc.setFont('helvetica','bold');doc.setTextColor(90,90,90);
-        var c=[margin,margin+58,margin+82,margin+112,margin+142];
-        doc.text('ELEMENTO',c[0],y);doc.text('RETARDO',c[1],y);doc.text('REQ.(µm)',c[2],y);doc.text('MEDIDO(µm)',c[3],y);doc.text('CUMPLE',c[4],y);
-        y+=1.5;doc.setDrawColor(200,200,200);doc.line(margin,y,pw-margin,y);y+=3.5;
-        doc.setFont('helvetica','normal');doc.setTextColor(40,40,40);
+        drawDeptoHeader(dep,st,false);
         var depFotos=[];
         MASIV_ELEMENTOS.forEach(function(el){
-          if(y>252){doc.addPage();header();}
+          if(y>252){doc.addPage();header();drawDeptoHeader(dep,st,true);}
           var d=getEl(dep,el.id);var ok=cumple(dep,el);var tieneVal=d.micras!=null&&d.micras!=='';
           doc.setTextColor(40,40,40);
           doc.text(el.nombre+' ('+el.dim+')',c[0],y,{maxWidth:56});
@@ -13689,17 +14123,16 @@ function MasividadView({auth,toast}){
     }
     var pisoSlug=filtroPiso?('-piso'+filtroPiso):'';
     var fname='informe-masividad'+pisoSlug+'-'+today+'.pdf';
+    // Guarda siempre primero en el equipo (confiable); compartir por SO queda como opción adicional
+    doc.save(fname);
+    toast&&toast('PDF descargado: '+fname);
     try{
       var blob=doc.output('blob');
       var file=new File([blob],fname,{type:'application/pdf'});
       if(navigator.canShare&&navigator.canShare({files:[file]})){
         navigator.share({files:[file],title:'Informe Masividad'}).catch(function(){});
-        toast&&toast('📤 Informe listo para compartir/enviar');
-        return;
       }
     }catch(e){}
-    doc.save(fname);
-    toast&&toast('PDF descargado: '+fname);
   }
 
   return h('div',{className:'page'},
@@ -15391,6 +15824,8 @@ const SAVES_COL=OBRA_REF.collection('saves');
 const MASIV_COL=OBRA_REF.collection('masiv');
 // Ventanas: un documento Firestore por depto (items con fotos + historial de controles)
 const VENT_COL=OBRA_REF.collection('vent');
+// Comparativo Ventanas: snapshots fechados del estado completo del edificio (para informes comparativos)
+const VENT_SNAP_COL=OBRA_REF.collection('ventSnap');
 
 // ── Global sync flag ──
 window._fbReady=false;
@@ -15496,6 +15931,19 @@ window.fbSaveVent=function(dep,items,revisiones){
   _fbVentPending[dep]={items:items,revisiones:revisiones};
   clearTimeout(_fbVentTimer);
   _fbVentTimer=setTimeout(_fbDoSaveVent,800);
+};
+
+// ── Snapshot fechado de Ventanas: escritura puntual por fecha (sin debounce, se genera manualmente
+// desde el informe Comparativo — no compite con el guardado continuo de _fbVentPending) ──
+window.fbSaveVentSnapshot=function(fecha,items){
+  return VENT_SNAP_COL.doc(fecha).set({fecha:fecha,items:items,creado:Date.now()});
+};
+window.fbGetVentSnapshots=function(){
+  return VENT_SNAP_COL.get().then(function(snap){
+    var out={};
+    snap.forEach(function(doc){out[doc.id]=doc.data();});
+    return out;
+  });
 };
 
 // ── Flush forzado: si el celular bloquea pantalla, cambia de app o cierra la
