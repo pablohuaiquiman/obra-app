@@ -15126,8 +15126,11 @@ function App({initialData}){
   const muebTandas=state.muebTandas||[];
   const onMuebTandasSave=(t)=>save({muebTandas:t});
   const isSupervisor=auth.role==='Supervisor';
+  const isJefeObra=auth.role==='Jefe Obra';
   const userResp=isSupervisor?(USER_RESP_MAP[auth.user]||null):null;
   const SUPR_TABS=['partidas','pisos','pisovinilico','programa','asistencia','control','masividad','muebles','pintura'];
+  // Jefe Obra: solo estas 7 pestañas (Admin sigue viendo todas, sin restricción)
+  const JEFE_TABS=['partidas','pisos','control','masividad','muebles','pintura','pisovinilico'];
   const navTabs=[
     {id:'dash',icon:'◆',label:'Dashboard'},
     {id:'partidas',icon:'🔍',label:'Partidas'},
@@ -15148,8 +15151,8 @@ function App({initialData}){
     {id:'sobretiempo',icon:'⏱',label:'S.Tiempo'},
     {id:'informe',icon:'📄',label:'Informe'},
     {id:'planmaestro',icon:'📋',label:'Plan Maestro'},
-  ].filter(t=>!isSupervisor||SUPR_TABS.includes(t.id));
-  const effectiveTab=isSupervisor&&!SUPR_TABS.includes(tab)?'partidas':tab;
+  ].filter(t=>(!isSupervisor||SUPR_TABS.includes(t.id))&&(!isJefeObra||JEFE_TABS.includes(t.id)));
+  const effectiveTab=(isSupervisor&&!SUPR_TABS.includes(tab))||(isJefeObra&&!JEFE_TABS.includes(tab))?'partidas':tab;
   let content;
   if(effectiveTab==='dash')content=h(Dashboard,{progress,ganttTasks:ganttData.tasks||[],weekData,ganttData,saves});
   else if(effectiveTab==='partidas')content=h(PartidasView,{progress,saves,onSave,auth,toast:showToast,userResp});
