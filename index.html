@@ -13138,7 +13138,7 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
     var dias=Math.max(1,Math.round((new Date(fB+'T12:00:00')-new Date(fA+'T12:00:00'))/86400000));
     hallazgos.push({
       tag:(deltaTerm>=0?'+':'')+deltaTerm,
-      txt:'Ventanas terminadas '+(deltaTerm>=0?'nuevas':'menos')+' en '+dias+' día'+(dias===1?'':'s')+'. Avance total: '+pctAntes.toString().replace('.',',')+'% → '+pctAhora.toString().replace('.',',')+'% terminado.'
+      txt:'Ventanas terminadas '+(deltaTerm>=0?'nuevas':'menos')+' en '+dias+' día'+(dias===1?'':'s')+'. Avance total: '+pctAntes.toString().replace('.',',')+'% -> '+pctAhora.toString().replace('.',',')+'% terminado.'
     });
     var mejorPiso=null;
     porPiso.forEach(function(p){
@@ -13243,7 +13243,7 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
       doc.text(String(ahora),x+4+w1+4,y+15.5);
       var delta=ahora-antes;
       doc.setFontSize(7.3);doc.setFont('helvetica','bold');doc.setTextColor(col[0],col[1],col[2]);
-      doc.text((delta>=0?'+':'')+delta+' ventanas · '+pctStr(antes,totalVent)+'% → '+pctStr(ahora,totalVent)+'%',x+4,y+21.5);
+      doc.text((delta>=0?'+':'')+delta+' ventanas · '+pctStr(antes,totalVent)+'% -> '+pctStr(ahora,totalVent)+'%',x+4,y+21.5);
     }
     summaryCard(0,'TERMINADAS',totG.terminado,totA.terminado,GREEN);
     summaryCard(1,'INCOMPLETAS',totG.incompleto,totA.incompleto,ORANGE);
@@ -13256,31 +13256,32 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
     var labelX=margin+22,barX=margin+46,barW=pw-margin-18-barX,valX=pw-margin;
     var CATS=[{k:'terminado',l:'TERMINADO',col:GREEN},{k:'incompleto',l:'INCOMPLETO',col:ORANGE},{k:'pendiente',l:'PENDIENTE',col:GRAY}];
     porPiso.forEach(function(p){
-      chk(30);
+      chk(31);
       doc.setFontSize(9.5);doc.setFont('helvetica','bold');doc.setTextColor(TXT[0],TXT[1],TXT[2]);
       doc.text(p.piso,margin,y+3);
+      var pisoW=doc.getTextWidth(p.piso);
       doc.setFontSize(7);doc.setFont('helvetica','normal');doc.setTextColor(150,145,135);
-      doc.text(p.total+' vent.',margin,y+7.5);
-      var by=y;
+      doc.text(p.total+' vent.',margin+pisoW+4,y+3);
+      var by=y+7;
       CATS.forEach(function(c){
         doc.setFontSize(6.3);doc.setFont('helvetica','bold');doc.setTextColor(c.col[0],c.col[1],c.col[2]);
         doc.text(c.l,labelX,by+3,{align:'right'});
         ['ANTES','AHORA'].forEach(function(tag,ti){
           var val=(tag==='ANTES'?p.antes:p.ahora)[c.k];
-          var by2=by+ti*3.3;
+          var by2=by+ti*3;
           doc.setFontSize(5.3);doc.setFont('helvetica','normal');doc.setTextColor(165,160,150);
-          doc.text(tag,labelX+2,by2+2.1);
+          doc.text(tag,labelX+2,by2+2);
           var sinCambio=p.antes[c.k]===p.ahora[c.k];
           var barCol=sinCambio?[190,185,175]:c.col;
           var bw=p.total?Math.max(0,barW*val/p.total):0;
           doc.setFillColor(barCol[0],barCol[1],barCol[2]);
-          if(bw>0.3)doc.rect(barX,by2,bw,2.2,'F');
+          if(bw>0.3)doc.rect(barX,by2,bw,2,'F');
           doc.setFontSize(7);doc.setFont('helvetica','bold');doc.setTextColor(sinCambio?165:TXT[0],sinCambio?160:TXT[1],sinCambio?150:TXT[2]);
-          doc.text(String(val),valX,by2+2.1,{align:'right'});
+          doc.text(String(val),valX,by2+2,{align:'right'});
         });
-        by+=7.8;
+        by+=7;
       });
-      y=by+3;
+      y=by+2;
     });
     y+=1;
 
@@ -13301,7 +13302,7 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
     // ── Tabla comparativa por piso ──
     chk(10+porPiso.length*4.5);
     var cols=[margin,margin+24,margin+44,margin+64,margin+78,margin+98,margin+118,margin+132,margin+152,margin+172];
-    var hdrs=['PISO','T.ANTES','T.AHORA','Δ','I.ANTES','I.AHORA','Δ','P.ANTES','P.AHORA','Δ'];
+    var hdrs=['PISO','T.ANTES','T.AHORA','VAR.','I.ANTES','I.AHORA','VAR.','P.ANTES','P.AHORA','VAR.'];
     doc.setFontSize(6.5);doc.setFont('helvetica','bold');doc.setTextColor(120,115,105);
     hdrs.forEach(function(hd,i){doc.text(hd,cols[i],y);});
     y+=1.5;doc.setDrawColor(BORDER[0],BORDER[1],BORDER[2]);doc.line(margin,y,pw-margin,y);y+=3.8;
@@ -13382,7 +13383,7 @@ function ControlView({saves,onSave,ganttData,onGanttSave,auth,toast}){
         doc.setFontSize(7);doc.setFont('helvetica','normal');doc.setTextColor(60,60,60);
         doc.text(lbl,margin+4,my);
         doc.setFont('helvetica','bold');doc.setTextColor(90,90,90);
-        doc.text(BLBL[m.bA]+' → '+BLBL[m.bB],pw-margin-4,my,{align:'right'});
+        doc.text(BLBL[m.bA]+' -> '+BLBL[m.bB],pw-margin-4,my,{align:'right'});
         my+=4.6;
       });
       y+=cardH+4;
