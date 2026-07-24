@@ -12117,15 +12117,21 @@ var VENT_TIPOS=[...new Set(VENT_SCHEDULE.map(function(i){return i.tipo;}))].sort
 // (navegadores sin ninguna de las dos APIs). Común a todos los informes PDF.
 function exportarPdf(doc,fname,shareTitle,toast){
   var blob=doc.output('blob');
+  // Solo se ofrece "compartir" (hoja nativa de apps/contactos) en celulares/tablets —
+  // en computador esa hoja resulta confusa para simplemente "guardar el archivo",
+  // así que ahí se prefiere directamente la descarga normal del navegador.
+  var esMovil=navigator.maxTouchPoints>1||/Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent||'');
   function shareOrDownload(){
-    try{
-      var file=new File([blob],fname,{type:'application/pdf'});
-      if(navigator.canShare&&navigator.canShare({files:[file]})){
-        navigator.share({files:[file],title:shareTitle}).catch(function(){});
-        toast&&toast('📤 Listo para compartir/enviar');
-        return;
-      }
-    }catch(e){}
+    if(esMovil){
+      try{
+        var file=new File([blob],fname,{type:'application/pdf'});
+        if(navigator.canShare&&navigator.canShare({files:[file]})){
+          navigator.share({files:[file],title:shareTitle}).catch(function(){});
+          toast&&toast('📤 Listo para compartir/enviar');
+          return;
+        }
+      }catch(e){}
+    }
     doc.save(fname);
     toast&&toast('PDF descargado: '+fname);
   }
