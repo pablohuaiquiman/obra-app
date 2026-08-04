@@ -1042,6 +1042,69 @@ function Dashboard({progress,ganttTasks,weekData,ganttData,saves,toast}){
     }
     exportarPdf(doc,'estado-entrega-pisos-'+today+'.pdf','Estado de Entrega por Piso',toast);
   }
+  // ── Excel: Matriz de Estado por Piso — tabla HTML coloreada (.xls) que Excel abre
+  // como planilla normal, editable: el usuario puede reordenar filas/columnas y
+  // recolorear celdas a mano, algo que un PDF no permite. ──
+  function exportarExcelMatrizPisos(){
+    var today=new Date().toISOString().slice(0,10);
+    function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+    var rows=[];
+    rows.push('<tr><td colspan="'+(gridAxes.length+1)+'" style="font-size:16px;font-weight:bold;background:#0a1440;color:#ffffff;padding:6px;">MATRIZ DE ESTADO POR PISO — Edificio Victoria — '+today.split('-').reverse().join('/')+'</td></tr>');
+    rows.push('<tr><td></td>'+['RF','R1','R0','FASE'].map(function(k){
+      var st=BUCKET_STYLE[k];
+      return '<td colspan="2" style="background:'+st.bg+';color:'+st.fg+';font-weight:bold;text-align:center;">'+esc(st.label+' · '+st.nombre+' ('+bucketTotals[k]+')')+'</td>';
+    }).join('')+'</tr>');
+    rows.push('<tr><td style="height:8px;"></td></tr>');
+    rows.push('<tr><td style="font-weight:bold;background:#e8ecf5;">PISO</td>'+gridAxes.map(function(ax){
+      return '<td style="font-weight:bold;background:#e8ecf5;text-align:center;">'+esc(ax)+'</td>';
+    }).join('')+'</tr>');
+    floors.forEach(function(fl){
+      var pisoLabel=fl.charAt(0).toUpperCase()+fl.slice(1);
+      var deps=_D.fl[fl]||[];
+      var cells=gridAxes.map(function(ax){
+        var dep=deps.filter(function(d){return d.slice(-2)===ax;})[0];
+        if(!dep)return '<td></td>';
+        var ov=(pg.deptos[dep]||{overall:0}).overall;
+        var st=BUCKET_STYLE[bucketOf(dep)];
+        return '<td style="background:'+st.bg+';color:'+st.fg+';font-weight:bold;text-align:center;">'+esc(dep)+' ('+Math.round(ov)+'%)</td>';
+      }).join('');
+      rows.push('<tr><td style="font-weight:bold;background:#e8ecf5;">'+esc(pisoLabel)+'</td>'+cells+'</tr>');
+    });
+    var html='<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">'+
+      '<head><meta charset="UTF-8">'+
+      '<!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>Matriz</x:Name>'+
+      '<x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->'+
+      '</head><body><table border="1" cellspacing="0" cellpadding="4">'+rows.join('')+'</table></body></html>';
+    var blob=new Blob([html],{type:'application/vnd.ms-excel'});
+    var fname='matriz-estado-pisos-'+today+'.xls';
+    var esMovil=navigator.maxTouchPoints>1||/Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent||'');
+    function shareOrDownload(){
+      if(esMovil){
+        try{
+          var file=new File([blob],fname,{type:'application/vnd.ms-excel'});
+          if(navigator.canShare&&navigator.canShare({files:[file]})){
+            navigator.share({files:[file],title:'Matriz de Estado por Piso'}).catch(function(){});
+            toast&&toast('📤 Listo para compartir/enviar');
+            return;
+          }
+        }catch(e){}
+      }
+      var a=document.createElement('a');
+      a.href=URL.createObjectURL(blob);
+      a.download=fname;
+      document.body.appendChild(a);a.click();document.body.removeChild(a);
+      setTimeout(function(){URL.revokeObjectURL(a.href);},1000);
+      toast&&toast('Excel descargado: '+fname);
+    }
+    if(window.showSaveFilePicker){
+      window.showSaveFilePicker({suggestedName:fname,types:[{description:'Excel',accept:{'application/vnd.ms-excel':['.xls']}}]})
+        .then(function(handle){return handle.createWritable().then(function(w){return w.write(blob).then(function(){return w.close();});});})
+        .then(function(){toast&&toast('✓ Excel guardado');})
+        .catch(function(e){if(e&&e.name==='AbortError')return;shareOrDownload();});
+      return;
+    }
+    shareOrDownload();
+  }
   // ── Project dates banner: INICIO/FIN EST. 100% dinámicos, derivados de _ov (overrides) ──
   // Único punto de cálculo (evita duplicar la lógica entre el texto INICIO/FIN EST. y el widget de días restantes).
   var _gd=ganttData||{};
@@ -1351,11 +1414,18 @@ function Dashboard({progress,ganttTasks,weekData,ganttData,saves,toast}){
     h('div',{className:'card'},
       h('div',{className:'shdr'},
         h('div',{className:'shdr-title'},'Matriz de Estado por Piso'),
-        h('button',{
-          onClick:generarPDFEstadoPisos,
-          title:'Exportar y guardar como PDF para compartir',
-          style:{background:'var(--blue)',border:'none',borderRadius:6,padding:'6px 12px',color:'#fff',cursor:'pointer',fontSize:11,fontWeight:700,whiteSpace:'nowrap'}
-        },'📄 Exportar PDF')
+        h('div',{style:{display:'flex',flexDirection:'column',gap:6,alignItems:'flex-end'}},
+          h('button',{
+            onClick:generarPDFEstadoPisos,
+            title:'Exportar y guardar como PDF para compartir',
+            style:{background:'var(--blue)',border:'none',borderRadius:6,padding:'6px 12px',color:'#fff',cursor:'pointer',fontSize:11,fontWeight:700,whiteSpace:'nowrap'}
+          },'📄 Exportar PDF'),
+          h('button',{
+            onClick:exportarExcelMatrizPisos,
+            title:'Exportar a Excel para editar colores y orden manualmente',
+            style:{background:'var(--green2)',border:'none',borderRadius:6,padding:'6px 12px',color:'#fff',cursor:'pointer',fontSize:11,fontWeight:700,whiteSpace:'nowrap'}
+          },'📊 Exportar Excel')
+        )
       ),
       h('div',{className:'flex g8',style:{flexWrap:'wrap',marginBottom:10}},
         ['RF','R1','R0','FASE'].map(function(k){
