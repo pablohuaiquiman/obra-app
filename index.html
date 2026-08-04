@@ -768,7 +768,7 @@ function flAvgLive(fl,fase,saves){
   });
   return Math.round(tot/deps.length*10)/10;
 }
-function Dashboard({progress,ganttTasks,weekData,ganttData,saves}){
+function Dashboard({progress,ganttTasks,weekData,ganttData,saves,toast}){
   var pg=progress||calculateAllProgress({});
   var[selDashDep,setSelDashDep]=useState(null);
   // ── Entregas semana actual agrupadas por piso ──
@@ -890,6 +890,158 @@ function Dashboard({progress,ganttTasks,weekData,ganttData,saves}){
     return result;
   },[pg]);
   const floors=Object.keys(_D.fl);
+  // ── Matriz de estado por piso (eje vertical): agrupa deptos por sus últimos 2 dígitos
+  // (ej. 203/303/403/503/603 comparten eje '03'), ya que representan la misma posición
+  // en la planta repetida piso a piso. Ejes que no existen en un piso quedan en blanco.
+  var BUCKET_STYLE={
+    RF:{bg:'#16a34a',fg:'#fff',label:'RF',nombre:'Verde'},
+    R1:{bg:'#0ea5e9',fg:'#fff',label:'R1',nombre:'Azul'},
+    R0:{bg:'#f59e0b',fg:'#1a1a1a',label:'R0',nombre:'Amarillo'},
+    FASE:{bg:'#ef4444',fg:'#fff',label:'Fase',nombre:'Rojo'}
+  };
+  function bucketOf(dep){
+    var ov=(pg.deptos[dep]||{overall:0}).overall;
+    var r=Math.round(ov);
+    return r>=100?'RF':r>=80?'R1':r>=50?'R0':'FASE';
+  }
+  var gridAxes=(function(){
+    var set={};
+    floors.forEach(function(fl){(_D.fl[fl]||[]).forEach(function(dep){set[dep.slice(-2)]=true;});});
+    return Object.keys(set).sort(function(a,b){return parseInt(a,10)-parseInt(b,10);});
+  })();
+  var bucketTotals=(function(){
+    var c={RF:0,R1:0,R0:0,FASE:0};
+    floors.forEach(function(fl){(_D.fl[fl]||[]).forEach(function(dep){c[bucketOf(dep)]++;});});
+    return c;
+  })();
+  // ── PDF: Estado de Entrega por Piso (RF / R1 / R0 / Fase) ──
+  function generarPDFEstadoPisos(){
+    if(typeof jspdf==='undefined'){toast&&toast('Error: jsPDF no disponible');return;}
+    var today=new Date().toISOString().slice(0,10);
+    var doc=new jspdf.jsPDF({orientation:'portrait',unit:'mm',format:'letter'});
+    var pw=216,ph=279,margin=14,y=20;
+    var cw=pw-margin*2;
+    try{doc.addImage(_LOGO,'PNG',margin,y-6,28,8);}catch(e){}
+    doc.setFontSize(13);doc.setFont('helvetica','bold');doc.setTextColor(10,20,60);
+    doc.text('ESTADO DE ENTREGA POR PISO',pw/2,y,{align:'center'});
+    y+=5;
+    doc.setFontSize(8);doc.setFont('helvetica','normal');doc.setTextColor(100,100,100);
+    doc.text('Edificio Victoria — Control de Obra',pw/2,y,{align:'center'});
+    doc.text('Fecha: '+today.split('-').reverse().join('/'),pw-margin,y-5,{align:'right'});
+    y+=6;
+    doc.setDrawColor(180,180,200);doc.setLineWidth(.4);doc.line(margin,y,pw-margin,y);
+    y+=6;
+    function chk(need){if(y+need>ph-16){doc.addPage();y=16;}}
+    doc.setFontSize(8);doc.setFont('helvetica','italic');doc.setTextColor(120,120,120);
+    doc.text('RF 100%   ·   R1 80–99%   ·   R0 50–79%   ·   Fase 0–49%',margin,y);
+    y+=7;
+    var DEFS=[
+      {key:'RF',label:'RF · 100%',col:[22,140,74]},
+      {key:'R1',label:'R1 · 80–99%',col:[14,120,180]},
+      {key:'R0',label:'R0 · 50–79%',col:[200,120,20]},
+      {key:'FASE',label:'Fase · 0–49%',col:[190,40,40]}
+    ];
+    // Layout compacto en pares de columnas (RF+R1 / R0+Fase) para que las 5 plantas
+    // quepan siempre en esta primera página — la matriz de la página 2 no debe correrse.
+    var pairColGap=4,pairColW=(cw-pairColGap)/2,pairLabelW=30;
+    floors.forEach(function(fl){
+      var deps=_D.fl[fl]||[];
+      var buckets={RF:[],R1:[],R0:[],FASE:[]};
+      deps.forEach(function(dep){buckets[bucketOf(dep)].push(dep);});
+      var pisoLabel=fl.charAt(0).toUpperCase()+fl.slice(1);
+      chk(9);
+      doc.setFillColor(20,40,90);doc.rect(margin,y,cw,6,'F');
+      doc.setFontSize(9);doc.setFont('helvetica','bold');doc.setTextColor(255,255,255);
+      doc.text(pisoLabel.toUpperCase()+'  ('+deps.length+' deptos)',margin+3,y+4.3);
+      y+=8;
+      [['RF','R1'],['R0','FASE']].forEach(function(pair){
+        var cells=pair.map(function(k){
+          var d=DEFS.filter(function(x){return x.key===k;})[0];
+          var items=buckets[k];
+          var txt=items.length?items.join(', '):'—';
+          doc.setFontSize(7);doc.setFont('helvetica','normal');
+          var lines=doc.splitTextToSize(txt,pairColW-pairLabelW-2);
+          return{d:d,items:items,lines:lines};
+        });
+        var rowH=Math.max(cells[0].lines.length,cells[1].lines.length)*3.3+3;
+        chk(rowH+1);
+        cells.forEach(function(c,ci){
+          var cx=margin+ci*(pairColW+pairColGap);
+          doc.setFontSize(7);doc.setFont('helvetica','bold');doc.setTextColor(c.d.col[0],c.d.col[1],c.d.col[2]);
+          doc.text(c.d.label+' ('+c.items.length+')',cx,y+3);
+          doc.setFont('helvetica','normal');doc.setTextColor(60,60,60);
+          doc.text(c.lines,cx+pairLabelW,y+3);
+        });
+        y+=rowH;
+      });
+      y+=3;
+    });
+    // ── Matriz de estado por piso (eje vertical) ──
+    doc.addPage('letter','landscape');
+    pw=279;ph=216;margin=14;cw=pw-margin*2;y=16;
+    doc.setFontSize(12);doc.setFont('helvetica','bold');doc.setTextColor(10,20,60);
+    doc.text('MATRIZ DE ESTADO POR PISO',pw/2,y,{align:'center'});
+    y+=7;
+    var legX=margin;
+    ['RF','R1','R0','FASE'].forEach(function(k){
+      var st=BUCKET_STYLE[k];
+      var rgb=[parseInt(st.bg.slice(1,3),16),parseInt(st.bg.slice(3,5),16),parseInt(st.bg.slice(5,7),16)];
+      doc.setFillColor(rgb[0],rgb[1],rgb[2]);doc.rect(legX,y-3,4,4,'F');
+      doc.setFontSize(8);doc.setFont('helvetica','normal');doc.setTextColor(80,80,80);
+      doc.text(st.label+' · '+st.nombre,legX+6,y);
+      legX+=42;
+    });
+    y+=8;
+    var sumX=margin;
+    ['RF','R1','R0','FASE'].forEach(function(k){
+      var st=BUCKET_STYLE[k];
+      var rgb=[parseInt(st.bg.slice(1,3),16),parseInt(st.bg.slice(3,5),16),parseInt(st.bg.slice(5,7),16)];
+      doc.setFontSize(7.5);doc.setFont('helvetica','normal');doc.setTextColor(90,90,90);
+      doc.text(st.label+':',sumX,y);
+      doc.setFontSize(11);doc.setFont('helvetica','bold');doc.setTextColor(rgb[0],rgb[1],rgb[2]);
+      doc.text(String(bucketTotals[k]),sumX+13,y);
+      sumX+=42;
+    });
+    y+=10;
+    var labelW=20;
+    var colW=Math.min(11,(cw-labelW)/gridAxes.length);
+    var rowH=8;
+    doc.setFontSize(7);doc.setFont('helvetica','bold');doc.setTextColor(100,100,100);
+    gridAxes.forEach(function(ax,i){
+      doc.text(ax,margin+labelW+i*colW+colW/2,y,{align:'center'});
+    });
+    y+=3;
+    floors.forEach(function(fl){
+      var pisoLabel=fl.charAt(0).toUpperCase()+fl.slice(1);
+      doc.setFontSize(8);doc.setFont('helvetica','bold');doc.setTextColor(20,30,60);
+      doc.text(pisoLabel,margin,y+rowH/2+1.5);
+      var deps=_D.fl[fl]||[];
+      gridAxes.forEach(function(ax,i){
+        var cx=margin+labelW+i*colW;
+        var dep=deps.filter(function(d){return d.slice(-2)===ax;})[0];
+        if(!dep){
+          doc.setFillColor(238,238,238);doc.rect(cx,y,colW-.7,rowH-.7,'F');
+          return;
+        }
+        var st=BUCKET_STYLE[bucketOf(dep)];
+        var rgb=[parseInt(st.bg.slice(1,3),16),parseInt(st.bg.slice(3,5),16),parseInt(st.bg.slice(5,7),16)];
+        doc.setFillColor(rgb[0],rgb[1],rgb[2]);doc.rect(cx,y,colW-.7,rowH-.7,'F');
+        var fg=st.fg==='#fff'?255:30;
+        doc.setFontSize(5.5);doc.setFont('helvetica','bold');doc.setTextColor(fg,fg,fg);
+        doc.text(dep,cx+(colW-.7)/2,y+rowH/2+1.2,{align:'center'});
+      });
+      y+=rowH;
+    });
+    var nPg=doc.getNumberOfPages();
+    for(var p=1;p<=nPg;p++){
+      doc.setPage(p);
+      var pgW=doc.internal.pageSize.getWidth(),pgH=doc.internal.pageSize.getHeight();
+      doc.setFontSize(7.5);doc.setFont('helvetica','normal');doc.setTextColor(160,160,160);
+      doc.text('Pág. '+p+' / '+nPg,pgW-margin,pgH-8,{align:'right'});
+      doc.text('Edificio Victoria — Control de Obra · Estado de Entrega por Piso',margin,pgH-8);
+    }
+    exportarPdf(doc,'estado-entrega-pisos-'+today+'.pdf','Estado de Entrega por Piso',toast);
+  }
   // ── Project dates banner: INICIO/FIN EST. 100% dinámicos, derivados de _ov (overrides) ──
   // Único punto de cálculo (evita duplicar la lógica entre el texto INICIO/FIN EST. y el widget de días restantes).
   var _gd=ganttData||{};
@@ -1134,6 +1286,130 @@ function Dashboard({progress,ganttTasks,weekData,ganttData,saves}){
           )
         );
       })
+    ),
+    // ── Estado de Entrega por Piso (RF / R1 / R0 / Fase) ──
+    h('div',{className:'card'},
+      h('div',{className:'shdr'},
+        h('div',{className:'shdr-title'},'Estado de Entrega por Piso'),
+        h('button',{
+          onClick:generarPDFEstadoPisos,
+          title:'Exportar y guardar como PDF para compartir',
+          style:{background:'var(--blue)',border:'none',borderRadius:6,padding:'6px 12px',color:'#fff',cursor:'pointer',fontSize:11,fontWeight:700,whiteSpace:'nowrap'}
+        },'📄 Exportar PDF')
+      ),
+      floors.map(function(fl){
+        var deps=_D.fl[fl]||[];
+        var buckets={RF:[],R1:[],R0:[],FASE:[]};
+        deps.forEach(function(dep){
+          var ov=(pg.deptos[dep]||{overall:0}).overall;
+          var r=Math.round(ov);
+          var key=r>=100?'RF':r>=80?'R1':r>=50?'R0':'FASE';
+          buckets[key].push({dep:dep,ov:ov});
+        });
+        var pisoLabel=fl.charAt(0).toUpperCase()+fl.slice(1);
+        var defs=[
+          {key:'RF',label:'RF',range:'100%',color:'var(--green)',pill:'pill-green',bg:'rgba(34,197,94,.06)',bdr:'rgba(34,197,94,.28)'},
+          {key:'R1',label:'R1',range:'80% – 99%',color:'var(--blue)',pill:'pill-blue',bg:'rgba(14,165,233,.06)',bdr:'rgba(14,165,233,.28)'},
+          {key:'R0',label:'R0',range:'50% – 79%',color:'var(--amber)',pill:'pill-amber',bg:'rgba(245,158,11,.06)',bdr:'rgba(245,158,11,.28)'},
+          {key:'FASE',label:'Fase',range:'0% – 49%',color:'var(--red)',pill:'pill-red',bg:'rgba(239,68,68,.06)',bdr:'rgba(239,68,68,.28)'}
+        ];
+        return h('div',{key:fl,style:{marginBottom:16,paddingBottom:14,borderBottom:'1px solid rgba(30,58,95,.3)'}},
+          h('div',{style:{display:'flex',alignItems:'baseline',gap:8,marginBottom:2,flexWrap:'wrap'}},
+            h('span',{style:{fontSize:15,fontWeight:800,color:'var(--text)',letterSpacing:'.03em'}},pisoLabel),
+            h('span',{className:'text3',style:{fontSize:10}},deps.length+' deptos')
+          ),
+          h('div',{style:{fontSize:10,color:'var(--text3)',marginBottom:10}},
+            'RF 100%  ·  R1 80–99%  ·  R0 50–79%  ·  Fase 0–49%'
+          ),
+          h('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:8}},
+            defs.map(function(d){
+              var items=buckets[d.key];
+              return h('div',{key:d.key,style:{background:d.bg,border:'1px solid '+d.bdr,borderRadius:10,padding:'9px 10px'}},
+                h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:7}},
+                  h('span',{className:'pill '+d.pill,style:{fontSize:10}},d.label),
+                  h('span',{style:{fontSize:9,color:d.color,fontFamily:'var(--mono)',fontWeight:700}},items.length)
+                ),
+                h('div',{style:{fontSize:9,color:'var(--text3)',marginBottom:6}},d.range),
+                items.length===0
+                  ?h('div',{style:{fontSize:10,color:'var(--text3)',fontStyle:'italic'}},'—')
+                  :h('div',{style:{display:'flex',flexWrap:'wrap',gap:4}},
+                      items.map(function(it){
+                        return h('span',{key:it.dep,title:it.ov+'%',style:{
+                          fontFamily:'var(--mono)',fontSize:11,fontWeight:700,color:d.color,
+                          background:'rgba(255,255,255,.04)',border:'1px solid '+d.bdr,
+                          borderRadius:6,padding:'2px 6px'}
+                        },it.dep);
+                      })
+                    )
+              );
+            })
+          )
+        );
+      })
+    ),
+    // ── Matriz de estado por piso (eje vertical, coloreada) ──
+    h('div',{className:'card'},
+      h('div',{className:'shdr'},
+        h('div',{className:'shdr-title'},'Matriz de Estado por Piso'),
+        h('button',{
+          onClick:generarPDFEstadoPisos,
+          title:'Exportar y guardar como PDF para compartir',
+          style:{background:'var(--blue)',border:'none',borderRadius:6,padding:'6px 12px',color:'#fff',cursor:'pointer',fontSize:11,fontWeight:700,whiteSpace:'nowrap'}
+        },'📄 Exportar PDF')
+      ),
+      h('div',{className:'flex g8',style:{flexWrap:'wrap',marginBottom:10}},
+        ['RF','R1','R0','FASE'].map(function(k){
+          var st=BUCKET_STYLE[k];
+          return h('div',{key:k,style:{display:'flex',alignItems:'center',gap:5}},
+            h('span',{style:{width:12,height:12,borderRadius:3,background:st.bg,display:'inline-block'}}),
+            h('span',{style:{fontSize:10,color:'var(--text3)'}},st.label+' · '+st.nombre)
+          );
+        })
+      ),
+      h('div',{className:'flex g8',style:{flexWrap:'wrap',marginBottom:14}},
+        ['RF','R1','R0','FASE'].map(function(k){
+          var st=BUCKET_STYLE[k];
+          var n=bucketTotals[k];
+          return h('div',{key:k,style:{flex:'1 1 100px',minWidth:90,background:st.bg+'1a',border:'1px solid '+st.bg+'55',borderRadius:10,padding:'8px 10px',textAlign:'center'}},
+            h('div',{style:{fontFamily:'var(--mono)',fontSize:22,fontWeight:800,color:st.bg}},n),
+            h('div',{style:{fontSize:9,color:'var(--text3)',letterSpacing:'.06em',marginTop:2,fontWeight:700}},st.label+' · '+st.nombre)
+          );
+        })
+      ),
+      h('div',{className:'gt-wrap'},
+        h('table',{style:{borderCollapse:'collapse',fontSize:11}},
+          h('thead',null,
+            h('tr',null,
+              h('th',{style:{padding:'4px 8px',position:'sticky',left:0,background:'var(--bg2)',zIndex:2,color:'var(--text3)',fontSize:10,textAlign:'left'}},'PISO'),
+              gridAxes.map(function(ax){
+                return h('th',{key:ax,style:{padding:'4px 6px',color:'var(--text3)',fontSize:10,textAlign:'center',fontFamily:'var(--mono)'}},ax);
+              })
+            )
+          ),
+          h('tbody',null,
+            floors.map(function(fl){
+              var pisoLabel=fl.charAt(0).toUpperCase()+fl.slice(1);
+              var deps=_D.fl[fl]||[];
+              return h('tr',{key:fl},
+                h('td',{style:{padding:'4px 8px',fontWeight:700,color:'var(--text)',position:'sticky',left:0,background:'var(--card)',fontSize:11,whiteSpace:'nowrap'}},pisoLabel),
+                gridAxes.map(function(ax){
+                  var dep=deps.filter(function(d){return d.slice(-2)===ax;})[0];
+                  if(!dep)return h('td',{key:ax,style:{padding:3}},h('div',{style:{width:32,height:24,borderRadius:5,background:'rgba(255,255,255,.03)'}}));
+                  var ov=(pg.deptos[dep]||{overall:0}).overall;
+                  var st=BUCKET_STYLE[bucketOf(dep)];
+                  return h('td',{key:ax,style:{padding:3}},
+                    h('div',{title:dep+' · '+Math.round(ov)+'%',style:{
+                      width:32,height:24,borderRadius:5,background:st.bg,color:st.fg,
+                      display:'flex',alignItems:'center',justifyContent:'center',
+                      fontSize:9,fontWeight:700,fontFamily:'var(--mono)'
+                    }},dep)
+                  );
+                })
+              );
+            })
+          )
+        )
+      )
     ),
     h('div',{className:'card'},
       h('div',{className:'shdr'},
@@ -16065,7 +16341,7 @@ function App({initialData}){
   ].filter(t=>(!isSupervisor||SUPR_TABS.includes(t.id))&&(!isJefeObra||JEFE_TABS.includes(t.id)));
   const effectiveTab=(isSupervisor&&!SUPR_TABS.includes(tab))||(isJefeObra&&!JEFE_TABS.includes(tab))?'partidas':tab;
   let content;
-  if(effectiveTab==='dash')content=h(Dashboard,{progress,ganttTasks:ganttData.tasks||[],weekData,ganttData,saves});
+  if(effectiveTab==='dash')content=h(Dashboard,{progress,ganttTasks:ganttData.tasks||[],weekData,ganttData,saves,toast:showToast});
   else if(effectiveTab==='partidas')content=h(PartidasView,{progress,saves,onSave,auth,toast:showToast,userResp});
   else if(effectiveTab==='control')content=h(ControlView,{saves,onSave,ganttData,onGanttSave,auth,toast:showToast});
   else if(effectiveTab==='masividad')content=h(MasividadView,{auth,toast:showToast});
@@ -16084,7 +16360,7 @@ function App({initialData}){
   else if(effectiveTab==='sobretiempo')content=h(SobretiempoView,{asistData,stData,onStSave,auth,toast:showToast});
   else if(effectiveTab==='informe')content=h(InformeSemanalView,{ganttData,saves,onSave,onGanttSave,reportData,onReportSave,auth,progress});
   else if(effectiveTab==='planmaestro')content=h(PlanMaestroView,{});
-  else content=h(Dashboard,{progress,ganttData,saves});
+  else content=h(Dashboard,{progress,ganttData,saves,toast:showToast});
   return h('div',{className:'app'},
     h('div',{className:'nav'},
       h('div',{style:{display:'flex',alignItems:'center',gap:8}},
