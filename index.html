@@ -768,7 +768,7 @@ function flAvgLive(fl,fase,saves){
   });
   return Math.round(tot/deps.length*10)/10;
 }
-function Dashboard({progress,ganttTasks,weekData,ganttData,saves,toast}){
+function Dashboard({progress,ganttTasks,weekData,ganttData,saves,toast,execAsign,onExecSave}){
   var pg=progress||calculateAllProgress({});
   var[selDashDep,setSelDashDep]=useState(null);
   // ── Entregas semana actual agrupadas por piso ──
@@ -914,6 +914,45 @@ function Dashboard({progress,ganttTasks,weekData,ganttData,saves,toast}){
     floors.forEach(function(fl){(_D.fl[fl]||[]).forEach(function(dep){c[bucketOf(dep)]++;});});
     return c;
   })();
+  var BUCKET_DEFS=[
+    {key:'RF',label:'RF',range:'100%',color:'var(--green)',pill:'pill-green'},
+    {key:'R1',label:'R1',range:'80% – 99%',color:'var(--blue)',pill:'pill-blue'},
+    {key:'R0',label:'R0',range:'50% – 79%',color:'var(--amber)',pill:'pill-amber'},
+    {key:'FASE',label:'Fase',range:'0% – 49%',color:'var(--red)',pill:'pill-red'}
+  ];
+  // ── Ejecución de Obra: tablero tipo Trello — arrastra un depto sobre el nombre
+  // de un responsable para asignárselo. La asignación se persiste (execAsign);
+  // EXEC_SEED es solo el punto de partida la primera vez (semana 1).
+  var EXEC_RESP=['Vale Elgueta','Marcelo Savando','Angelica Farias'];
+  var EXEC_SEED={
+    '204':'Vale Elgueta','205':'Vale Elgueta','206':'Vale Elgueta','207':'Vale Elgueta','208':'Vale Elgueta','209':'Vale Elgueta',
+    '214':'Marcelo Savando','215':'Marcelo Savando','216':'Marcelo Savando','217':'Marcelo Savando','218':'Marcelo Savando','219':'Marcelo Savando',
+    '405':'Angelica Farias','406':'Angelica Farias','407':'Angelica Farias','408':'Angelica Farias','409':'Angelica Farias','410':'Angelica Farias','411':'Angelica Farias'
+  };
+  var execAsignEff=(execAsign&&Object.keys(execAsign).length>0)?execAsign:EXEC_SEED;
+  function allowDrop(e){e.preventDefault();}
+  function onDropTo(resp){
+    return function(e){
+      e.preventDefault();
+      var dep=e.dataTransfer.getData('text/plain');
+      if(!dep)return;
+      var next=Object.assign({},execAsignEff);
+      if(resp)next[dep]=resp;else delete next[dep];
+      onExecSave&&onExecSave(next);
+    };
+  }
+  function depChip(dep){
+    var ov=(pg.deptos[dep]||{overall:0}).overall;
+    var st=BUCKET_STYLE[bucketOf(dep)];
+    return h('span',{
+      key:dep,
+      draggable:true,
+      onDragStart:function(e){e.dataTransfer.setData('text/plain',dep);e.dataTransfer.effectAllowed='move';},
+      title:dep+' · '+Math.round(ov)+'%',
+      style:{fontFamily:'var(--mono)',fontSize:11,fontWeight:700,color:st.fg,background:st.bg,
+        border:'1px solid rgba(255,255,255,.25)',borderRadius:6,padding:'3px 8px',cursor:'grab'}
+    },dep);
+  }
   // ── PDF: Estado de Entrega por Piso (RF / R1 / R0 / Fase) ──
   function generarPDFEstadoPisos(){
     if(typeof jspdf==='undefined'){toast&&toast('Error: jsPDF no disponible');return;}
@@ -1479,6 +1518,64 @@ function Dashboard({progress,ganttTasks,weekData,ganttData,saves,toast}){
             })
           )
         )
+      )
+    ),
+    // ── Ejecución de Obra: tablero tipo Trello por responsable ──
+    h('div',{className:'card'},
+      h('div',{className:'shdr'},h('div',{className:'shdr-title'},'Ejecución de Obra')),
+      h('div',{className:'flex g8',style:{flexWrap:'wrap',marginBottom:10}},
+        BUCKET_DEFS.map(function(d){
+          var st=BUCKET_STYLE[d.key];
+          return h('div',{key:d.key,style:{display:'flex',alignItems:'center',gap:5}},
+            h('span',{style:{width:12,height:12,borderRadius:3,background:st.bg,display:'inline-block'}}),
+            h('span',{style:{fontSize:10,color:'var(--text3)'}},st.label+' · '+d.range)
+          );
+        })
+      ),
+      h('div',{
+        onDragOver:allowDrop,
+        onDrop:onDropTo(null),
+        style:{border:'1px dashed var(--border)',borderRadius:10,padding:'10px 12px',marginBottom:14,minHeight:44}
+      },
+        h('div',{style:{fontSize:10,color:'var(--text3)',marginBottom:6,fontWeight:700,letterSpacing:'.06em'}},
+          'SIN ASIGNAR ('+Object.keys(_D.ds).filter(function(d){return!execAsignEff[d];}).length+') — arrastra un depto a un responsable'
+        ),
+        h('div',{style:{display:'flex',flexWrap:'wrap',gap:4}},
+          Object.keys(_D.ds)
+            .filter(function(d){return!execAsignEff[d];})
+            .sort(function(a,b){return parseInt(a,10)-parseInt(b,10);})
+            .map(depChip)
+        )
+      ),
+      h('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(230px,1fr))',gap:12}},
+        EXEC_RESP.map(function(resp){
+          var deps=Object.keys(execAsignEff).filter(function(d){return execAsignEff[d]===resp;});
+          var buckets={RF:[],R1:[],R0:[],FASE:[]};
+          deps.forEach(function(d){buckets[bucketOf(d)].push(d);});
+          return h('div',{
+            key:resp,
+            onDragOver:allowDrop,
+            onDrop:onDropTo(resp),
+            style:{border:'1px solid var(--border)',borderRadius:12,padding:10,background:'var(--bg2)',minHeight:120}
+          },
+            h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}},
+              h('span',{style:{fontSize:13,fontWeight:800,color:'var(--text)'}},resp),
+              h('span',{className:'text3',style:{fontSize:10}},deps.length+' deptos')
+            ),
+            BUCKET_DEFS.map(function(d){
+              var items=buckets[d.key];
+              return h('div',{key:d.key,style:{marginBottom:8}},
+                h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:4}},
+                  h('span',{className:'pill '+d.pill,style:{fontSize:9}},d.label),
+                  h('span',{style:{fontSize:9,color:d.color,fontFamily:'var(--mono)',fontWeight:700}},items.length)
+                ),
+                items.length===0
+                  ?h('div',{style:{fontSize:9,color:'var(--text3)',fontStyle:'italic'}},'—')
+                  :h('div',{style:{display:'flex',flexWrap:'wrap',gap:4}},items.map(depChip))
+              );
+            })
+          );
+        })
       )
     ),
     h('div',{className:'card'},
@@ -16379,6 +16476,8 @@ function App({initialData}){
   const onStSave=(sd)=>save({stData:sd});
   const orgData=state.orgData||{nodes:[]};
   const onOrgSave=(od)=>save({orgData:od});
+  const execAsign=state.execAsign||{};
+  const onExecSave=(ea)=>save({execAsign:ea});
   const onMatSave=(md)=>save({matData:md});
   const muebTandas=state.muebTandas||[];
   const onMuebTandasSave=(t)=>save({muebTandas:t});
@@ -16411,7 +16510,7 @@ function App({initialData}){
   ].filter(t=>(!isSupervisor||SUPR_TABS.includes(t.id))&&(!isJefeObra||JEFE_TABS.includes(t.id)));
   const effectiveTab=(isSupervisor&&!SUPR_TABS.includes(tab))||(isJefeObra&&!JEFE_TABS.includes(tab))?'partidas':tab;
   let content;
-  if(effectiveTab==='dash')content=h(Dashboard,{progress,ganttTasks:ganttData.tasks||[],weekData,ganttData,saves,toast:showToast});
+  if(effectiveTab==='dash')content=h(Dashboard,{progress,ganttTasks:ganttData.tasks||[],weekData,ganttData,saves,toast:showToast,execAsign,onExecSave});
   else if(effectiveTab==='partidas')content=h(PartidasView,{progress,saves,onSave,auth,toast:showToast,userResp});
   else if(effectiveTab==='control')content=h(ControlView,{saves,onSave,ganttData,onGanttSave,auth,toast:showToast});
   else if(effectiveTab==='masividad')content=h(MasividadView,{auth,toast:showToast});
@@ -16430,7 +16529,7 @@ function App({initialData}){
   else if(effectiveTab==='sobretiempo')content=h(SobretiempoView,{asistData,stData,onStSave,auth,toast:showToast});
   else if(effectiveTab==='informe')content=h(InformeSemanalView,{ganttData,saves,onSave,onGanttSave,reportData,onReportSave,auth,progress});
   else if(effectiveTab==='planmaestro')content=h(PlanMaestroView,{});
-  else content=h(Dashboard,{progress,ganttData,saves,toast:showToast});
+  else content=h(Dashboard,{progress,ganttData,saves,toast:showToast,execAsign,onExecSave});
   return h('div',{className:'app'},
     h('div',{className:'nav'},
       h('div',{style:{display:'flex',alignItems:'center',gap:8}},
