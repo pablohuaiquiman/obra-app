@@ -2620,6 +2620,7 @@ function itoBucketPill(ov){
 }
 function ActasItoView({progress,saves,itoData,itoActaCounter,onItoPatch,auth,toast}){
   var pg=progress||calculateAllProgress(saves);
+  var isAdmin=auth&&auth.role==='Admin';
   var[view,setView]=useState('detalle'); // 'detalle' | 'resumen'
   var[selPiso,setSelPiso]=useState('all');
   var[expandedDep,setExpandedDep]=useState(null);
@@ -2763,8 +2764,15 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,onItoPatch,auth,toa
         var ry6=oTop+5*oRowH;
         doc.setFillColor(255,255,255);doc.rect(ML,ry6-.5,cw,204.1-(ry6-.5),'F');
         var oColsX=[ML,25.9,122.3,143.6,169.5,MR];
+        // Separador superior gris claro (191,191,191) — el mismo tono que usa la
+        // plantilla entre cada fila 1-5 — en vez de un borde negro que se ve distinto.
+        doc.setDrawColor(191,191,191);doc.setLineWidth(.2);
+        doc.line(ML,ry6,MR,ry6);
+        // Perímetro negro (izq/der/abajo), igual al borde exterior del resto de la tabla.
         doc.setDrawColor(0,0,0);doc.setLineWidth(.25);
-        doc.rect(ML,ry6,cw,oRowH);
+        doc.line(ML,ry6,ML,ry6+oRowH);
+        doc.line(MR,ry6,MR,ry6+oRowH);
+        doc.line(ML,ry6+oRowH,MR,ry6+oRowH);
         for(var ci=1;ci<oColsX.length-1;ci++){doc.line(oColsX[ci],ry6,oColsX[ci],ry6+oRowH);}
         doc.setFontSize(7);doc.setFont('helvetica','bold');
         doc.text('6',ML+(25.9-ML)/2,ry6+3.3,{align:'center'});
@@ -2795,12 +2803,38 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,onItoPatch,auth,toa
     doc.text('Fecha',139,254.5);
 
     var it=getIt(dep);
-    var nuevaActa={numero:numero,tipo:tipo,fecha:hoy,firmadaUrl:null,firmadaNombre:null};
+    var nuevaActa={numero:numero,tipo:tipo,fecha:hoy,pdfUrl:null,firmadaUrl:null,firmadaNombre:null};
     var nextAll=Object.assign({},itoData,{[dep]:Object.assign({},it,{actas:(it.actas||[]).concat([nuevaActa])})});
     onItoPatch({itoData:nextAll,itoActaCounter:numero});
 
     var fname='acta-'+numero+'-D'+dep+'-'+tipo.toLowerCase()+'.pdf';
     exportarPdf(doc,fname,'Acta Entrega D'+dep+' Nº'+numero,toast);
+
+    // Sube además una copia a la nube (en segundo plano) para poder verla después con "Ver PDF"
+    if(window.fbUploadFile){
+      try{
+        var blob=doc.output('blob');
+        var path='actas_ito/D'+dep+'/generado_'+numero+'_'+Date.now()+'.pdf';
+        window.fbUploadFile(path,blob).then(function(url){
+          var it2=getIt(dep);
+          var actas2=(it2.actas||[]).map(function(a){return a.numero===numero?Object.assign({},a,{pdfUrl:url}):a;});
+          saveDepIto(dep,{actas:actas2});
+        }).catch(function(e){console.warn('No se pudo guardar copia del acta en la nube:',e);});
+      }catch(e){}
+    }
+  }
+
+  function eliminarActa(dep,numero){
+    if(!window.confirm('¿Estás seguro que quieres eliminar el Acta Nº'+numero+'? Esta acción no se puede deshacer.'))return;
+    var it=getIt(dep);
+    var actas=(it.actas||[]).filter(function(a){return a.numero!==numero;});
+    saveDepIto(dep,{actas:actas});
+    toast&&toast('🗑 Acta eliminada');
+  }
+  function reiniciarSeguimiento(dep){
+    if(!window.confirm('¿Reiniciar el seguimiento ITO de D'+dep+'? Se borrarán las notificaciones y observaciones registradas (no afecta las actas ya generadas).'))return;
+    saveDepIto(dep,{notifs:[],observaciones:[]});
+    toast&&toast('↺ Seguimiento reiniciado — D'+dep);
   }
 
   function subirActaFirmada(dep,numero,file){
@@ -2927,7 +2961,12 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,onItoPatch,auth,toa
               h('button',{
                 onClick:function(){notificarLevantada(dep);},
                 style:{background:'var(--green2)',border:'none',borderRadius:6,padding:'7px 12px',color:'#fff',cursor:'pointer',fontSize:11,fontWeight:700}
-              },'✅ Notificar — observaciones levantadas')
+              },'✅ Notificar — observaciones levantadas'),
+              (isAdmin&&cs.estado!=='sin_notificar')?h('button',{
+                onClick:function(){reiniciarSeguimiento(dep);},
+                title:'Borra las notificaciones y observaciones de este depto para volver a empezar',
+                style:{background:'none',border:'1px solid var(--red)',borderRadius:6,padding:'7px 12px',color:'var(--red)',cursor:'pointer',fontSize:11,fontWeight:700}
+              },'↺ Reiniciar seguimiento'):null
             ),
             cs.estado!=='sin_notificar'?h('div',{style:{fontSize:11,color:'var(--text3)',marginBottom:10}},
               cs.estado==='pendiente'
@@ -2983,15 +3022,23 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,onItoPatch,auth,toa
                 return h('div',{key:a.numero,style:{display:'flex',alignItems:'center',gap:8,background:'var(--bg2)',borderRadius:8,padding:'7px 10px',flexWrap:'wrap'}},
                   h('span',{className:'pill '+(a.tipo==='FINAL'?'pill-green':'pill-blue'),style:{fontSize:10}},'Nº'+a.numero+' · '+a.tipo),
                   h('span',{style:{fontSize:11,color:'var(--text3)'}},a.fecha.split('-').reverse().join('/')),
+                  a.pdfUrl
+                    ?h('a',{href:a.pdfUrl,target:'_blank',rel:'noopener',style:{fontSize:11,color:'var(--blue)',fontWeight:700}},'📄 Ver PDF')
+                    :h('span',{style:{fontSize:10,color:'var(--text3)',fontStyle:'italic'}},'guardando copia...'),
                   a.firmadaUrl
-                    ?h('a',{href:a.firmadaUrl,target:'_blank',rel:'noopener',style:{fontSize:11,color:'var(--green)',fontWeight:700,marginLeft:'auto'}},'✓ Firmada — ver')
-                    :h('label',{style:{marginLeft:'auto',fontSize:11,color:'var(--blue)',fontWeight:700,cursor:'pointer'}},
+                    ?h('a',{href:a.firmadaUrl,target:'_blank',rel:'noopener',style:{fontSize:11,color:'var(--green)',fontWeight:700}},'✓ Firmada — ver')
+                    :h('label',{style:{fontSize:11,color:'var(--blue)',fontWeight:700,cursor:'pointer'}},
                         uploading[uk]?'Subiendo...':'📤 Subir acta firmada',
                         h('input',{
                           type:'file',accept:'application/pdf,image/*',style:{display:'none'},
                           onChange:function(e){var f=e.target.files&&e.target.files[0];if(f)subirActaFirmada(dep,a.numero,f);}
                         })
-                      )
+                      ),
+                  isAdmin?h('button',{
+                    onClick:function(){eliminarActa(dep,a.numero);},
+                    title:'Eliminar esta acta',
+                    style:{marginLeft:'auto',background:'none',border:'none',color:'var(--red)',cursor:'pointer',fontSize:15,padding:'0 4px'}
+                  },'🗑'):null
                 );
               }),
               (!it.actas||!it.actas.length)?h('div',{style:{fontSize:11,color:'var(--text3)',fontStyle:'italic'}},'Sin actas generadas aún'):null
