@@ -2626,6 +2626,7 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,onItoPatch,auth,toa
   var[expandedDep,setExpandedDep]=useState(null);
   var[obsInputs,setObsInputs]=useState({});
   var[uploading,setUploading]=useState({});
+  var[notifDates,setNotifDates]=useState({}); // fecha editable por depto para el próximo "Notificar" (por si se registra atrasado)
   var hoy=new Date().toISOString().slice(0,10);
   var floors=Object.keys(_D.fl);
   var allDeps=Object.keys(_D.ds).sort(function(a,b){return parseInt(a,10)-parseInt(b,10);});
@@ -2668,15 +2669,19 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,onItoPatch,auth,toa
     var nextAll=Object.assign({},itoData,{[dep]:next});
     onItoPatch({itoData:nextAll});
   }
+  function getNotifDate(dep){return notifDates[dep]||hoy;}
+  function setNotifDate(dep,val){setNotifDates(function(cur){var n=Object.assign({},cur);n[dep]=val;return n;});}
   function notificarInicial(dep){
     var it=getIt(dep);
-    saveDepIto(dep,{notifs:(it.notifs||[]).concat([{fecha:hoy,tipo:'inicial'}])});
-    toast&&toast('📢 ITO notificado — D'+dep);
+    var fecha=getNotifDate(dep);
+    saveDepIto(dep,{notifs:(it.notifs||[]).concat([{fecha:fecha,tipo:'inicial'}])});
+    toast&&toast('📢 ITO notificado ('+fecha.split('-').reverse().join('/')+') — D'+dep);
   }
   function notificarLevantada(dep){
     var it=getIt(dep);
-    saveDepIto(dep,{notifs:(it.notifs||[]).concat([{fecha:hoy,tipo:'levantada'}])});
-    toast&&toast('✅ Notificado: observaciones levantadas — D'+dep);
+    var fecha=getNotifDate(dep);
+    saveDepIto(dep,{notifs:(it.notifs||[]).concat([{fecha:fecha,tipo:'levantada'}])});
+    toast&&toast('✅ Notificado ('+fecha.split('-').reverse().join('/')+'): observaciones levantadas — D'+dep);
   }
   function addObs(dep){
     var texto=(obsInputs[dep]||'').trim();
@@ -2953,7 +2958,14 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,onItoPatch,auth,toa
           ),
           isOpen?h('div',{style:{padding:'0 14px 14px',borderTop:'1px solid var(--border)'}},
             // Notificación
-            h('div',{style:{display:'flex',gap:8,flexWrap:'wrap',margin:'12px 0'}},
+            h('div',{style:{display:'flex',gap:8,flexWrap:'wrap',margin:'12px 0',alignItems:'center'}},
+              h('input',{
+                type:'date',className:'date-input',
+                value:getNotifDate(dep),max:hoy,
+                title:'Fecha de la notificación (por si se registra atrasada)',
+                onChange:function(e){setNotifDate(dep,e.target.value||hoy);},
+                style:{width:132,flexShrink:0}
+              }),
               h('button',{
                 onClick:function(){notificarInicial(dep);},
                 style:{background:'var(--amber)',border:'none',borderRadius:6,padding:'7px 12px',color:'#1a1a1a',cursor:'pointer',fontSize:11,fontWeight:700}
