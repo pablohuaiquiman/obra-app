@@ -2737,11 +2737,24 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,onItoPatch,auth,toa
       ITO_OBS_FIJAS.slice(0,5).forEach(function(txt,i){
         doc.text(txt,oObsX,oTop+i*oRowH+3.3);
       });
-      // El hueco libre antes de "OBSERVACIONES GENERALES" apenas alcanza ~3mm —
-      // no entra una fila con recuadro propio, así que la 6ª va como línea suelta.
+      // La 6ª observación no entra en el hueco libre antes de "OBSERVACIONES
+      // GENERALES". Se tapa ese título (que vuelve a escribirse un poco más abajo)
+      // junto con la primera línea de ese recuadro — así la fila 6 queda del mismo
+      // tamaño que las demás y el recuadro de observaciones generales pierde
+      // exactamente una línea en vez de quedar todo apretado.
       if(ITO_OBS_FIJAS.length>5){
-        doc.setFontSize(6.3);doc.setFont('helvetica','normal');doc.setTextColor(0,0,0);
-        doc.text('6.  '+ITO_OBS_FIJAS[5],ML+2,195.6);
+        var ry6=oTop+5*oRowH;
+        doc.setFillColor(255,255,255);doc.rect(ML,ry6-.5,cw,204.1-(ry6-.5),'F');
+        var oColsX=[ML,25.9,122.3,143.6,169.5,MR];
+        doc.setDrawColor(0,0,0);doc.setLineWidth(.25);
+        doc.rect(ML,ry6,cw,oRowH);
+        for(var ci=1;ci<oColsX.length-1;ci++){doc.line(oColsX[ci],ry6,oColsX[ci],ry6+oRowH);}
+        doc.setFontSize(7);doc.setFont('helvetica','bold');
+        doc.text('6',ML+(25.9-ML)/2,ry6+3.3,{align:'center'});
+        doc.setFont('helvetica','normal');doc.setFontSize(6.8);
+        doc.text(ITO_OBS_FIJAS[5],oObsX,ry6+3.3);
+        doc.setFontSize(8.5);doc.setFont('helvetica','bold');
+        doc.text('OBSERVACIONES GENERALES:',ML,202.3);
       }
     }
 
