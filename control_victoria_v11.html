@@ -2860,6 +2860,134 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,onItoPatch,auth,toa
     });
   }
 
+  // Fila completa de un depto (header + panel expandible). La usan tanto la vista
+  // Detalle (lista completa) como la vista Resumen (al pinchar un depto de la grilla),
+  // así se puede gestionar todo sin tener que volver a la pestaña Detalle.
+  function renderDepRow(dep){
+    var it=getIt(dep);
+    var ov=(pg.deptos[dep]||{overall:0}).overall;
+    var cs=cycleStatus(it);
+    var pendCount=(it.observaciones||[]).filter(function(o){return!o.levantada;}).length;
+    var isOpen=expandedDep===dep;
+    var statusColor=cs.estado==='resuelto'?'var(--green)':cs.estado==='pendiente'?'var(--amber)':'var(--text3)';
+    var statusText=cs.estado==='sin_notificar'?'Sin notificar':
+      cs.estado==='pendiente'?('Notificado hace '+cs.dias+'d'):
+      ('Resuelto en '+cs.dias+'d');
+    return h('div',{key:dep,className:'card',style:{padding:0,overflow:'hidden'}},
+      h('div',{
+        style:{display:'flex',alignItems:'center',gap:10,padding:'11px 14px',cursor:'pointer'},
+        onClick:function(){setExpandedDep(isOpen?null:dep);}
+      },
+        h('span',{className:'mono',style:{fontSize:15,fontWeight:800,color:'var(--text)',minWidth:44}},dep),
+        h('span',{className:'pill '+itoBucketPill(ov),style:{fontSize:10,minWidth:32,textAlign:'center'}},itoBucketLabel(ov)),
+        h('span',{className:'mono',style:{fontSize:11,fontWeight:700,color:itoBucketColor(ov),minWidth:38}},Math.round(ov)+'%'),
+        h('span',{style:{flex:1,fontSize:11,color:statusColor,fontWeight:700}},statusText+(pendCount>0?' · '+pendCount+' obs. pend.':'')),
+        (it.actas&&it.actas.length)?h('span',{className:'pill pill-blue',style:{fontSize:10}},it.actas.length+' acta'+(it.actas.length>1?'s':'')):null,
+        h('span',{className:'text3',style:{fontSize:14}},isOpen?'▲':'▼')
+      ),
+      isOpen?h('div',{style:{padding:'0 14px 14px',borderTop:'1px solid var(--border)'}},
+        // Notificación
+        h('div',{style:{display:'flex',gap:8,flexWrap:'wrap',margin:'12px 0',alignItems:'center'}},
+          h('input',{
+            type:'date',className:'date-input',
+            value:getNotifDate(dep),max:hoy,
+            title:'Fecha de la notificación (por si se registra atrasada)',
+            onChange:function(e){setNotifDate(dep,e.target.value||hoy);},
+            style:{width:132,flexShrink:0}
+          }),
+          h('button',{
+            onClick:function(){notificarInicial(dep);},
+            style:{background:'var(--amber)',border:'none',borderRadius:6,padding:'7px 12px',color:'#1a1a1a',cursor:'pointer',fontSize:11,fontWeight:700}
+          },'📢 Notificar ITO (revisión)'),
+          h('button',{
+            onClick:function(){notificarLevantada(dep);},
+            style:{background:'var(--green2)',border:'none',borderRadius:6,padding:'7px 12px',color:'#fff',cursor:'pointer',fontSize:11,fontWeight:700}
+          },'✅ Notificar — observaciones levantadas'),
+          (isAdmin&&cs.estado!=='sin_notificar')?h('button',{
+            onClick:function(){reiniciarSeguimiento(dep);},
+            title:'Borra las notificaciones y observaciones de este depto para volver a empezar',
+            style:{background:'none',border:'1px solid var(--red)',borderRadius:6,padding:'7px 12px',color:'var(--red)',cursor:'pointer',fontSize:11,fontWeight:700}
+          },'↺ Reiniciar seguimiento'):null
+        ),
+        cs.estado!=='sin_notificar'?h('div',{style:{fontSize:11,color:'var(--text3)',marginBottom:10}},
+          cs.estado==='pendiente'
+            ?('Notificado el '+cs.fIni.split('-').reverse().join('/')+' — lleva '+cs.dias+' día(s) esperando revisión')
+            :('Notificado el '+cs.fIni.split('-').reverse().join('/')+', levantado el '+cs.fLev.split('-').reverse().join('/')+' — '+cs.dias+' día(s) en total')
+        ):null,
+        // Observaciones
+        h('div',{style:{fontSize:11,fontWeight:700,color:'var(--text2)',letterSpacing:'.05em',marginBottom:6}},'OBSERVACIONES DEL ITO'),
+        h('div',{style:{display:'flex',flexDirection:'column',gap:5,marginBottom:8}},
+          (it.observaciones||[]).map(function(obs,idx){
+            return h('div',{key:idx,style:{display:'flex',alignItems:'center',gap:8,background:'var(--bg2)',borderRadius:8,padding:'7px 10px'}},
+              h('span',{style:{flex:1,fontSize:12,color:'var(--text)',textDecoration:obs.levantada?'line-through':'none',opacity:obs.levantada?.55:1}},obs.texto),
+              h('div',{className:'flex g6'},
+                h('button',{
+                  onClick:function(){setObsEstado(dep,idx,true);},
+                  style:{background:obs.levantada?'var(--green2)':'var(--bg3)',border:'1px solid '+(obs.levantada?'var(--green2)':'var(--border)'),borderRadius:6,padding:'3px 9px',color:obs.levantada?'#fff':'var(--text3)',cursor:'pointer',fontSize:10,fontWeight:700}
+                },'Sí'),
+                h('button',{
+                  onClick:function(){setObsEstado(dep,idx,false);},
+                  style:{background:!obs.levantada?'var(--red)':'var(--bg3)',border:'1px solid '+(!obs.levantada?'var(--red)':'var(--border)'),borderRadius:6,padding:'3px 9px',color:!obs.levantada?'#fff':'var(--text3)',cursor:'pointer',fontSize:10,fontWeight:700}
+                },'No')
+              ),
+              h('button',{onClick:function(){delObs(dep,idx);},style:{background:'none',border:'none',color:'var(--text3)',cursor:'pointer',fontSize:14,padding:'0 4px'}},'✕')
+            );
+          }),
+          (!it.observaciones||!it.observaciones.length)?h('div',{style:{fontSize:11,color:'var(--text3)',fontStyle:'italic'}},'Sin observaciones registradas'):null
+        ),
+        h('div',{style:{display:'flex',gap:6,marginBottom:14}},
+          h('input',{
+            value:obsInputs[dep]||'',
+            onChange:function(e){var v=e.target.value;setObsInputs(function(cur){var n=Object.assign({},cur);n[dep]=v;return n;});},
+            onKeyDown:function(e){if(e.key==='Enter')addObs(dep);},
+            placeholder:'Nueva observación del ITO...',
+            style:{flex:1,background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:8,padding:'7px 10px',color:'var(--text)',fontSize:12}
+          }),
+          h('button',{onClick:function(){addObs(dep);},style:{background:'var(--blue)',border:'none',borderRadius:8,padding:'0 14px',color:'#fff',cursor:'pointer',fontSize:12,fontWeight:700}},'+ Agregar')
+        ),
+        // Actas
+        h('div',{style:{fontSize:11,fontWeight:700,color:'var(--text2)',letterSpacing:'.05em',marginBottom:6}},'ACTA DE ENTREGA'),
+        h('div',{style:{display:'flex',gap:8,flexWrap:'wrap',marginBottom:10}},
+          h('button',{
+            onClick:function(){generarActaEntrega(dep,'PARCIAL');},
+            style:{background:'var(--blue)',border:'none',borderRadius:6,padding:'7px 12px',color:'#fff',cursor:'pointer',fontSize:11,fontWeight:700}
+          },'📄 Generar Acta Parcial (R1)'),
+          h('button',{
+            onClick:function(){generarActaEntrega(dep,'FINAL');},
+            style:{background:'var(--green2)',border:'none',borderRadius:6,padding:'7px 12px',color:'#fff',cursor:'pointer',fontSize:11,fontWeight:700}
+          },'📄 Generar Acta Final (RF)')
+        ),
+        h('div',{style:{display:'flex',flexDirection:'column',gap:6}},
+          (it.actas||[]).slice().reverse().map(function(a){
+            var uk=dep+'_'+a.numero;
+            return h('div',{key:a.numero,style:{display:'flex',alignItems:'center',gap:8,background:'var(--bg2)',borderRadius:8,padding:'7px 10px',flexWrap:'wrap'}},
+              h('span',{className:'pill '+(a.tipo==='FINAL'?'pill-green':'pill-blue'),style:{fontSize:10}},'Nº'+a.numero+' · '+a.tipo),
+              h('span',{style:{fontSize:11,color:'var(--text3)'}},a.fecha.split('-').reverse().join('/')),
+              a.pdfUrl
+                ?h('a',{href:a.pdfUrl,target:'_blank',rel:'noopener',style:{fontSize:11,color:'var(--blue)',fontWeight:700}},'📄 Ver PDF')
+                :h('span',{style:{fontSize:10,color:'var(--text3)',fontStyle:'italic'}},'guardando copia...'),
+              a.firmadaUrl
+                ?h('a',{href:a.firmadaUrl,target:'_blank',rel:'noopener',style:{fontSize:11,color:'var(--green)',fontWeight:700}},'✓ Firmada — ver')
+                :h('label',{style:{fontSize:11,color:'var(--blue)',fontWeight:700,cursor:'pointer'}},
+                    uploading[uk]?'Subiendo...':'📤 Subir acta firmada',
+                    h('input',{
+                      type:'file',accept:'application/pdf,image/*',style:{display:'none'},
+                      onChange:function(e){var f=e.target.files&&e.target.files[0];if(f)subirActaFirmada(dep,a.numero,f);}
+                    })
+                  ),
+              isAdmin?h('button',{
+                onClick:function(){eliminarActa(dep,a.numero);},
+                title:'Eliminar esta acta',
+                style:{marginLeft:'auto',background:'none',border:'none',color:'var(--red)',cursor:'pointer',fontSize:15,padding:'0 4px'}
+              },'🗑'):null
+            );
+          }),
+          (!it.actas||!it.actas.length)?h('div',{style:{fontSize:11,color:'var(--text3)',fontStyle:'italic'}},'Sin actas generadas aún'):null
+        )
+      ):null
+    );
+  }
+
   var resumenView=h('div',{className:'gap10'},
     (function(){
       var complete=0,partial=0,none=0;
@@ -2878,12 +3006,18 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,onItoPatch,auth,toa
         h('div',{style:{fontSize:10,color:'var(--text3)'}},
           '●●●● en cada depto = 1. Notificado · 2. Obs. levantadas · 3. RF · 4. Entrega Final RF sin observaciones (gris=pendiente, verde=listo)'
         ),
+        h('div',{style:{fontSize:10,color:'var(--text3)'}},'Pincha un depto para ver y gestionar su detalle aquí mismo.'),
         h('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(84px,1fr))',gap:8}},
           visibleDeps.map(function(dep){
             var steps=chainSteps(dep);
             var n=steps.filter(Boolean).length;
-            var bdr=n===4?'rgba(34,197,94,.45)':n===0?'var(--border)':'rgba(245,158,11,.4)';
-            return h('div',{key:dep,style:{background:'var(--bg2)',border:'1px solid '+bdr,borderRadius:8,padding:'8px 6px',textAlign:'center'}},
+            var sel=expandedDep===dep;
+            var bdr=sel?'var(--blue)':n===4?'rgba(34,197,94,.45)':n===0?'var(--border)':'rgba(245,158,11,.4)';
+            return h('div',{
+              key:dep,
+              onClick:function(){setExpandedDep(sel?null:dep);},
+              style:{background:sel?'rgba(14,165,233,.12)':'var(--bg2)',border:'1px solid '+bdr,borderRadius:8,padding:'8px 6px',textAlign:'center',cursor:'pointer'}
+            },
               h('div',{className:'mono',style:{fontSize:12,fontWeight:800,color:'var(--text)',marginBottom:5}},'D'+dep),
               h('div',{style:{display:'flex',justifyContent:'center',gap:3}},
                 steps.map(function(done,i){
@@ -2916,7 +3050,11 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,onItoPatch,auth,toa
               }):h('div',{style:{fontSize:11,color:'var(--text3)',fontStyle:'italic'}},'Ninguno todavía')
             )
           )
-        )
+        ),
+        (expandedDep&&visibleDeps.indexOf(expandedDep)>=0)?h('div',{style:{marginTop:6}},
+          h('div',{style:{fontSize:11,fontWeight:700,color:'var(--text2)',letterSpacing:'.05em',marginBottom:6}},'DETALLE — D'+expandedDep),
+          renderDepRow(expandedDep)
+        ):null
       );
     })()
   );
@@ -2934,130 +3072,7 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,onItoPatch,auth,toa
       })
     ),
     view==='resumen'?resumenView:h('div',{className:'gap10',style:{marginTop:10}},
-      visibleDeps.map(function(dep){
-        var it=getIt(dep);
-        var ov=(pg.deptos[dep]||{overall:0}).overall;
-        var cs=cycleStatus(it);
-        var pendCount=(it.observaciones||[]).filter(function(o){return!o.levantada;}).length;
-        var isOpen=expandedDep===dep;
-        var statusColor=cs.estado==='resuelto'?'var(--green)':cs.estado==='pendiente'?'var(--amber)':'var(--text3)';
-        var statusText=cs.estado==='sin_notificar'?'Sin notificar':
-          cs.estado==='pendiente'?('Notificado hace '+cs.dias+'d'):
-          ('Resuelto en '+cs.dias+'d');
-        return h('div',{key:dep,className:'card',style:{padding:0,overflow:'hidden'}},
-          h('div',{
-            style:{display:'flex',alignItems:'center',gap:10,padding:'11px 14px',cursor:'pointer'},
-            onClick:function(){setExpandedDep(isOpen?null:dep);}
-          },
-            h('span',{className:'mono',style:{fontSize:15,fontWeight:800,color:'var(--text)',minWidth:44}},dep),
-            h('span',{className:'pill '+itoBucketPill(ov),style:{fontSize:10,minWidth:32,textAlign:'center'}},itoBucketLabel(ov)),
-            h('span',{className:'mono',style:{fontSize:11,fontWeight:700,color:itoBucketColor(ov),minWidth:38}},Math.round(ov)+'%'),
-            h('span',{style:{flex:1,fontSize:11,color:statusColor,fontWeight:700}},statusText+(pendCount>0?' · '+pendCount+' obs. pend.':'')),
-            (it.actas&&it.actas.length)?h('span',{className:'pill pill-blue',style:{fontSize:10}},it.actas.length+' acta'+(it.actas.length>1?'s':'')):null,
-            h('span',{className:'text3',style:{fontSize:14}},isOpen?'▲':'▼')
-          ),
-          isOpen?h('div',{style:{padding:'0 14px 14px',borderTop:'1px solid var(--border)'}},
-            // Notificación
-            h('div',{style:{display:'flex',gap:8,flexWrap:'wrap',margin:'12px 0',alignItems:'center'}},
-              h('input',{
-                type:'date',className:'date-input',
-                value:getNotifDate(dep),max:hoy,
-                title:'Fecha de la notificación (por si se registra atrasada)',
-                onChange:function(e){setNotifDate(dep,e.target.value||hoy);},
-                style:{width:132,flexShrink:0}
-              }),
-              h('button',{
-                onClick:function(){notificarInicial(dep);},
-                style:{background:'var(--amber)',border:'none',borderRadius:6,padding:'7px 12px',color:'#1a1a1a',cursor:'pointer',fontSize:11,fontWeight:700}
-              },'📢 Notificar ITO (revisión)'),
-              h('button',{
-                onClick:function(){notificarLevantada(dep);},
-                style:{background:'var(--green2)',border:'none',borderRadius:6,padding:'7px 12px',color:'#fff',cursor:'pointer',fontSize:11,fontWeight:700}
-              },'✅ Notificar — observaciones levantadas'),
-              (isAdmin&&cs.estado!=='sin_notificar')?h('button',{
-                onClick:function(){reiniciarSeguimiento(dep);},
-                title:'Borra las notificaciones y observaciones de este depto para volver a empezar',
-                style:{background:'none',border:'1px solid var(--red)',borderRadius:6,padding:'7px 12px',color:'var(--red)',cursor:'pointer',fontSize:11,fontWeight:700}
-              },'↺ Reiniciar seguimiento'):null
-            ),
-            cs.estado!=='sin_notificar'?h('div',{style:{fontSize:11,color:'var(--text3)',marginBottom:10}},
-              cs.estado==='pendiente'
-                ?('Notificado el '+cs.fIni.split('-').reverse().join('/')+' — lleva '+cs.dias+' día(s) esperando revisión')
-                :('Notificado el '+cs.fIni.split('-').reverse().join('/')+', levantado el '+cs.fLev.split('-').reverse().join('/')+' — '+cs.dias+' día(s) en total')
-            ):null,
-            // Observaciones
-            h('div',{style:{fontSize:11,fontWeight:700,color:'var(--text2)',letterSpacing:'.05em',marginBottom:6}},'OBSERVACIONES DEL ITO'),
-            h('div',{style:{display:'flex',flexDirection:'column',gap:5,marginBottom:8}},
-              (it.observaciones||[]).map(function(obs,idx){
-                return h('div',{key:idx,style:{display:'flex',alignItems:'center',gap:8,background:'var(--bg2)',borderRadius:8,padding:'7px 10px'}},
-                  h('span',{style:{flex:1,fontSize:12,color:'var(--text)',textDecoration:obs.levantada?'line-through':'none',opacity:obs.levantada?.55:1}},obs.texto),
-                  h('div',{className:'flex g6'},
-                    h('button',{
-                      onClick:function(){setObsEstado(dep,idx,true);},
-                      style:{background:obs.levantada?'var(--green2)':'var(--bg3)',border:'1px solid '+(obs.levantada?'var(--green2)':'var(--border)'),borderRadius:6,padding:'3px 9px',color:obs.levantada?'#fff':'var(--text3)',cursor:'pointer',fontSize:10,fontWeight:700}
-                    },'Sí'),
-                    h('button',{
-                      onClick:function(){setObsEstado(dep,idx,false);},
-                      style:{background:!obs.levantada?'var(--red)':'var(--bg3)',border:'1px solid '+(!obs.levantada?'var(--red)':'var(--border)'),borderRadius:6,padding:'3px 9px',color:!obs.levantada?'#fff':'var(--text3)',cursor:'pointer',fontSize:10,fontWeight:700}
-                    },'No')
-                  ),
-                  h('button',{onClick:function(){delObs(dep,idx);},style:{background:'none',border:'none',color:'var(--text3)',cursor:'pointer',fontSize:14,padding:'0 4px'}},'✕')
-                );
-              }),
-              (!it.observaciones||!it.observaciones.length)?h('div',{style:{fontSize:11,color:'var(--text3)',fontStyle:'italic'}},'Sin observaciones registradas'):null
-            ),
-            h('div',{style:{display:'flex',gap:6,marginBottom:14}},
-              h('input',{
-                value:obsInputs[dep]||'',
-                onChange:function(e){var v=e.target.value;setObsInputs(function(cur){var n=Object.assign({},cur);n[dep]=v;return n;});},
-                onKeyDown:function(e){if(e.key==='Enter')addObs(dep);},
-                placeholder:'Nueva observación del ITO...',
-                style:{flex:1,background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:8,padding:'7px 10px',color:'var(--text)',fontSize:12}
-              }),
-              h('button',{onClick:function(){addObs(dep);},style:{background:'var(--blue)',border:'none',borderRadius:8,padding:'0 14px',color:'#fff',cursor:'pointer',fontSize:12,fontWeight:700}},'+ Agregar')
-            ),
-            // Actas
-            h('div',{style:{fontSize:11,fontWeight:700,color:'var(--text2)',letterSpacing:'.05em',marginBottom:6}},'ACTA DE ENTREGA'),
-            h('div',{style:{display:'flex',gap:8,flexWrap:'wrap',marginBottom:10}},
-              h('button',{
-                onClick:function(){generarActaEntrega(dep,'PARCIAL');},
-                style:{background:'var(--blue)',border:'none',borderRadius:6,padding:'7px 12px',color:'#fff',cursor:'pointer',fontSize:11,fontWeight:700}
-              },'📄 Generar Acta Parcial (R1)'),
-              h('button',{
-                onClick:function(){generarActaEntrega(dep,'FINAL');},
-                style:{background:'var(--green2)',border:'none',borderRadius:6,padding:'7px 12px',color:'#fff',cursor:'pointer',fontSize:11,fontWeight:700}
-              },'📄 Generar Acta Final (RF)')
-            ),
-            h('div',{style:{display:'flex',flexDirection:'column',gap:6}},
-              (it.actas||[]).slice().reverse().map(function(a){
-                var uk=dep+'_'+a.numero;
-                return h('div',{key:a.numero,style:{display:'flex',alignItems:'center',gap:8,background:'var(--bg2)',borderRadius:8,padding:'7px 10px',flexWrap:'wrap'}},
-                  h('span',{className:'pill '+(a.tipo==='FINAL'?'pill-green':'pill-blue'),style:{fontSize:10}},'Nº'+a.numero+' · '+a.tipo),
-                  h('span',{style:{fontSize:11,color:'var(--text3)'}},a.fecha.split('-').reverse().join('/')),
-                  a.pdfUrl
-                    ?h('a',{href:a.pdfUrl,target:'_blank',rel:'noopener',style:{fontSize:11,color:'var(--blue)',fontWeight:700}},'📄 Ver PDF')
-                    :h('span',{style:{fontSize:10,color:'var(--text3)',fontStyle:'italic'}},'guardando copia...'),
-                  a.firmadaUrl
-                    ?h('a',{href:a.firmadaUrl,target:'_blank',rel:'noopener',style:{fontSize:11,color:'var(--green)',fontWeight:700}},'✓ Firmada — ver')
-                    :h('label',{style:{fontSize:11,color:'var(--blue)',fontWeight:700,cursor:'pointer'}},
-                        uploading[uk]?'Subiendo...':'📤 Subir acta firmada',
-                        h('input',{
-                          type:'file',accept:'application/pdf,image/*',style:{display:'none'},
-                          onChange:function(e){var f=e.target.files&&e.target.files[0];if(f)subirActaFirmada(dep,a.numero,f);}
-                        })
-                      ),
-                  isAdmin?h('button',{
-                    onClick:function(){eliminarActa(dep,a.numero);},
-                    title:'Eliminar esta acta',
-                    style:{marginLeft:'auto',background:'none',border:'none',color:'var(--red)',cursor:'pointer',fontSize:15,padding:'0 4px'}
-                  },'🗑'):null
-                );
-              }),
-              (!it.actas||!it.actas.length)?h('div',{style:{fontSize:11,color:'var(--text3)',fontStyle:'italic'}},'Sin actas generadas aún'):null
-            )
-          ):null
-        );
-      })
+      visibleDeps.map(renderDepRow)
     )
   );
 }
