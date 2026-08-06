@@ -2620,6 +2620,7 @@ function itoBucketPill(ov){
 }
 function ActasItoView({progress,saves,itoData,itoActaCounter,onItoPatch,auth,toast}){
   var pg=progress||calculateAllProgress(saves);
+  var[view,setView]=useState('detalle'); // 'detalle' | 'resumen'
   var[selPiso,setSelPiso]=useState('all');
   var[expandedDep,setExpandedDep]=useState(null);
   var[obsInputs,setObsInputs]=useState({});
@@ -2643,6 +2644,22 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,onItoPatch,auth,toa
     if(lastLevantada)return{estado:'resuelto',dias:daysBetween(lastInicial.fecha,lastLevantada.fecha),fIni:lastInicial.fecha,fLev:lastLevantada.fecha};
     return{estado:'pendiente',dias:daysSince(lastInicial.fecha),fIni:lastInicial.fecha};
   }
+  function bucketOfDep(dep){
+    var ov=(pg.deptos[dep]||{overall:0}).overall;
+    return itoBucketLabel(ov);
+  }
+  // Ciclo de 4 pasos para la vista Resumen: 1.Notificado → 2.Obs. levantadas → 3.RF → 4.Entrega final (RF sin observaciones)
+  function chainStatus(dep){
+    var it=getIt(dep);
+    var cs=cycleStatus(it);
+    return{
+      notified:cs.estado!=='sin_notificar',
+      lifted:cs.estado==='resuelto',
+      rf:bucketOfDep(dep)==='RF',
+      final:(it.actas||[]).some(function(a){return a.tipo==='FINAL';})
+    };
+  }
+  function chainSteps(dep){var c=chainStatus(dep);return[c.notified,c.lifted,c.rf,c.final];}
 
   function saveDepIto(dep,patch){
     var cur=getIt(dep);
@@ -2804,14 +2821,80 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,onItoPatch,auth,toa
     });
   }
 
+  var resumenView=h('div',{className:'gap10'},
+    (function(){
+      var complete=0,partial=0,none=0;
+      visibleDeps.forEach(function(dep){
+        var n=chainSteps(dep).filter(Boolean).length;
+        if(n===4)complete++;else if(n===0)none++;else partial++;
+      });
+      var r1Revisadas=allDeps.filter(function(d){return bucketOfDep(d)==='R1'&&chainStatus(d).lifted;});
+      var rfRevisadas=allDeps.filter(function(d){return bucketOfDep(d)==='RF'&&chainStatus(d).final;});
+      return h('div',{className:'gap10'},
+        h('div',{className:'flex g8',style:{flexWrap:'wrap'}},
+          h('span',{className:'pill pill-green',style:{fontSize:11}},complete+' cadena completa'),
+          h('span',{className:'pill pill-amber',style:{fontSize:11}},partial+' cadena cortada / en proceso'),
+          h('span',{className:'pill pill-gray',style:{fontSize:11}},none+' sin iniciar')
+        ),
+        h('div',{style:{fontSize:10,color:'var(--text3)'}},
+          '●●●● en cada depto = 1. Notificado · 2. Obs. levantadas · 3. RF · 4. Entrega Final RF sin observaciones (gris=pendiente, verde=listo)'
+        ),
+        h('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(84px,1fr))',gap:8}},
+          visibleDeps.map(function(dep){
+            var steps=chainSteps(dep);
+            var n=steps.filter(Boolean).length;
+            var bdr=n===4?'rgba(34,197,94,.45)':n===0?'var(--border)':'rgba(245,158,11,.4)';
+            return h('div',{key:dep,style:{background:'var(--bg2)',border:'1px solid '+bdr,borderRadius:8,padding:'8px 6px',textAlign:'center'}},
+              h('div',{className:'mono',style:{fontSize:12,fontWeight:800,color:'var(--text)',marginBottom:5}},'D'+dep),
+              h('div',{style:{display:'flex',justifyContent:'center',gap:3}},
+                steps.map(function(done,i){
+                  return h('span',{key:i,title:['Notificado','Obs. levantadas','RF','Entrega Final'][i]+(done?' ✓':' pendiente'),style:{
+                    width:8,height:8,borderRadius:'50%',display:'inline-block',
+                    background:done?'var(--green)':'var(--bg3)',
+                    border:'1px solid '+(done?'var(--green)':'var(--border)')
+                  }});
+                })
+              )
+            );
+          })
+        ),
+        h('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(260px,1fr))',gap:12,marginTop:6}},
+          h('div',{className:'card'},
+            h('div',{className:'shdr'},h('div',{className:'shdr-title'},'R1 revisadas por el ITO')),
+            h('div',{className:'text3',style:{fontSize:10,marginBottom:8}},r1Revisadas.length+' deptos'),
+            h('div',{style:{display:'flex',flexWrap:'wrap',gap:4}},
+              r1Revisadas.length?r1Revisadas.map(function(d){
+                return h('span',{key:d,className:'mono',style:{fontSize:11,fontWeight:700,color:'var(--blue)',background:'rgba(14,165,233,.12)',border:'1px solid rgba(14,165,233,.3)',borderRadius:6,padding:'3px 8px'}},d);
+              }):h('div',{style:{fontSize:11,color:'var(--text3)',fontStyle:'italic'}},'Ninguno todavía')
+            )
+          ),
+          h('div',{className:'card'},
+            h('div',{className:'shdr'},h('div',{className:'shdr-title'},'RF revisadas por el ITO')),
+            h('div',{className:'text3',style:{fontSize:10,marginBottom:8}},rfRevisadas.length+' deptos'),
+            h('div',{style:{display:'flex',flexWrap:'wrap',gap:4}},
+              rfRevisadas.length?rfRevisadas.map(function(d){
+                return h('span',{key:d,className:'mono',style:{fontSize:11,fontWeight:700,color:'var(--green)',background:'rgba(34,197,94,.12)',border:'1px solid rgba(34,197,94,.3)',borderRadius:6,padding:'3px 8px'}},d);
+              }):h('div',{style:{fontSize:11,color:'var(--text3)',fontStyle:'italic'}},'Ninguno todavía')
+            )
+          )
+        )
+      );
+    })()
+  );
+
   return h('div',{className:'page gap10'},
     h('div',{className:'shdr'},h('div',{className:'shdr-title'},'Actas ITO')),
+    h('div',{className:'ftabs'},
+      [['detalle','Detalle'],['resumen','Resumen']].map(function(arr){
+        return h('button',{key:arr[0],className:'ftab '+(view===arr[0]?'on':''),onClick:function(){setView(arr[0]);}},arr[1]);
+      })
+    ),
     h('div',{className:'ftabs'},
       [['all','Todos']].concat(floors.map(function(fl){return[fl,fl.charAt(0).toUpperCase()+fl.slice(1)];})).map(function(arr){
         return h('button',{key:arr[0],className:'ftab '+(selPiso===arr[0]?'on':''),onClick:function(){setSelPiso(arr[0]);}},arr[1]);
       })
     ),
-    h('div',{className:'gap10',style:{marginTop:10}},
+    view==='resumen'?resumenView:h('div',{className:'gap10',style:{marginTop:10}},
       visibleDeps.map(function(dep){
         var it=getIt(dep);
         var ov=(pg.deptos[dep]||{overall:0}).overall;
