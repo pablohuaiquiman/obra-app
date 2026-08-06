@@ -2766,16 +2766,16 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,onItoPatch,auth,toa
     doc.setFontSize(8);doc.setFont('helvetica','normal');
     doc.text('Sebastian Valencia',91.2,250.3);
     // Tercera columna (en blanco en la plantilla): se dibuja completa a mano,
-    // mismo estilo que ENTREGA/RECIBE, para el ITO Externo.
+    // mismo estilo y misma altura de línea que ENTREGA/RECIBE, para el ITO Externo.
     doc.setDrawColor(0,0,0);doc.setLineWidth(.3);
     doc.line(137.1,228.4,137.1,257.3);
     doc.setFontSize(7.5);doc.setFont('helvetica','bold');
-    doc.text('RECIBE ITO EXTERNO',172,232,{align:'center'});
-    doc.setLineWidth(.2);doc.line(140,242,204,242);
+    doc.text('RECIBE ITO EXTERNO',172,230.3,{align:'center'});
     doc.setFontSize(6.5);doc.setFont('helvetica','normal');
     doc.text('Firma',139,245.4);
-    doc.text('Nombre: Fabian Ubilla',139,250.3);
-    doc.text('Fecha:',139,254.5);
+    doc.text('Nombre',139,250.3);
+    doc.text('Fabian Ubilla',153,250.3);
+    doc.text('Fecha',139,254.5);
 
     var it=getIt(dep);
     var nuevaActa={numero:numero,tipo:tipo,fecha:hoy,firmadaUrl:null,firmadaNombre:null};
