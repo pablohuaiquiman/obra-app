@@ -2630,6 +2630,7 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,onItoPatch,auth,toa
   var[obsInputs,setObsInputs]=useState({});
   var[uploading,setUploading]=useState({});
   var[notifDates,setNotifDates]=useState({}); // fecha editable por depto para el próximo "Notificar" (por si se registra atrasado)
+  var[actaDates,setActaDates]=useState({}); // fecha editable por depto para la próxima acta generada (por si no es hoy)
   var hoy=new Date().toISOString().slice(0,10);
   var floors=Object.keys(_D.fl);
   var allDeps=Object.keys(_D.ds).sort(function(a,b){return parseInt(a,10)-parseInt(b,10);});
@@ -2679,14 +2680,22 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,onItoPatch,auth,toa
     return max;
   }
 
-  function saveDepIto(dep,patch){
-    var cur=getIt(dep);
-    var next=Object.assign({},cur,patch);
-    var nextAll=Object.assign({},itoData,{[dep]:next});
-    onItoPatch({itoData:nextAll});
+  function saveDepIto(dep,patchOrFn){
+    // patchOrFn puede ser un objeto (caso normal, sin espera de por medio) o una
+    // función curDep=>patch para los callbacks que llegan después de una subida
+    // asíncrona — así se calculan sobre el registro más reciente del depto y no
+    // sobre la instantánea vieja de cuando se disparó la subida.
+    onItoPatch({itoData:function(curIto){
+      var curDep=(curIto&&curIto[dep])||{notifs:[],observaciones:[],actas:[]};
+      var patch=typeof patchOrFn==='function'?patchOrFn(curDep):patchOrFn;
+      var next=Object.assign({},curDep,patch);
+      return Object.assign({},curIto,{[dep]:next});
+    }});
   }
   function getNotifDate(dep){return notifDates[dep]||hoy;}
   function setNotifDate(dep,val){setNotifDates(function(cur){var n=Object.assign({},cur);n[dep]=val;return n;});}
+  function getActaDate(dep){return actaDates[dep]||hoy;}
+  function setActaDate(dep,val){setActaDates(function(cur){var n=Object.assign({},cur);n[dep]=val||hoy;return n;});}
   function notificarInicial(dep){
     var it=getIt(dep);
     var fecha=getNotifDate(dep);
@@ -2732,6 +2741,7 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,onItoPatch,auth,toa
       doc.text('X',x,y0);
     }
     var numero=Math.max(itoActaCounter||0,maxActaNumeroExistente())+1;
+    var fechaActa=getActaDate(dep);
 
     // ── Nº correlativo (grande y en negrita, en el recuadro superior derecho) ──
     doc.setFontSize(20);doc.setFont('helvetica','bold');doc.setTextColor(0,0,0);
@@ -2739,7 +2749,7 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,onItoPatch,auth,toa
 
     // ── FECHA / RECINTO / PISO ──
     doc.setFontSize(8.5);doc.setFont('helvetica','normal');doc.setTextColor(0,0,0);
-    doc.text(hoy.split('-').reverse().join('/'),176,44.5);
+    doc.text(fechaActa.split('-').reverse().join('/'),176,44.5);
     doc.text('Dpto '+dep,34,48.3);
     doc.text('Piso '+dep.charAt(0),131,48.3);
 
@@ -2831,7 +2841,7 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,onItoPatch,auth,toa
     doc.text('Fecha',139,254.5);
 
     var it=getIt(dep);
-    var nuevaActa={numero:numero,tipo:tipo,fecha:hoy,pdfUrl:null,firmadaUrl:null,firmadaNombre:null};
+    var nuevaActa={numero:numero,tipo:tipo,fecha:fechaActa,pdfUrl:null,firmadaUrl:null,firmadaNombre:null};
     var nextAll=Object.assign({},itoData,{[dep]:Object.assign({},it,{actas:(it.actas||[]).concat([nuevaActa])})});
     onItoPatch({itoData:nextAll,itoActaCounter:numero});
 
@@ -2844,9 +2854,10 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,onItoPatch,auth,toa
         var blob=doc.output('blob');
         var path='actas_ito/D'+dep+'/generado_'+numero+'_'+Date.now()+'.pdf';
         window.fbUploadFile(path,blob).then(function(url){
-          var it2=getIt(dep);
-          var actas2=(it2.actas||[]).map(function(a){return a.numero===numero?Object.assign({},a,{pdfUrl:url}):a;});
-          saveDepIto(dep,{actas:actas2});
+          saveDepIto(dep,function(curDep){
+            var actas2=(curDep.actas||[]).map(function(a){return a.numero===numero?Object.assign({},a,{pdfUrl:url}):a;});
+            return{actas:actas2};
+          });
         }).catch(function(e){console.warn('No se pudo guardar copia del acta en la nube:',e);});
       }catch(e){}
     }
@@ -2879,9 +2890,10 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,onItoPatch,auth,toa
       var path='actas_ito/D'+dep+'/acta_'+numero+'_'+Date.now()+ext;
       return window.fbUploadFile(path,fileOrBlob);
     }).then(function(url){
-      var it=getIt(dep);
-      var actas=(it.actas||[]).map(function(a){return a.numero===numero?Object.assign({},a,{firmadaUrl:url,firmadaNombre:file.name}):a;});
-      saveDepIto(dep,{actas:actas});
+      saveDepIto(dep,function(curDep){
+        var actas=(curDep.actas||[]).map(function(a){return a.numero===numero?Object.assign({},a,{firmadaUrl:url,firmadaNombre:file.name}):a;});
+        return{actas:actas};
+      });
       setUploading(function(cur){var n=Object.assign({},cur);delete n[uk];return n;});
       toast&&toast('✓ Acta firmada adjuntada');
     }).catch(function(e){
@@ -2984,7 +2996,14 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,onItoPatch,auth,toa
         ),
         // Actas
         h('div',{style:{fontSize:11,fontWeight:700,color:'var(--text2)',letterSpacing:'.05em',marginBottom:6}},'ACTA DE ENTREGA'),
-        h('div',{style:{display:'flex',gap:8,flexWrap:'wrap',marginBottom:10}},
+        h('div',{style:{display:'flex',gap:8,flexWrap:'wrap',marginBottom:10,alignItems:'center'}},
+          h('input',{
+            type:'date',className:'date-input',
+            value:getActaDate(dep),max:hoy,
+            title:'Fecha del acta (por si no se genera el mismo día de la entrega real)',
+            onChange:function(e){setActaDate(dep,e.target.value);},
+            style:{width:132,flexShrink:0}
+          }),
           h('button',{
             onClick:function(){generarActaEntrega(dep,'PARCIAL');},
             style:{background:'var(--blue)',border:'none',borderRadius:6,padding:'7px 12px',color:'#fff',cursor:'pointer',fontSize:11,fontWeight:700}
@@ -17150,28 +17169,39 @@ function App({initialData}){
     return function(){window.removeEventListener('fb-sync-state',onSyncState);};
   },[]);
   const save=(patch)=>{
-    const ns={...state,...patch};
-    ss(ns);
-    try{localStorage.setItem(SK,JSON.stringify(ns));}catch(e){}
-    if(patch.saves){
-      // Marcar deptos modificados como "sucios" por 6s para que onSnapshot no los pise
-      window._optimisticUntil=Date.now()+5000;
-      window._localDirty=window._localDirty||{};
-      Object.keys(patch.saves).forEach(function(dep){
-        window._localDirty[dep]=true;
-        setTimeout(function(){if(window._localDirty)delete window._localDirty[dep];},6000);
+    // Un valor de patch puede ser una función (cur=>nuevoValor): así una actualización
+    // que llega tarde (ej: subida a la nube en 2do plano que termina varios segundos
+    // después del clic) se calcula sobre el estado más reciente en vez de sobre una
+    // instantánea vieja capturada al momento del clic — evita que esa respuesta tardía
+    // pise/borre cambios hechos mientras tanto (ej: una nueva acta agregada).
+    ss(function(cur){
+      const resolved={};
+      Object.keys(patch).forEach(function(k){
+        resolved[k]=typeof patch[k]==='function'?patch[k](cur[k]):patch[k];
       });
-      autoSaveBackup(ns);
-    }
-    // Marcar como "sucios" los campos meta (todo excepto saves/auth/tab) por 6s,
-    // así un snapshot remoto que llegue antes de que confirme esta escritura no la pisa.
-    window._metaDirty=window._metaDirty||{};
-    Object.keys(patch).forEach(function(k){
-      if(k==='saves'||k==='auth'||k==='tab')return;
-      window._metaDirty[k]=true;
-      setTimeout(function(){if(window._metaDirty)delete window._metaDirty[k];},6000);
+      const ns={...cur,...resolved};
+      try{localStorage.setItem(SK,JSON.stringify(ns));}catch(e){}
+      if(resolved.saves){
+        // Marcar deptos modificados como "sucios" por 6s para que onSnapshot no los pise
+        window._optimisticUntil=Date.now()+5000;
+        window._localDirty=window._localDirty||{};
+        Object.keys(resolved.saves).forEach(function(dep){
+          window._localDirty[dep]=true;
+          setTimeout(function(){if(window._localDirty)delete window._localDirty[dep];},6000);
+        });
+        autoSaveBackup(ns);
+      }
+      // Marcar como "sucios" los campos meta (todo excepto saves/auth/tab) por 6s,
+      // así un snapshot remoto que llegue antes de que confirme esta escritura no la pisa.
+      window._metaDirty=window._metaDirty||{};
+      Object.keys(resolved).forEach(function(k){
+        if(k==='saves'||k==='auth'||k==='tab')return;
+        window._metaDirty[k]=true;
+        setTimeout(function(){if(window._metaDirty)delete window._metaDirty[k];},6000);
+      });
+      if(window.fbSave)window.fbSave(ns);
+      return ns;
     });
-    if(window.fbSave)window.fbSave(ns);
   };
   const[toastMsg,showToast]=useToast();
   const[showBackupMenu,setShowBackupMenu]=useState(false);
