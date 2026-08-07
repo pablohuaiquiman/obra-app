@@ -2856,8 +2856,16 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,onItoPatch,auth,toa
     if(!window.fbUploadFile){toast&&toast('Firebase Storage no disponible');return;}
     var uk=dep+'_'+numero;
     setUploading(function(cur){var n=Object.assign({},cur);n[uk]=true;return n;});
-    var path='actas_ito/D'+dep+'/acta_'+numero+'_'+Date.now()+'_'+file.name;
-    window.fbUploadFile(path,file).then(function(url){
+    // Las fotos de celular pueden pesar 5-15+ MB — sin comprimir, la subida se
+    // siente "colgada" o muy lenta. Igual que las fotos de evidencia de Ventanas,
+    // se comprime antes de subir (los PDF se suben tal cual, no son imágenes).
+    var isImage=!!(file.type&&file.type.indexOf('image/')===0);
+    var prep=(isImage&&window.compressImage)?window.compressImage(file,1400,0.75):Promise.resolve(file);
+    prep.then(function(fileOrBlob){
+      var ext=isImage?'.jpg':(file.name&&file.name.lastIndexOf('.')>=0?file.name.slice(file.name.lastIndexOf('.')):'.pdf');
+      var path='actas_ito/D'+dep+'/acta_'+numero+'_'+Date.now()+ext;
+      return window.fbUploadFile(path,fileOrBlob);
+    }).then(function(url){
       var it=getIt(dep);
       var actas=(it.actas||[]).map(function(a){return a.numero===numero?Object.assign({},a,{firmadaUrl:url,firmadaNombre:file.name}):a;});
       saveDepIto(dep,{actas:actas});
@@ -2865,8 +2873,14 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,onItoPatch,auth,toa
       toast&&toast('✓ Acta firmada adjuntada');
     }).catch(function(e){
       console.warn('Error subiendo acta firmada:',e);
+      var code=e&&e.code?e.code:'';
+      var msg=code==='storage/unauthorized'?'Sin permiso para subir — revisar reglas de Firebase Storage':
+              code==='storage/canceled'?'Subida cancelada':
+              code==='storage/quota-exceeded'?'Se agotó el espacio de almacenamiento':
+              code==='storage/retry-limit-exceeded'?'Se perdió la conexión al subir — reintenta':
+              (e&&e.message)?('Error al subir: '+e.message):'Error al subir el acta';
       setUploading(function(cur){var n=Object.assign({},cur);delete n[uk];return n;});
-      toast&&toast('✗ Error al subir el acta');
+      toast&&toast('✗ '+msg);
     });
   }
 
@@ -3005,9 +3019,39 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,onItoPatch,auth,toa
         var n=chainSteps(dep).filter(Boolean).length;
         if(n===4)complete++;else if(n===0)none++;else partial++;
       });
-      var r1Revisadas=allDeps.filter(function(d){return bucketOfDep(d)==='R1'&&chainStatus(d).lifted;});
-      var rfRevisadas=allDeps.filter(function(d){return bucketOfDep(d)==='RF'&&chainStatus(d).final;});
+      // "Con acta firmada" = tiene un acta de ese tipo (Parcial→R1, Final→RF) con la
+      // copia firmada ya subida (firmadaUrl), no solo generada.
+      var r1Firmadas=allDeps.filter(function(d){
+        if(bucketOfDep(d)!=='R1')return false;
+        var it=getIt(d);
+        return(it.actas||[]).some(function(a){return a.tipo==='PARCIAL'&&a.firmadaUrl;});
+      });
+      var rfFirmadas=allDeps.filter(function(d){
+        if(bucketOfDep(d)!=='RF')return false;
+        var it=getIt(d);
+        return(it.actas||[]).some(function(a){return a.tipo==='FINAL'&&a.firmadaUrl;});
+      });
       return h('div',{className:'gap10'},
+        h('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(260px,1fr))',gap:12}},
+          h('div',{className:'card'},
+            h('div',{className:'shdr'},h('div',{className:'shdr-title'},'R1 con Acta de Entrega firmada')),
+            h('div',{className:'text3',style:{fontSize:10,marginBottom:8}},r1Firmadas.length+' deptos'),
+            h('div',{style:{display:'flex',flexWrap:'wrap',gap:4}},
+              r1Firmadas.length?r1Firmadas.map(function(d){
+                return h('span',{key:d,className:'mono',style:{fontSize:11,fontWeight:700,color:'var(--blue)',background:'rgba(14,165,233,.12)',border:'1px solid rgba(14,165,233,.3)',borderRadius:6,padding:'3px 8px'}},d);
+              }):h('div',{style:{fontSize:11,color:'var(--text3)',fontStyle:'italic'}},'Ninguno todavía')
+            )
+          ),
+          h('div',{className:'card'},
+            h('div',{className:'shdr'},h('div',{className:'shdr-title'},'RF con Acta de Entrega firmada')),
+            h('div',{className:'text3',style:{fontSize:10,marginBottom:8}},rfFirmadas.length+' deptos'),
+            h('div',{style:{display:'flex',flexWrap:'wrap',gap:4}},
+              rfFirmadas.length?rfFirmadas.map(function(d){
+                return h('span',{key:d,className:'mono',style:{fontSize:11,fontWeight:700,color:'var(--green)',background:'rgba(34,197,94,.12)',border:'1px solid rgba(34,197,94,.3)',borderRadius:6,padding:'3px 8px'}},d);
+              }):h('div',{style:{fontSize:11,color:'var(--text3)',fontStyle:'italic'}},'Ninguno todavía')
+            )
+          )
+        ),
         h('div',{className:'flex g8',style:{flexWrap:'wrap'}},
           h('span',{className:'pill pill-green',style:{fontSize:11}},complete+' cadena completa'),
           h('span',{className:'pill pill-amber',style:{fontSize:11}},partial+' cadena cortada / en proceso'),
@@ -3040,26 +3084,6 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,onItoPatch,auth,toa
               )
             );
           })
-        ),
-        h('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(260px,1fr))',gap:12,marginTop:6}},
-          h('div',{className:'card'},
-            h('div',{className:'shdr'},h('div',{className:'shdr-title'},'R1 revisadas por el ITO')),
-            h('div',{className:'text3',style:{fontSize:10,marginBottom:8}},r1Revisadas.length+' deptos'),
-            h('div',{style:{display:'flex',flexWrap:'wrap',gap:4}},
-              r1Revisadas.length?r1Revisadas.map(function(d){
-                return h('span',{key:d,className:'mono',style:{fontSize:11,fontWeight:700,color:'var(--blue)',background:'rgba(14,165,233,.12)',border:'1px solid rgba(14,165,233,.3)',borderRadius:6,padding:'3px 8px'}},d);
-              }):h('div',{style:{fontSize:11,color:'var(--text3)',fontStyle:'italic'}},'Ninguno todavía')
-            )
-          ),
-          h('div',{className:'card'},
-            h('div',{className:'shdr'},h('div',{className:'shdr-title'},'RF revisadas por el ITO')),
-            h('div',{className:'text3',style:{fontSize:10,marginBottom:8}},rfRevisadas.length+' deptos'),
-            h('div',{style:{display:'flex',flexWrap:'wrap',gap:4}},
-              rfRevisadas.length?rfRevisadas.map(function(d){
-                return h('span',{key:d,className:'mono',style:{fontSize:11,fontWeight:700,color:'var(--green)',background:'rgba(34,197,94,.12)',border:'1px solid rgba(34,197,94,.3)',borderRadius:6,padding:'3px 8px'}},d);
-              }):h('div',{style:{fontSize:11,color:'var(--text3)',fontStyle:'italic'}},'Ninguno todavía')
-            )
-          )
         ),
         (expandedDep&&visibleDeps.indexOf(expandedDep)>=0)?h('div',{style:{marginTop:6}},
           h('div',{style:{fontSize:11,fontWeight:700,color:'var(--text2)',letterSpacing:'.05em',marginBottom:6}},'DETALLE — D'+expandedDep),
