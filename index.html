@@ -2665,6 +2665,19 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,onItoPatch,auth,toa
     };
   }
   function chainSteps(dep){var c=chainStatus(dep);return[c.notified,c.lifted,c.rf,c.final];}
+  // Correlativo a prueba de desincronización: si un celular con mala señal cargó
+  // itoActaCounter desde una copia local desactualizada (o vacía), el número real
+  // ya usado en las actas existentes sigue siendo la fuente de verdad — nunca se
+  // repite un Nº aunque el contador guardado esté atrasado.
+  function maxActaNumeroExistente(){
+    var max=0;
+    Object.keys(itoData||{}).forEach(function(dep){
+      ((itoData[dep]||{}).actas||[]).forEach(function(a){
+        if(a.numero>max)max=a.numero;
+      });
+    });
+    return max;
+  }
 
   function saveDepIto(dep,patch){
     var cur=getIt(dep);
@@ -2718,7 +2731,7 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,onItoPatch,auth,toa
       doc.setFont('helvetica','bold');doc.setFontSize(8);doc.setTextColor(0,0,0);
       doc.text('X',x,y0);
     }
-    var numero=(itoActaCounter||0)+1;
+    var numero=Math.max(itoActaCounter||0,maxActaNumeroExistente())+1;
 
     // ── Nº correlativo (grande y en negrita, en el recuadro superior derecho) ──
     doc.setFontSize(20);doc.setFont('helvetica','bold');doc.setTextColor(0,0,0);
