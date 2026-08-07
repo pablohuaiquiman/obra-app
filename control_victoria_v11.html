@@ -3020,14 +3020,13 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,onItoPatch,auth,toa
         if(n===4)complete++;else if(n===0)none++;else partial++;
       });
       // "Con acta firmada" = tiene un acta de ese tipo (Parcial→R1, Final→RF) con la
-      // copia firmada ya subida (firmadaUrl), no solo generada.
+      // copia firmada ya subida (firmadaUrl) — depende solo del acta, no del % en vivo
+      // (que es un dato aparte y puede no coincidir con el estado real del papeleo).
       var r1Firmadas=allDeps.filter(function(d){
-        if(bucketOfDep(d)!=='R1')return false;
         var it=getIt(d);
         return(it.actas||[]).some(function(a){return a.tipo==='PARCIAL'&&a.firmadaUrl;});
       });
       var rfFirmadas=allDeps.filter(function(d){
-        if(bucketOfDep(d)!=='RF')return false;
         var it=getIt(d);
         return(it.actas||[]).some(function(a){return a.tipo==='FINAL'&&a.firmadaUrl;});
       });
