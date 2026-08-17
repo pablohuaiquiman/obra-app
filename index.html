@@ -2642,7 +2642,7 @@ var ITO_BUCKET_META={
 function itoBucketColor(dep,saves,pg){return ITO_BUCKET_META[bucketOfDepto(dep,saves,pg)].color;}
 function itoBucketLabel(dep,saves,pg){return ITO_BUCKET_META[bucketOfDepto(dep,saves,pg)].label;}
 function itoBucketPill(dep,saves,pg){return ITO_BUCKET_META[bucketOfDepto(dep,saves,pg)].pill;}
-function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,onItoPatch,auth,toast}){
+function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizarraIto,onItoPatch,auth,toast}){
   var pg=progress||calculateAllProgress(saves);
   var isAdmin=auth&&auth.role==='Admin';
   var[view,setView]=useState('detalle'); // 'detalle' | 'resumen' | 'pizarra'
@@ -2652,6 +2652,7 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,onItoPat
   var[uploading,setUploading]=useState({});
   var[notifDates,setNotifDates]=useState({}); // fecha editable por depto para el próximo "Notificar" (por si se registra atrasado)
   var[actaDates,setActaDates]=useState({}); // fecha editable por depto para la próxima acta generada (por si no es hoy)
+  var[assignBoard,setAssignBoard]=useState(null); // 'capataces' | 'ito' — a qué tablero de la Pizarra pertenece assignDep
   var[assignDep,setAssignDep]=useState(null); // depto abierto en el panel de asignación de la Pizarra
   var[assignDraft,setAssignDraft]=useState({resp:'',fecha:''});
   var hoy=new Date().toISOString().slice(0,10);
@@ -2677,9 +2678,10 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,onItoPat
     return bucketOfDepto(dep,saves,pg);
   }
 
-  // ── Pizarra: plan semanal por capataz (arriba: todos los deptos por piso para
-  // arrastrar; abajo: semanas lun-vie hasta fin de septiembre × responsable) ──
-  var PIZARRA_RESP=['Vale Elgueta','Marcelo Savando','Angelica Farias','Alejandro Rivera','Hans Villa','Paul Castro'];
+  // ── Pizarra: plan semanal (arriba: todos los deptos por piso para arrastrar;
+  // abajo: semanas lun-vie hasta fin de septiembre × responsable). Dos tableros
+  // independientes comparten esta misma mecánica: uno para los capataces y otro
+  // para el ITO (Sebastián y Fabián — cuándo notificar cada depto). ──
   var MESES_CORTOS=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
   function pizarraMondayOf(dateObj){
     var dt=new Date(dateObj);var day=dt.getDay();
@@ -2691,10 +2693,13 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,onItoPat
     var y=dt.getFullYear(),m=String(dt.getMonth()+1).padStart(2,'0'),d=String(dt.getDate()).padStart(2,'0');
     return y+'-'+m+'-'+d;
   }
+  var pizarraHoy=pizarraFmt(new Date()); // fecha local (no UTC) para comparar contra mon/fri/días sin desfase de huso horario
+  var pizarraHoyMonday=pizarraFmt(pizarraMondayOf(new Date())); // lunes de "esta semana" — sáb/dom quedan después del viernes, así que comparar contra el lunes (no un rango mon..fri) es lo único que funciona todos los días
   // Semanas lun-vie desde la semana actual hasta la semana que contiene el 30 de
   // septiembre del año en curso (si el 30/09 ya pasó, no se generan semanas). Cada
   // semana trae además sus 5 días (L·M·M·J·V) para poder soltar un depto en el día
-  // exacto de entrega, no solo en la semana.
+  // exacto de entrega, no solo en la semana; y se marca cuál semana/día es "hoy"
+  // para resaltarlo en el tablero.
   var DIAS_INICIALES=['L','M','M','J','V'];
   var pizarraWeeks=useMemo(function(){
     var weeks=[];
@@ -2706,12 +2711,14 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,onItoPat
       var fri=new Date(cur);fri.setDate(fri.getDate()+4);
       var mIni=MESES_CORTOS[cur.getMonth()],mFin=MESES_CORTOS[fri.getMonth()];
       var label='Semana '+n+' · '+cur.getDate()+(mIni===mFin?'':' '+mIni)+' al '+fri.getDate()+' '+mFin;
+      var monStr=pizarraFmt(cur),friStr=pizarraFmt(fri);
       var days=[];
       for(var di=0;di<5;di++){
         var dd=new Date(cur);dd.setDate(dd.getDate()+di);
-        days.push({date:pizarraFmt(dd),initial:DIAS_INICIALES[di]});
+        var dStr=pizarraFmt(dd);
+        days.push({date:dStr,initial:DIAS_INICIALES[di],isToday:dStr===pizarraHoy});
       }
-      weeks.push({key:pizarraFmt(cur),mon:pizarraFmt(cur),fri:pizarraFmt(fri),label:label,days:days});
+      weeks.push({key:monStr,mon:monStr,fri:friStr,label:label,days:days,isCurrent:monStr===pizarraHoyMonday});
       cur=new Date(cur);cur.setDate(cur.getDate()+7);
       n++;
     }
@@ -2742,45 +2749,69 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,onItoPat
     });
     return map;
   })();
-  var pizarraData=(itoPizarra&&Object.keys(itoPizarra).length)?itoPizarra:ITO_PIZARRA_SEED;
-  function pizarraAssignOf(dep){return(pizarraData&&pizarraData[dep])||null;}
-  function setPizarraAssign(dep,resp,fecha){
-    var next=Object.assign({},pizarraData);
+  // Dos tableros independientes, cada uno con su propio campo de persistencia
+  // (mismo mecanismo onItoPatch que itoData) y su propia lista de responsables.
+  var PIZARRA_BOARDS={
+    capataces:{
+      field:'itoPizarra',
+      data:itoPizarra,
+      seed:ITO_PIZARRA_SEED,
+      resp:['Vale Elgueta','Marcelo Savando','Angelica Farias','Alejandro Rivera','Hans Villa','Paul Castro'],
+      pisoTitle:'Deptos por piso — Capataces',
+      boardTitle:'Plan semanal — Capataces',
+      hint:'Cada semana se divide en L·M·M·J·V — suelta un depto en el día exacto en que debe quedar listo, o pínchalo para elegir la fecha a mano.'
+    },
+    ito:{
+      field:'itoPizarraIto',
+      data:itoPizarraIto,
+      seed:{},
+      resp:['Sebastián','Fabián'],
+      pisoTitle:'Deptos por piso — Notificación ITO',
+      boardTitle:'Plan semanal — Notificación ITO',
+      hint:'Programa qué día Sebastián o Fabián deben notificar al ITO cada depto (Fase→R0, R0→R1, R1 sin obs. / espera de RF).'
+    }
+  };
+  function pizarraDataOf(boardKey){
+    var cfg=PIZARRA_BOARDS[boardKey];
+    var d=cfg.data;
+    return(d&&Object.keys(d).length)?d:cfg.seed;
+  }
+  function pizarraAssignOf(boardKey,dep){var d=pizarraDataOf(boardKey);return(d&&d[dep])||null;}
+  function setPizarraAssign(boardKey,dep,resp,fecha){
+    var next=Object.assign({},pizarraDataOf(boardKey));
     if(!resp){delete next[dep];}
-    else next[dep]={resp:resp,fecha:fecha||hoy};
-    onItoPatch({itoPizarra:next});
+    else next[dep]={resp:resp,fecha:fecha||pizarraHoy};
+    var patch={};patch[PIZARRA_BOARDS[boardKey].field]=next;
+    onItoPatch(patch);
   }
-  function clearPizarraAssign(dep){
-    var next=Object.assign({},pizarraData);
-    delete next[dep];
-    onItoPatch({itoPizarra:next});
-  }
-  function openAssignPanel(dep){
-    var a=pizarraAssignOf(dep);
-    setAssignDraft({resp:a?a.resp:'',fecha:a?a.fecha:hoy});
+  function clearPizarraAssign(boardKey,dep){setPizarraAssign(boardKey,dep,'',null);}
+  function openAssignPanel(boardKey,dep){
+    var a=pizarraAssignOf(boardKey,dep);
+    setAssignDraft({resp:a?a.resp:'',fecha:a?a.fecha:pizarraHoy});
+    setAssignBoard(boardKey);
     setAssignDep(dep);
   }
   // Chip de depto: arrastrable (fuente y también reordenable dentro del tablero) y
   // clickeable para abrir el panel de asignación fina (responsable + fecha exacta).
-  function pizarraChip(dep){
+  function pizarraChip(boardKey,dep){
     var st=ITO_BUCKET_META[bucketOfDep(dep)];
     var ov=(pg.deptos[dep]||{overall:0}).overall;
-    var a=pizarraAssignOf(dep);
+    var a=pizarraAssignOf(boardKey,dep);
     var asigTxt=a?(' · '+a.resp+' · '+a.fecha.split('-').reverse().join('/')):'';
     return h('span',{
       key:dep,draggable:true,
       onDragStart:function(e){e.dataTransfer.setData('text/plain',dep);e.dataTransfer.effectAllowed='move';},
-      onClick:function(){openAssignPanel(dep);},
+      onClick:function(){openAssignPanel(boardKey,dep);},
       title:'D'+dep+' · '+Math.round(ov)+'% · '+st.label+asigTxt,
       style:{fontFamily:'var(--mono)',fontSize:11,fontWeight:700,color:st.color==='var(--amber)'?'#1a1a1a':'#fff',
         background:st.color,border:'1px solid rgba(255,255,255,.25)',borderRadius:6,padding:'3px 6px',cursor:'pointer'}
     },dep);
   }
-  function pizarraCellDrop(resp,fecha){
+  function pizarraCellDrop(boardKey,resp,fecha){
     return function(e){
       e.preventDefault();
       var dep=e.dataTransfer.getData('text/plain');
-      if(dep)setPizarraAssign(dep,resp,fecha);
+      if(dep)setPizarraAssign(boardKey,dep,resp,fecha);
     };
   }
   // Ciclo de 4 pasos para la vista Resumen: 1.Notificado → 2.Obs. levantadas → 3.RF → 4.Entrega final (RF sin observaciones)
@@ -3255,87 +3286,106 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,onItoPat
 
   function allowDropPizarra(e){e.preventDefault();}
 
-  var pizarraView=h('div',{className:'gap10'},
-    h('div',{className:'card'},
-      h('div',{className:'shdr'},h('div',{className:'shdr-title'},'Deptos por piso — arrastra a un casillero o pincha para asignar')),
-      h('div',{className:'flex g8',style:{flexWrap:'wrap',marginBottom:10}},
-        ['RF','R1','R0','FASE'].map(function(k){
-          var st=ITO_BUCKET_META[k];
-          return h('div',{key:k,style:{display:'flex',alignItems:'center',gap:5}},
-            h('span',{style:{width:12,height:12,borderRadius:3,background:st.color,display:'inline-block'}}),
-            h('span',{style:{fontSize:10,color:'var(--text3)'}},st.label)
+  // Construye las 2 tarjetas (deptos sin asignar por piso + tablero semanal) de un
+  // tablero de la Pizarra. La semana/día "de hoy" queda resaltado (isCurrent/isToday
+  // ya vienen calculados en pizarraWeeks) para ubicarse rápido en el calendario.
+  function renderPizarraBoard(boardKey){
+    var cfg=PIZARRA_BOARDS[boardKey];
+    return[
+      h('div',{key:boardKey+'_piso',className:'card'},
+        h('div',{className:'shdr'},h('div',{className:'shdr-title'},cfg.pisoTitle)),
+        h('div',{className:'flex g8',style:{flexWrap:'wrap',marginBottom:10}},
+          ['RF','R1','R0','FASE'].map(function(k){
+            var st=ITO_BUCKET_META[k];
+            return h('div',{key:k,style:{display:'flex',alignItems:'center',gap:5}},
+              h('span',{style:{width:12,height:12,borderRadius:3,background:st.color,display:'inline-block'}}),
+              h('span',{style:{fontSize:10,color:'var(--text3)'}},st.label)
+            );
+          })
+        ),
+        // Una vez asignado (arriba de algún casillero del tablero), el depto desaparece
+        // de este panel de referencia — así se ve de un vistazo qué queda por programar.
+        floors.slice().reverse().map(function(fl){
+          var deps=(_D.fl[fl]||[]).filter(function(dep){return!pizarraAssignOf(boardKey,dep);})
+            .sort(function(a,b){return parseInt(a,10)-parseInt(b,10);});
+          if(!deps.length)return null;
+          var pisoLabel=fl.charAt(0).toUpperCase()+fl.slice(1);
+          return h('div',{key:fl,style:{display:'flex',alignItems:'center',gap:8,marginBottom:8,flexWrap:'wrap'}},
+            h('span',{style:{fontSize:11,fontWeight:800,color:'var(--text)',minWidth:56}},pisoLabel),
+            h('div',{style:{display:'flex',flexWrap:'wrap',gap:4}},deps.map(function(dep){return pizarraChip(boardKey,dep);}))
           );
-        })
+        }),
+        floors.every(function(fl){return(_D.fl[fl]||[]).every(function(dep){return!!pizarraAssignOf(boardKey,dep);});})
+          ?h('div',{style:{fontSize:11,color:'var(--text3)',fontStyle:'italic'}},'Todos los deptos ya están asignados.')
+          :null
       ),
-      // Una vez asignado (arriba de algún casillero del tablero), el depto desaparece
-      // de este panel de referencia — así se ve de un vistazo qué queda por programar.
-      floors.slice().reverse().map(function(fl){
-        var deps=(_D.fl[fl]||[]).filter(function(dep){return!pizarraAssignOf(dep);})
-          .sort(function(a,b){return parseInt(a,10)-parseInt(b,10);});
-        if(!deps.length)return null;
-        var pisoLabel=fl.charAt(0).toUpperCase()+fl.slice(1);
-        return h('div',{key:fl,style:{display:'flex',alignItems:'center',gap:8,marginBottom:8,flexWrap:'wrap'}},
-          h('span',{style:{fontSize:11,fontWeight:800,color:'var(--text)',minWidth:56}},pisoLabel),
-          h('div',{style:{display:'flex',flexWrap:'wrap',gap:4}},deps.map(pizarraChip))
-        );
-      }),
-      floors.every(function(fl){return(_D.fl[fl]||[]).every(function(dep){return!!pizarraAssignOf(dep);});})
-        ?h('div',{style:{fontSize:11,color:'var(--text3)',fontStyle:'italic'}},'Todos los deptos ya están asignados.')
-        :null
-    ),
-    h('div',{className:'card'},
-      h('div',{className:'shdr'},h('div',{className:'shdr-title'},'Plan semanal por responsable')),
-      h('div',{style:{fontSize:10,color:'var(--text3)',marginBottom:8}},
-        'Cada semana se divide en L·M·M·J·V (lunes a viernes) — suelta un depto en el día exacto en que debe quedar listo, o pínchalo para elegir la fecha a mano.'
-      ),
-      pizarraWeeks.length===0
-        ?h('div',{style:{fontSize:11,color:'var(--text3)',fontStyle:'italic'}},'No quedan semanas hasta fin de septiembre.')
-        :h('div',{className:'gt-wrap'},
-            h('table',{style:{borderCollapse:'collapse',fontSize:11}},
-              h('thead',null,
-                h('tr',null,
-                  h('th',{rowSpan:2,style:{padding:'4px 8px',position:'sticky',left:0,background:'var(--bg2)',zIndex:2,color:'var(--text3)',fontSize:10,textAlign:'left',verticalAlign:'bottom'}},'RESPONSABLE'),
-                  pizarraWeeks.map(function(w){
-                    return h('th',{key:w.key,colSpan:5,style:{padding:'4px 8px',color:'var(--text3)',fontSize:10,textAlign:'center',whiteSpace:'nowrap',borderLeft:'2px solid var(--border)'}},w.label);
-                  })
-                ),
-                h('tr',null,
-                  pizarraWeeks.map(function(w){
-                    return w.days.map(function(d,di){
-                      return h('th',{key:w.key+'_'+d.date,title:d.date.split('-').reverse().join('/'),style:{
-                        padding:'2px 4px',color:'var(--text3)',fontSize:9,fontFamily:'var(--mono)',textAlign:'center',
-                        borderLeft:di===0?'2px solid var(--border)':'1px solid rgba(255,255,255,.06)'
-                      }},d.initial);
-                    });
-                  })
-                )
-              ),
-              h('tbody',null,
-                PIZARRA_RESP.map(function(resp,ri){
-                  var rowBdr=ri<PIZARRA_RESP.length-1?'2px solid var(--border)':'none';
-                  return h('tr',{key:resp},
-                    h('td',{style:{padding:'4px 8px',fontWeight:700,color:'var(--text)',position:'sticky',left:0,background:'var(--card)',fontSize:11,whiteSpace:'nowrap',borderBottom:rowBdr}},resp),
+      h('div',{key:boardKey+'_board',className:'card'},
+        h('div',{className:'shdr'},h('div',{className:'shdr-title'},cfg.boardTitle)),
+        h('div',{style:{fontSize:10,color:'var(--text3)',marginBottom:8}},cfg.hint),
+        h('div',{style:{display:'flex',alignItems:'center',gap:5,marginBottom:8}},
+          h('span',{style:{width:10,height:10,borderRadius:3,background:'rgba(14,165,233,.28)',border:'1px solid var(--blue)',display:'inline-block'}}),
+          h('span',{style:{fontSize:10,color:'var(--text3)'}},'= semana / día de hoy')
+        ),
+        pizarraWeeks.length===0
+          ?h('div',{style:{fontSize:11,color:'var(--text3)',fontStyle:'italic'}},'No quedan semanas hasta fin de septiembre.')
+          :h('div',{className:'gt-wrap'},
+              h('table',{style:{borderCollapse:'collapse',fontSize:11}},
+                h('thead',null,
+                  h('tr',null,
+                    h('th',{rowSpan:2,style:{padding:'4px 8px',position:'sticky',left:0,background:'var(--bg2)',zIndex:2,color:'var(--text3)',fontSize:10,textAlign:'left',verticalAlign:'bottom'}},'RESPONSABLE'),
+                    pizarraWeeks.map(function(w){
+                      return h('th',{key:w.key,colSpan:5,style:{padding:'4px 8px',
+                        color:w.isCurrent?'var(--blue)':'var(--text3)',fontSize:10,textAlign:'center',whiteSpace:'nowrap',
+                        borderLeft:'2px solid var(--border)',background:w.isCurrent?'rgba(14,165,233,.14)':'transparent'}},w.label);
+                    })
+                  ),
+                  h('tr',null,
                     pizarraWeeks.map(function(w){
                       return w.days.map(function(d,di){
-                        var deps=Object.keys(pizarraData||{}).filter(function(dep){
-                          var a=pizarraData[dep];
-                          return a&&a.resp===resp&&a.fecha===d.date;
-                        }).sort(function(a,b){return parseInt(a,10)-parseInt(b,10);});
-                        return h('td',{
-                          key:w.key+'_'+d.date,onDragOver:allowDropPizarra,onDrop:pizarraCellDrop(resp,d.date),
-                          style:{padding:3,minWidth:34,verticalAlign:'top',borderBottom:rowBdr,
-                            borderLeft:di===0?'2px solid var(--border)':'1px dashed rgba(255,255,255,.08)'}
-                        },
-                          h('div',{style:{display:'flex',flexDirection:'column',gap:2}},deps.map(pizarraChip))
-                        );
+                        return h('th',{key:w.key+'_'+d.date,title:d.date.split('-').reverse().join('/'),style:{
+                          padding:'2px 4px',color:d.isToday?'var(--blue)':'var(--text3)',fontSize:9,fontFamily:'var(--mono)',
+                          fontWeight:d.isToday?800:400,textAlign:'center',
+                          background:d.isToday?'rgba(14,165,233,.22)':(w.isCurrent?'rgba(14,165,233,.08)':'transparent'),
+                          borderLeft:di===0?'2px solid var(--border)':'1px solid rgba(255,255,255,.06)'
+                        }},d.initial);
                       });
                     })
-                  );
-                })
+                  )
+                ),
+                h('tbody',null,
+                  cfg.resp.map(function(resp,ri){
+                    var rowBdr=ri<cfg.resp.length-1?'2px solid var(--border)':'none';
+                    return h('tr',{key:resp},
+                      h('td',{style:{padding:'4px 8px',fontWeight:700,color:'var(--text)',position:'sticky',left:0,background:'var(--card)',fontSize:11,whiteSpace:'nowrap',borderBottom:rowBdr}},resp),
+                      pizarraWeeks.map(function(w){
+                        return w.days.map(function(d,di){
+                          var data=pizarraDataOf(boardKey);
+                          var deps=Object.keys(data||{}).filter(function(dep){
+                            var a=data[dep];
+                            return a&&a.resp===resp&&a.fecha===d.date;
+                          }).sort(function(a,b){return parseInt(a,10)-parseInt(b,10);});
+                          return h('td',{
+                            key:w.key+'_'+d.date,onDragOver:allowDropPizarra,onDrop:pizarraCellDrop(boardKey,resp,d.date),
+                            style:{padding:3,minWidth:34,verticalAlign:'top',borderBottom:rowBdr,
+                              background:d.isToday?'rgba(14,165,233,.10)':(w.isCurrent?'rgba(14,165,233,.04)':'transparent'),
+                              borderLeft:di===0?'2px solid var(--border)':'1px dashed rgba(255,255,255,.08)'}
+                          },
+                            h('div',{style:{display:'flex',flexDirection:'column',gap:2}},deps.map(function(dep){return pizarraChip(boardKey,dep);}))
+                          );
+                        });
+                      })
+                    );
+                  })
+                )
               )
             )
-          )
-    )
+      )
+    ];
+  }
+
+  var pizarraView=h('div',{className:'gap10'},
+    renderPizarraBoard('capataces'),
+    renderPizarraBoard('ito')
   );
 
   var assignPanel=assignDep?h('div',{
@@ -3343,7 +3393,7 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,onItoPat
     onClick:function(e){if(e.target===e.currentTarget)setAssignDep(null);}
   },
     h('div',{className:'card',style:{maxWidth:340,width:'100%'}},
-      h('div',{className:'shdr'},h('div',{className:'shdr-title'},'Asignar D'+assignDep)),
+      h('div',{className:'shdr'},h('div',{className:'shdr-title'},'Asignar D'+assignDep+' — '+(PIZARRA_BOARDS[assignBoard]?PIZARRA_BOARDS[assignBoard].boardTitle:''))),
       h('div',{style:{fontSize:11,color:'var(--text3)',marginBottom:10}},
         Math.round((pg.deptos[assignDep]||{overall:0}).overall)+'% · '+ITO_BUCKET_META[bucketOfDep(assignDep)].label
       ),
@@ -3352,21 +3402,21 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,onItoPat
           onChange:function(e){setAssignDraft(Object.assign({},assignDraft,{resp:e.target.value}));}
         },
           h('option',{value:''},'Sin asignar'),
-          PIZARRA_RESP.map(function(r){return h('option',{key:r,value:r},r);})
+          (PIZARRA_BOARDS[assignBoard]?PIZARRA_BOARDS[assignBoard].resp:[]).map(function(r){return h('option',{key:r,value:r},r);})
         )
       ),
       h('div',{className:'field'},h('label',null,'Fecha de entrega'),
         h('input',{type:'date',className:'date-input',value:assignDraft.fecha,
-          onChange:function(e){setAssignDraft(Object.assign({},assignDraft,{fecha:e.target.value||hoy}));}
+          onChange:function(e){setAssignDraft(Object.assign({},assignDraft,{fecha:e.target.value||pizarraHoy}));}
         })
       ),
       h('div',{style:{display:'flex',gap:8,flexWrap:'wrap'}},
         h('button',{
-          onClick:function(){setPizarraAssign(assignDep,assignDraft.resp,assignDraft.fecha);setAssignDep(null);toast&&toast('✓ Asignación guardada');},
+          onClick:function(){setPizarraAssign(assignBoard,assignDep,assignDraft.resp,assignDraft.fecha);setAssignDep(null);toast&&toast('✓ Asignación guardada');},
           style:{background:'var(--blue)',border:'none',borderRadius:6,padding:'8px 14px',color:'#fff',cursor:'pointer',fontSize:12,fontWeight:700}
         },'Guardar'),
-        pizarraAssignOf(assignDep)?h('button',{
-          onClick:function(){clearPizarraAssign(assignDep);setAssignDep(null);toast&&toast('Asignación eliminada');},
+        pizarraAssignOf(assignBoard,assignDep)?h('button',{
+          onClick:function(){clearPizarraAssign(assignBoard,assignDep);setAssignDep(null);toast&&toast('Asignación eliminada');},
           style:{background:'transparent',border:'1px solid var(--red)',borderRadius:6,padding:'8px 14px',color:'var(--red)',cursor:'pointer',fontSize:12,fontWeight:700}
         },'Quitar'):null,
         h('button',{
@@ -17487,6 +17537,7 @@ function App({initialData}){
   const itoData=state.itoData||{};
   const itoActaCounter=state.itoActaCounter||0;
   const itoPizarra=state.itoPizarra||{};
+  const itoPizarraIto=state.itoPizarraIto||{};
   const onItoPatch=(patch)=>save(patch);
   const onMatSave=(md)=>save({matData:md});
   const muebTandas=state.muebTandas||[];
@@ -17540,7 +17591,7 @@ function App({initialData}){
   else if(effectiveTab==='sobretiempo')content=h(SobretiempoView,{asistData,stData,onStSave,auth,toast:showToast});
   else if(effectiveTab==='informe')content=h(InformeSemanalView,{ganttData,saves,onSave,onGanttSave,reportData,onReportSave,auth,progress});
   else if(effectiveTab==='planmaestro')content=h(PlanMaestroView,{});
-  else if(effectiveTab==='actasito')content=h(ActasItoView,{progress,saves,itoData,itoActaCounter,itoPizarra,onItoPatch,auth,toast:showToast});
+  else if(effectiveTab==='actasito')content=h(ActasItoView,{progress,saves,itoData,itoActaCounter,itoPizarra,itoPizarraIto,onItoPatch,auth,toast:showToast});
   else content=h(Dashboard,{progress,ganttData,saves,toast:showToast,execWeeks,execActiveWeek,onExecActiveWeekChange,onExecWeekSave});
   return h('div',{className:'app'},
     h('div',{className:'nav'},
