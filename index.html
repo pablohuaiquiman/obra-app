@@ -2738,38 +2738,15 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizar
     }
     return weeks;
   },[]);
-  // Programación real entregada por el usuario (semanas 10-14 y 17-21 ago, 31 ago-4 sep
-  // y 7-11 sep 2026) — se usa solo como punto de partida mientras no haya datos guardados
-  // en itoPizarra, igual que EXEC_SEED_BOARD en el tablero de Ejecución de Obra.
-  var ITO_PIZARRA_SEED=(function(){
-    var rows=[
-      ['Vale Elgueta','2026-08-10',['209','208','207','206','205']],
-      ['Marcelo Savando','2026-08-10',['214','215','216','217','218']],
-      ['Angelica Farias','2026-08-10',['408','411','415','409','405']],
-      ['Vale Elgueta','2026-08-17',['220','221','222','312','311']],
-      ['Marcelo Savando','2026-08-17',['219','314','315','316','317']],
-      ['Angelica Farias','2026-08-17',['420','419','418','417','416']],
-      ['Vale Elgueta','2026-08-31',['512','511','510','309']],
-      ['Marcelo Savando','2026-08-31',['508','507','506','505']],
-      ['Angelica Farias','2026-08-31',['421','422','412','413']],
-      ['Vale Elgueta','2026-09-07',['504','503','513','514']],
-      ['Marcelo Savando','2026-09-07',['515','516','517','518']],
-      ['Angelica Farias','2026-09-07',['519','520','521','522']]
-    ];
-    var map={};
-    rows.forEach(function(row){
-      var resp=row[0],fecha=row[1];
-      row[2].forEach(function(dep){map[dep]={resp:resp,fecha:fecha};});
-    });
-    return map;
-  })();
   // Dos tableros independientes, cada uno con su propio campo de persistencia
   // (mismo mecanismo onItoPatch que itoData) y su propia lista de responsables.
+  // Sin datos de arranque hardcodeados: lo único que se muestra es lo que hay
+  // guardado en la nube (itoPizarra/itoPizarraIto) — así lo que el equipo va
+  // ingresando en línea es siempre la única fuente de verdad y nunca se pisa.
   var PIZARRA_BOARDS={
     capataces:{
       field:'itoPizarra',
       data:itoPizarra,
-      seed:ITO_PIZARRA_SEED,
       resp:['Vale Elgueta','Marcelo Savando','Angelica Farias','Alejandro Rivera','Hans Villa','Paul Castro'],
       pisoTitle:'Deptos por piso — Capataces',
       boardTitle:'Plan semanal — Capataces',
@@ -2778,17 +2755,14 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizar
     ito:{
       field:'itoPizarraIto',
       data:itoPizarraIto,
-      seed:{},
-      resp:['Sebastián','Fabián'],
+      resp:['Sebastián','Fabián','Humberto'],
       pisoTitle:'Deptos por piso — Notificación ITO',
       boardTitle:'Plan semanal — Notificación ITO',
-      hint:'Programa qué día Sebastián o Fabián deben notificar al ITO cada depto (Fase→R0, R0→R1, R1 sin obs. / espera de RF).'
+      hint:'Programa qué día Sebastián, Fabián o Humberto deben notificar al ITO cada depto (Fase→R0, R0→R1, R1 sin obs. / espera de RF).'
     }
   };
   function pizarraDataOf(boardKey){
-    var cfg=PIZARRA_BOARDS[boardKey];
-    var d=cfg.data;
-    return(d&&Object.keys(d).length)?d:cfg.seed;
+    return PIZARRA_BOARDS[boardKey].data||{};
   }
   function pizarraAssignOf(boardKey,dep){var d=pizarraDataOf(boardKey);return(d&&d[dep])||null;}
   function setPizarraAssign(boardKey,dep,resp,fecha){
