@@ -17588,6 +17588,15 @@ function App({initialData}){
     window.addEventListener('fb-sync-state',onSyncState);
     return function(){window.removeEventListener('fb-sync-state',onSyncState);};
   },[]);
+  // Banner de error de sync: si el estado 'error' persiste más de 5s, se muestra un
+  // aviso fijo imposible de no ver — el punto rojo de 8px pasaba inadvertido en
+  // terreno y los datos quedaban sin subir sin que nadie lo notara.
+  const[syncBanner,setSyncBanner]=useState(false);
+  React.useEffect(function(){
+    if(syncSt!=='error'){setSyncBanner(false);return;}
+    var t=setTimeout(function(){setSyncBanner(true);},5000);
+    return function(){clearTimeout(t);};
+  },[syncSt]);
   const save=(patch)=>{
     // Un valor de patch puede ser una función (cur=>nuevoValor): así una actualización
     // que llega tarde (ej: subida a la nube en 2do plano que termina varios segundos
@@ -17871,6 +17880,19 @@ function App({initialData}){
           }
         })
       )
+    ),
+    syncBanner&&h('div',{style:{
+      background:'rgba(239,68,68,.14)',borderBottom:'1px solid var(--red)',
+      padding:'8px 14px',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'
+    }},
+      h('span',{style:{fontSize:12,fontWeight:800,color:'var(--red)'}},'⚠ Sin sincronización'),
+      h('span',{style:{fontSize:11,color:'var(--text2)'}},
+        (syncErr||'No se puede conectar con Firebase.')+' Tus cambios quedan guardados en este dispositivo y se subirán al reconectar.'),
+      h('button',{
+        onClick:function(){if(window.fbRetryNow)window.fbRetryNow();},
+        style:{background:'rgba(239,68,68,.18)',border:'1px solid rgba(239,68,68,.5)',
+          borderRadius:6,padding:'4px 10px',color:'var(--red)',fontSize:11,cursor:'pointer',fontWeight:700}
+      },'🔄 Reintentar')
     ),
     h('div',{className:'main'+(effectiveTab==='gantt'?' main-gantt':'')},content),
     toastMsg&&h('div',{className:'toast',style:{background:toastMsg.color||'var(--green2)'}},toastMsg.m),
