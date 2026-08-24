@@ -8185,7 +8185,7 @@ function LogisticaView({logData,onLogSave,bodegaData,onBodegaSave,auth,toast}){
         ),
         h('div',{style:{borderTop:'1px solid rgba(14,165,233,.1)',paddingTop:10}},
           h('div',{style:{fontSize:9,fontWeight:700,letterSpacing:'.08em',color:'var(--text3)',
-            marginBottom:8,textTransform:'uppercase'}},'GUÍAS DE DESPACHO'),
+            marginBottom:8,textTransform:'uppercase'}},'IMPORTAR MATERIALES'),
           h('input',{ref:importCsvOfiRef,type:'file',accept:'.csv,.txt',
             style:{display:'none'},onChange:function(e){
               handleImportCSV(e.target.files&&e.target.files[0],'ofi');e.target.value='';}}),
@@ -8315,7 +8315,7 @@ function LogisticaView({logData,onLogSave,bodegaData,onBodegaSave,auth,toast}){
         ),
         h('div',{style:{borderTop:'1px solid rgba(168,85,247,.1)',paddingTop:10}},
           h('div',{style:{fontSize:9,fontWeight:700,letterSpacing:'.08em',color:'var(--text3)',
-            marginBottom:8,textTransform:'uppercase'}},'GUÍAS DE RECEPCIÓN'),
+            marginBottom:8,textTransform:'uppercase'}},'IMPORTAR MATERIALES'),
           h('input',{ref:importCsvBodRef,type:'file',accept:'.csv,.txt',
             style:{display:'none'},onChange:function(e){
               handleImportCSV(e.target.files&&e.target.files[0],'bod');e.target.value='';}}),
