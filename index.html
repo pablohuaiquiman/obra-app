@@ -17869,11 +17869,14 @@ var _fbTimeout=setTimeout(function(){
   }
 },5000);
 // ── Arranque: carga en paralelo desde estructura granular + doc legacy ──
-// DOC legacy se consulta solo una vez para migrar datos si SAVES_COL está vacía.
+// DOC legacy solo sirve para la migración inicial (SAVES_COL vacía). En producción
+// SAVES_COL siempre tiene datos, así que se evita descargar ese doc pesado en cada
+// arranque de cada dispositivo — solo se pide si de verdad hiciera falta migrar.
+var _savesProm=SAVES_COL.get();
 Promise.all([
   OBRA_REF.get(),
-  SAVES_COL.get(),
-  DOC.get(),
+  _savesProm,
+  _savesProm.then(function(s){return s.empty?DOC.get():{exists:false};}),
   MASIV_COL.get(),
   VENT_COL.get()
 ]).then(function(results){
