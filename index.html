@@ -2738,6 +2738,22 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizar
     }
     return weeks;
   },[]);
+  // Dentro del tablero "capataces" hay dos equipos con roles distintos en el
+  // mismo ciclo de entrega: Avanzada deja el depto vestido (1 por día, L-V —
+  // 5/semana c/u) para que Terminaciones haga el detalle fino (5/semana c/u,
+  // uno por cada entrega diaria de avanzada). Este mapa solo clasifica nombres
+  // para agrupar filas y calcular avisos de capacidad — el dato guardado en
+  // Firestore (itoPizarra) sigue siendo {resp,fecha} plano, sin tocar.
+  var PIZARRA_TEAM_ORDER=['avanzada','terminaciones'];
+  var PIZARRA_TEAM_META={
+    avanzada:{label:'Avanzada',hint:'deja el depto vestido — 1 por día, L-V (5/semana c/u)'},
+    terminaciones:{label:'Terminaciones',hint:'detalle fino — 5 deptos/semana c/u, alimentados por Avanzada'}
+  };
+  var PIZARRA_TEAM_OF={
+    'Hans Villa':'avanzada','Paul Castro':'avanzada','Alejandro Rivera':'avanzada',
+    'Vale Elgueta':'terminaciones','Marcelo Savando':'terminaciones','Angelica Farias':'terminaciones'
+  };
+  function pizarraTeamOf(resp){return PIZARRA_TEAM_OF[resp]||null;}
   // Dos tableros independientes, cada uno con su propio campo de persistencia
   // (mismo mecanismo onItoPatch que itoData) y su propia lista de responsables.
   // Sin datos de arranque hardcodeados: lo único que se muestra es lo que hay
@@ -2747,10 +2763,10 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizar
     capataces:{
       field:'itoPizarra',
       data:itoPizarra,
-      resp:['Vale Elgueta','Marcelo Savando','Angelica Farias','Alejandro Rivera','Hans Villa','Paul Castro'],
-      pisoTitle:'Deptos por piso — Capataces',
-      boardTitle:'Plan semanal — Capataces',
-      hint:'Cada semana se divide en L·M·M·J·V — suelta un depto en el día exacto en que debe quedar listo, o pínchalo para elegir la fecha a mano.'
+      resp:['Hans Villa','Paul Castro','Alejandro Rivera','Vale Elgueta','Marcelo Savando','Angelica Farias'],
+      pisoTitle:'Deptos por piso — Avanzada + Terminaciones',
+      boardTitle:'Plan semanal — Avanzada → Terminaciones',
+      hint:'Avanzada (Hans·Paul·Alejandro): 1 depto vestido por día, L-V. Terminaciones (Vale·Marcelo·Angelica): 5 deptos/semana c/u, alimentados por Avanzada. Suelta un depto en el día exacto, o pínchalo para elegir la fecha a mano.'
     },
     ito:{
       field:'itoPizarraIto',
@@ -3274,6 +3290,36 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizar
 
   function allowDropPizarra(e){e.preventDefault();}
 
+  // Aviso visual (no bloqueo) de la regla de capacidad: Avanzada debe cubrir los
+  // 5 días de la semana (1 depto/día); Terminaciones debe sumar 5 deptos en la
+  // semana (los que Avanzada le va dejando listos). Se calcula en vivo a partir
+  // de itoPizarra — no se guarda nada nuevo en Firestore.
+  function pizarraWeekCapacity(boardKey,resp,week){
+    var data=pizarraDataOf(boardKey);
+    var team=pizarraTeamOf(resp);
+    var depsInWeek=Object.keys(data||{}).filter(function(dep){
+      var a=data[dep];
+      return a&&a.resp===resp&&week.days.some(function(d){return d.date===a.fecha;});
+    });
+    if(team==='avanzada'){
+      var daysCovered=week.days.filter(function(d){
+        return depsInWeek.some(function(dep){return data[dep].fecha===d.date;});
+      }).length;
+      return{value:daysCovered,goal:5,label:daysCovered+'/5'};
+    }
+    return{value:depsInWeek.length,goal:5,label:depsInWeek.length+'/5'};
+  }
+  function pizarraCapacityColor(cap,week){
+    if(cap.value>=cap.goal)return'var(--green)';
+    if(week.isPast||week.isCurrent)return cap.value>0?'var(--amber)':'var(--red)';
+    return'var(--text3)'; // semana futura: aún se está programando, no hay nada que avisar todavía
+  }
+  function pizarraTeamWeekCapacity(team,week){
+    var members=PIZARRA_BOARDS.capataces.resp.filter(function(r){return pizarraTeamOf(r)===team;});
+    var value=members.reduce(function(sum,r){return sum+pizarraWeekCapacity('capataces',r,week).value;},0);
+    return{value:value,goal:members.length*5,label:value+'/'+(members.length*5)};
+  }
+
   // Construye las 2 tarjetas (deptos sin asignar por piso + tablero semanal) de un
   // tablero de la Pizarra. La semana/día "de hoy" queda resaltado (isCurrent/isToday
   // ya vienen calculados en pizarraWeeks) para ubicarse rápido en el calendario.
@@ -3328,7 +3374,7 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizar
                   h('tr',null,
                     h('th',{rowSpan:2,style:{padding:'4px 8px',position:'sticky',left:0,background:'var(--bg2)',zIndex:2,color:'var(--text3)',fontSize:10,textAlign:'left',verticalAlign:'bottom'}},'RESPONSABLE'),
                     pizarraWeeks.map(function(w){
-                      return h('th',{key:w.key,colSpan:5,
+                      return h('th',{key:w.key,colSpan:boardKey==='capataces'?6:5,
                         'data-pizarra-current-week':w.isCurrent?'1':undefined,
                         style:{padding:'4px 8px',opacity:w.isPast?.55:1,
                         color:w.isCurrent?'var(--blue)':'var(--text3)',fontSize:10,textAlign:'center',whiteSpace:'nowrap',
@@ -3337,7 +3383,7 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizar
                   ),
                   h('tr',null,
                     pizarraWeeks.map(function(w){
-                      return w.days.map(function(d,di){
+                      var dayThs=w.days.map(function(d,di){
                         return h('th',{key:w.key+'_'+d.date,title:d.date.split('-').reverse().join('/'),style:{
                           padding:'2px 4px',opacity:d.isPast?.55:1,
                           color:d.isToday?'var(--blue)':'var(--text3)',fontSize:9,fontFamily:'var(--mono)',
@@ -3346,16 +3392,32 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizar
                           borderLeft:di===0?'2px solid var(--border)':'1px solid rgba(255,255,255,.06)'
                         }},d.initial);
                       });
+                      if(boardKey==='capataces'){
+                        dayThs=dayThs.concat([h('th',{key:w.key+'_cap',title:'Cobertura de la semana (avisa si falta, no bloquea)',style:{
+                          padding:'2px 4px',opacity:w.isPast?.55:1,color:'var(--text3)',fontSize:9,fontWeight:700,textAlign:'center',
+                          borderLeft:'1px dashed rgba(255,255,255,.15)'
+                        }},'Σ')]);
+                      }
+                      return dayThs;
                     })
                   )
                 ),
                 h('tbody',null,
-                  cfg.resp.map(function(resp,ri){
+                  Array.prototype.concat.apply([],cfg.resp.map(function(resp,ri){
+                    var team=boardKey==='capataces'?pizarraTeamOf(resp):null;
+                    var prevTeam=boardKey==='capataces'&&ri>0?pizarraTeamOf(cfg.resp[ri-1]):null;
                     var rowBdr=ri<cfg.resp.length-1?'2px solid var(--border)':'none';
-                    return h('tr',{key:resp},
-                      h('td',{style:{padding:'4px 8px',fontWeight:700,color:'var(--text)',position:'sticky',left:0,background:'var(--card)',fontSize:11,whiteSpace:'nowrap',borderBottom:rowBdr}},resp),
+                    var groupRow=(team&&team!==prevTeam)?h('tr',{key:'grp_'+team},
+                      h('td',{style:{padding:'6px 8px',position:'sticky',left:0,zIndex:1,background:'var(--bg2)',fontSize:10,fontWeight:800,letterSpacing:'.03em',color:'var(--text2)',textTransform:'uppercase',whiteSpace:'nowrap'}},PIZARRA_TEAM_META[team].label),
                       pizarraWeeks.map(function(w){
-                        return w.days.map(function(d,di){
+                        var tc=pizarraTeamWeekCapacity(team,w);
+                        return h('td',{key:w.key,colSpan:6,style:{padding:'6px 8px',background:'var(--bg2)',borderLeft:'2px solid var(--border)',textAlign:'center',fontSize:10,fontWeight:800,opacity:w.isPast?.7:1,color:pizarraCapacityColor(tc,w)}},tc.label);
+                      })
+                    ):null;
+                    var dataRow=h('tr',{key:resp},
+                      h('td',{style:{padding:'4px 8px',fontWeight:700,color:'var(--text)',position:'sticky',left:0,zIndex:1,background:'var(--card)',fontSize:11,whiteSpace:'nowrap',borderBottom:rowBdr}},resp),
+                      pizarraWeeks.map(function(w){
+                        var dayTds=w.days.map(function(d,di){
                           var data=pizarraDataOf(boardKey);
                           var deps=Object.keys(data||{}).filter(function(dep){
                             var a=data[dep];
@@ -3370,9 +3432,18 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizar
                             h('div',{style:{display:'flex',flexDirection:'column',gap:2}},deps.map(function(dep){return pizarraChip(boardKey,dep);}))
                           );
                         });
+                        if(boardKey==='capataces'){
+                          var cap=pizarraWeekCapacity(boardKey,resp,w);
+                          dayTds=dayTds.concat([h('td',{key:w.key+'_cap',title:'Cobertura de la semana: '+cap.label,style:{
+                            padding:3,minWidth:28,verticalAlign:'middle',textAlign:'center',borderBottom:rowBdr,opacity:w.isPast?.6:1,
+                            borderLeft:'1px dashed rgba(255,255,255,.12)'
+                          }},h('span',{style:{fontSize:9,fontWeight:800,color:pizarraCapacityColor(cap,w)}},cap.label))]);
+                        }
+                        return dayTds;
                       })
                     );
-                  })
+                    return[groupRow,dataRow].filter(Boolean);
+                  }))
                 )
               )
             )
@@ -3380,8 +3451,56 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizar
     ];
   }
 
+  // Foto del backlog completo de cada responsable (todas sus asignaciones vigentes
+  // en itoPizarra, sin filtrar por semana), agrupado por su estado ITO actual —
+  // digitaliza lo que antes se tipeaba a mano en el Excel de seguimiento.
+  function renderPizarraOwnershipPanel(){
+    var data=pizarraDataOf('capataces');
+    var buckets=['RF','R1','R0','FASE'];
+    function depsOf(resp,bucket){
+      return Object.keys(data||{}).filter(function(dep){
+        return data[dep].resp===resp&&bucketOfDep(dep)===bucket;
+      }).sort(function(a,b){return parseInt(a,10)-parseInt(b,10);});
+    }
+    return h('div',{className:'card'},
+      h('div',{className:'shdr'},h('div',{className:'shdr-title'},'Carga actual por responsable')),
+      h('div',{style:{fontSize:10,color:'var(--text3)',marginBottom:8}},
+        'Deptos ya asignados a cada responsable en el tablero de arriba (cualquier semana), agrupados por su estado ITO vigente.'),
+      h('div',{className:'gt-wrap'},
+        h('table',{style:{borderCollapse:'collapse',fontSize:11,width:'100%'}},
+          h('thead',null,h('tr',null,
+            h('th',{style:{textAlign:'left',padding:'4px 8px',color:'var(--text3)',fontSize:10}},'RESPONSABLE'),
+            buckets.map(function(b){return h('th',{key:b,style:{textAlign:'left',padding:'4px 8px',color:'var(--text3)',fontSize:10}},ITO_BUCKET_META[b].label);})
+          )),
+          h('tbody',null,
+            Array.prototype.concat.apply([],PIZARRA_BOARDS.capataces.resp.map(function(resp,ri){
+              var team=pizarraTeamOf(resp);
+              var prevTeam=ri>0?pizarraTeamOf(PIZARRA_BOARDS.capataces.resp[ri-1]):null;
+              var groupRow=(team&&team!==prevTeam)?h('tr',{key:'og_'+team},
+                h('td',{colSpan:1+buckets.length,style:{padding:'6px 8px',background:'var(--bg2)',fontSize:10,fontWeight:800,letterSpacing:'.03em',color:'var(--text2)',textTransform:'uppercase'}},PIZARRA_TEAM_META[team].label)
+              ):null;
+              var dataRow=h('tr',{key:resp},
+                h('td',{style:{padding:'4px 8px',fontWeight:700,whiteSpace:'nowrap'}},resp),
+                buckets.map(function(b){
+                  var deps=depsOf(resp,b);
+                  return h('td',{key:b,style:{padding:4,verticalAlign:'top'}},
+                    deps.length?h('div',{style:{display:'flex',flexWrap:'wrap',gap:3}},
+                      deps.map(function(dep){return h('span',{key:dep,style:{fontFamily:'var(--mono)',fontSize:10,fontWeight:700,color:ITO_BUCKET_META[b].color,background:'rgba(255,255,255,.06)',border:'1px solid '+ITO_BUCKET_META[b].color,borderRadius:5,padding:'2px 5px'}},dep);})
+                    ):h('span',{style:{fontSize:10,color:'var(--text3)',fontStyle:'italic'}},'—')
+                  );
+                })
+              );
+              return[groupRow,dataRow].filter(Boolean);
+            }))
+          )
+        )
+      )
+    );
+  }
+
   var pizarraView=h('div',{className:'gap10'},
     renderPizarraBoard('capataces'),
+    renderPizarraOwnershipPanel(),
     renderPizarraBoard('ito')
   );
 
