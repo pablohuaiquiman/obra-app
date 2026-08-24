@@ -17996,6 +17996,15 @@ function _fbRetry(e){
   _fbSaveTimer=setTimeout(_fbDoSave,3000);
 }
 function _fbDoSave(){
+  // Gate de arranque: hasta que la nube haya respondido (o se agote el plazo de
+  // seguridad), NO se sube nada — evita que un dispositivo que arrancó con
+  // localStorage viejo pise la nube con datos atrasados. Los pendientes se
+  // conservan y se reintenta en 2s.
+  if(!window._cloudReady){
+    clearTimeout(_fbSaveTimer);
+    _fbSaveTimer=setTimeout(_fbDoSave,2000);
+    return;
+  }
   var savesP=_fbPendSaves,metaP=_fbPendMeta;
   if(!savesP&&!metaP)return;
   _fbPendSaves=null;_fbPendMeta=null;
@@ -18148,6 +18157,14 @@ var _fbTimeout=setTimeout(function(){
   if(!window._fbReady){
     console.warn('Firebase timeout — cargando desde localStorage');
     window._fbReady=true;
+    // La app arranca con la copia local (posiblemente vieja): dejar constancia para
+    // que, cuando la nube por fin responda, sus datos se inyecten vía los eventos de
+    // merge en vez de ignorarse (useState no re-lee initialData en re-render).
+    window._bootFromLocal=true;
+    // Plazo de seguridad: si la nube nunca responde ni rechaza, liberar las subidas
+    // a los 30s para no bloquear el trabajo offline prolongado (comportamiento
+    // anterior: lo local se sube al reconectar).
+    setTimeout(function(){if(!window._cloudReady)window._cloudReady=true;},30000);
     var localData=null;
     try{var ls=localStorage.getItem('obra_v6');if(ls)localData=JSON.parse(ls);}catch(e){}
     try{
@@ -18256,13 +18273,25 @@ if(needsSeed||versionChanged){
   console.log('Cronograma actualizado a versión',SCHEDULE_VERSION);
 }
   window._fbReady=true;
+  window._cloudReady=true; // la nube respondió: se liberan las subidas
   clearTimeout(_fbTimeout);
-  try{
-    root.render(h(ErrorBoundary,null,h(App,{initialData})));
-  }catch(renderErr){
-    var el=document.getElementById('boot-error');
-    if(el){el.style.display='block';el.textContent='Render error: '+renderErr.message;}
-    console.error('Render error:',renderErr);
+  if(window._bootFromLocal){
+    // La app YA está montada con la copia local vieja (timeout de 5s). Un
+    // root.render con initialData fresco se ignoraría (useState solo lee
+    // initialData en el primer montaje) — en su lugar se inyectan los datos de
+    // la nube por los mismos eventos que usan los onSnapshot, cuyos handlers
+    // mergean protegiendo lo que el usuario haya tocado mientras tanto.
+    console.log('Nube respondió tarde — inyectando datos frescos vía eventos de merge');
+    window.dispatchEvent(new CustomEvent('fb-saves-update',{detail:cloudSaves}));
+    window.dispatchEvent(new CustomEvent('fb-meta-update',{detail:initialData}));
+  }else{
+    try{
+      root.render(h(ErrorBoundary,null,h(App,{initialData})));
+    }catch(renderErr){
+      var el=document.getElementById('boot-error');
+      if(el){el.style.display='block';el.textContent='Render error: '+renderErr.message;}
+      console.error('Render error:',renderErr);
+    }
   }
   var bm=document.getElementById('boot-msg');
   if(bm)bm.style.display='none';
@@ -18372,8 +18401,12 @@ if(needsSeed||versionChanged){
   console.warn('Firebase load error — usando localStorage:',e);
   window.setSyncState('error');
   window._fbReady=true;
+  // Sin nube (típicamente sin internet): comportamiento histórico — lo local se
+  // sube cuando vuelva la conexión.
+  window._cloudReady=true;
   var localData=null;
   try{var ls=localStorage.getItem('obra_v6');if(ls)localData=JSON.parse(ls);}catch(e){}
+  if(window._bootFromLocal)return; // la app ya montó desde local con el timeout de 5s
   try{
     root.render(h(ErrorBoundary,null,h(App,{initialData:localData||{}})));
   }catch(renderErr){
