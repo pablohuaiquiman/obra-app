@@ -7276,10 +7276,6 @@ function LogisticaView({logData,onLogSave,bodegaData,onBodegaSave,auth,toast}){
   var[fleteQtys,setFleteQtys]=useState({});
   var[fleteDraft,setFleteDraft]=useState({hora:'19:00',nota:''});
   // ── STOCK ──
-  var ofiCamRef=useRef(null);
-  var ofiFileRef=useRef(null);
-  var bodCamRef=useRef(null);
-  var bodFileRef=useRef(null);
   var[showStockOfi,setShowStockOfi]=useState(false);
   var[showStockBod,setShowStockBod]=useState(false);
   var[addStockOfiForm,setAddStockOfiForm]=useState(false);
@@ -7289,7 +7285,6 @@ function LogisticaView({logData,onLogSave,bodegaData,onBodegaSave,auth,toast}){
   var[editStockDraft,setEditStockDraft]=useState({name:'',qty:'',ud:'un'});
   var[showTransfer,setShowTransfer]=useState(false);
   var[transferQtys,setTransferQtys]=useState({});
-  var[guidesSec,setGuidesSec]=useState(null);
   var importCsvOfiRef=useRef(null);
   var importCsvBodRef=useRef(null);
   var[importModal,setImportModal]=useState(null); // {sec, items:[{name,qty,ud,sel}], error}
@@ -7393,35 +7388,9 @@ function LogisticaView({logData,onLogSave,bodegaData,onBodegaSave,auth,toast}){
     var s=Object.assign({},logData['__stock_'+sk]||{mats:[],guides:[]});
     saveStockSec(sk,Object.assign({},s,{mats:(s.mats||[]).filter(function(_,i){return i!==idx;})}));
   }
-  function compressImg(dataUrl,cb){
-    var img=new Image();
-    img.onload=function(){
-      var max=800,w=img.width,h2=img.height;
-      if(w>max||h2>max){var r=Math.min(max/w,max/h2);w=Math.round(w*r);h2=Math.round(h2*r);}
-      var cv=document.createElement('canvas');cv.width=w;cv.height=h2;
-      cv.getContext('2d').drawImage(img,0,0,w,h2);
-      cb(cv.toDataURL('image/jpeg',0.55));
-    };
-    img.src=dataUrl;
-  }
-  function handleGuideFile(sk,file){
-    if(!file)return;
-    var rd=new FileReader();
-    rd.onload=function(ev){
-      compressImg(ev.target.result,function(compressed){
-        var s=Object.assign({},logData['__stock_'+sk]||{mats:[],guides:[]});
-        var gs=(s.guides||[]).slice();
-        gs.push({ts:Date.now(),name:file.name,data:compressed});
-        saveStockSec(sk,Object.assign({},s,{guides:gs}));
-        toast&&toast('✓ Guía agregada');
-      });
-    };
-    rd.readAsDataURL(file);
-  }
-  function deleteStockGuide(sk,idx){
-    var s=Object.assign({},logData['__stock_'+sk]||{mats:[],guides:[]});
-    saveStockSec(sk,Object.assign({},s,{guides:(s.guides||[]).filter(function(_,i){return i!==idx;})}));
-  }
+  // Fotos de guías de despacho/recepción: función eliminada — inflaban el doc
+  // principal de Firestore (base64) y frenaban la sincronización de toda la app.
+  // El registro de materiales y el import CSV siguen intactos.
   function doTransfer(){
     var so=Object.assign({},logData['__stock_ofi']||{mats:[],guides:[]});
     var sb=Object.assign({},logData['__stock_bod']||{mats:[],guides:[]});
@@ -7885,15 +7854,6 @@ function LogisticaView({logData,onLogSave,bodegaData,onBodegaSave,auth,toast}){
         })
       )
     ),
-    // ── FILE INPUTS OCULTOS ───────────────────────────────────────────────
-    h('input',{ref:ofiCamRef,type:'file',accept:'image/*',capture:'environment',
-      style:{display:'none'},onChange:function(e){handleGuideFile('ofi',e.target.files&&e.target.files[0]);e.target.value=''}}),
-    h('input',{ref:ofiFileRef,type:'file',accept:'image/*,application/pdf',
-      style:{display:'none'},onChange:function(e){handleGuideFile('ofi',e.target.files&&e.target.files[0]);e.target.value=''}}),
-    h('input',{ref:bodCamRef,type:'file',accept:'image/*',capture:'environment',
-      style:{display:'none'},onChange:function(e){handleGuideFile('bod',e.target.files&&e.target.files[0]);e.target.value=''}}),
-    h('input',{ref:bodFileRef,type:'file',accept:'image/*,application/pdf',
-      style:{display:'none'},onChange:function(e){handleGuideFile('bod',e.target.files&&e.target.files[0]);e.target.value=''}}),
     // ── FLUJO ACOPIO NOCTURNO ────────────────────────────────────────────────
     h('div',{style:{background:'var(--card)',border:'1px solid rgba(6,182,212,.35)',borderRadius:14,marginTop:14,overflow:'hidden'}},
       // Header fijo
@@ -8125,8 +8085,7 @@ function LogisticaView({logData,onLogSave,bodegaData,onBodegaSave,auth,toast}){
           h('div',{style:{fontSize:13,fontWeight:800,color:'var(--text)',letterSpacing:'.06em'}},
             'STOCK OFICINA CENTRAL'),
           h('div',{style:{fontSize:11,color:'var(--text3)'}},
-            stockOfi.mats.length+' material'+(stockOfi.mats.length!==1?'es':'')+
-            (stockOfi.guides.length?' · '+stockOfi.guides.length+' guía'+(stockOfi.guides.length!==1?'s':''):''))
+            stockOfi.mats.length+' material'+(stockOfi.mats.length!==1?'es':''))
         ),
         h('span',{style:{color:'var(--blue)',fontSize:14,fontWeight:700}},showStockOfi?'▲':'▼')
       ),
@@ -8227,30 +8186,6 @@ function LogisticaView({logData,onLogSave,bodegaData,onBodegaSave,auth,toast}){
         h('div',{style:{borderTop:'1px solid rgba(14,165,233,.1)',paddingTop:10}},
           h('div',{style:{fontSize:9,fontWeight:700,letterSpacing:'.08em',color:'var(--text3)',
             marginBottom:8,textTransform:'uppercase'}},'GUÍAS DE DESPACHO'),
-          stockOfi.guides.length>0&&h('div',{style:{display:'flex',flexWrap:'wrap',gap:6,marginBottom:8}},
-            stockOfi.guides.map(function(g,gi){
-              return h('div',{key:gi,style:{position:'relative',width:64,height:64}},
-                h('img',{src:g.data,alt:'Guía',
-                  style:{width:64,height:64,objectFit:'cover',borderRadius:6,cursor:'pointer',
-                    border:'1px solid rgba(14,165,233,.3)'},
-                  onClick:function(){setGuidesSec({sec:'ofi',idx:gi});}}),
-                canEdit&&h('button',{onClick:function(){deleteStockGuide('ofi',gi);},
-                  style:{position:'absolute',top:-4,right:-4,width:16,height:16,borderRadius:'50%',
-                    background:'var(--red)',border:'none',color:'#fff',fontSize:9,cursor:'pointer',
-                    display:'flex',alignItems:'center',justifyContent:'center'}},'x')
-              );
-            })
-          ),
-          h('div',{style:{display:'flex',gap:6}},
-            h('button',{onClick:function(){ofiCamRef.current&&ofiCamRef.current.click();},
-              style:{flex:1,padding:'7px 0',borderRadius:7,border:'1px solid rgba(14,165,233,.3)',
-                background:'rgba(14,165,233,.07)',color:'var(--blue)',cursor:'pointer',
-                fontSize:11,fontWeight:600}},'📷 Fotografiar Guía'),
-            h('button',{onClick:function(){ofiFileRef.current&&ofiFileRef.current.click();},
-              style:{flex:1,padding:'7px 0',borderRadius:7,border:'1px solid rgba(14,165,233,.3)',
-                background:'rgba(14,165,233,.07)',color:'var(--blue)',cursor:'pointer',
-                fontSize:11,fontWeight:600}},'📁 Cargar Guía')
-          ),
           h('input',{ref:importCsvOfiRef,type:'file',accept:'.csv,.txt',
             style:{display:'none'},onChange:function(e){
               handleImportCSV(e.target.files&&e.target.files[0],'ofi');e.target.value='';}}),
@@ -8274,8 +8209,7 @@ function LogisticaView({logData,onLogSave,bodegaData,onBodegaSave,auth,toast}){
           h('div',{style:{fontSize:13,fontWeight:800,color:'var(--text)',letterSpacing:'.06em'}},
             'STOCK BODEGA'),
           h('div',{style:{fontSize:11,color:'var(--text3)'}},
-            stockBod.mats.length+' material'+(stockBod.mats.length!==1?'es':'')+
-            (stockBod.guides.length?' · '+stockBod.guides.length+' guía'+(stockBod.guides.length!==1?'s':''):''))
+            stockBod.mats.length+' material'+(stockBod.mats.length!==1?'es':''))
         ),
         h('span',{style:{color:'var(--purple)',fontSize:14,fontWeight:700}},showStockBod?'▲':'▼')
       ),
@@ -8382,30 +8316,6 @@ function LogisticaView({logData,onLogSave,bodegaData,onBodegaSave,auth,toast}){
         h('div',{style:{borderTop:'1px solid rgba(168,85,247,.1)',paddingTop:10}},
           h('div',{style:{fontSize:9,fontWeight:700,letterSpacing:'.08em',color:'var(--text3)',
             marginBottom:8,textTransform:'uppercase'}},'GUÍAS DE RECEPCIÓN'),
-          stockBod.guides.length>0&&h('div',{style:{display:'flex',flexWrap:'wrap',gap:6,marginBottom:8}},
-            stockBod.guides.map(function(g,gi){
-              return h('div',{key:gi,style:{position:'relative',width:64,height:64}},
-                h('img',{src:g.data,alt:'Guía',
-                  style:{width:64,height:64,objectFit:'cover',borderRadius:6,cursor:'pointer',
-                    border:'1px solid rgba(168,85,247,.3)'},
-                  onClick:function(){setGuidesSec({sec:'bod',idx:gi});}}),
-                canEdit&&h('button',{onClick:function(){deleteStockGuide('bod',gi);},
-                  style:{position:'absolute',top:-4,right:-4,width:16,height:16,borderRadius:'50%',
-                    background:'var(--red)',border:'none',color:'#fff',fontSize:9,cursor:'pointer',
-                    display:'flex',alignItems:'center',justifyContent:'center'}},'x')
-              );
-            })
-          ),
-          h('div',{style:{display:'flex',gap:6}},
-            h('button',{onClick:function(){bodCamRef.current&&bodCamRef.current.click();},
-              style:{flex:1,padding:'7px 0',borderRadius:7,border:'1px solid rgba(168,85,247,.3)',
-                background:'rgba(168,85,247,.07)',color:'var(--purple)',cursor:'pointer',
-                fontSize:11,fontWeight:600}},'📷 Fotografiar Guía'),
-            h('button',{onClick:function(){bodFileRef.current&&bodFileRef.current.click();},
-              style:{flex:1,padding:'7px 0',borderRadius:7,border:'1px solid rgba(168,85,247,.3)',
-                background:'rgba(168,85,247,.07)',color:'var(--purple)',cursor:'pointer',
-                fontSize:11,fontWeight:600}},'📁 Cargar Guía')
-          ),
           h('input',{ref:importCsvBodRef,type:'file',accept:'.csv,.txt',
             style:{display:'none'},onChange:function(e){
               handleImportCSV(e.target.files&&e.target.files[0],'bod');e.target.value='';}}),
@@ -8474,41 +8384,6 @@ function LogisticaView({logData,onLogSave,bodegaData,onBodegaSave,auth,toast}){
       )
     ),
     // ── MODAL VISOR DE GUÍAS ──────────────────────────────────────────────
-    guidesSec&&h('div',{style:{position:'fixed',inset:0,background:'rgba(0,0,0,.92)',
-      zIndex:1001,display:'flex',alignItems:'center',justifyContent:'center',
-      padding:'20px 12px'},
-      onClick:function(e){if(e.target===e.currentTarget)setGuidesSec(null);}},
-      (function(){
-        var gs=guidesSec.sec==='ofi'?stockOfi.guides:stockBod.guides;
-        var g=gs[guidesSec.idx];
-        if(!g)return null;
-        var total=gs.length;
-        return h('div',{style:{background:'var(--bg2)',borderRadius:12,overflow:'hidden',
-          maxWidth:520,width:'100%',border:'1px solid rgba(255,255,255,.12)'}},
-          h('div',{style:{padding:'10px 14px',display:'flex',alignItems:'center',gap:8,
-            borderBottom:'1px solid var(--border)'}},
-            h('span',{style:{fontSize:13,fontWeight:700,color:'var(--text)',flex:1}},
-              (guidesSec.sec==='ofi'?'Oficina Central':'Bodega')+
-              ' — Guía '+(guidesSec.idx+1)+' / '+total),
-            total>1&&h('div',{style:{display:'flex',gap:4}},
-              h('button',{onClick:function(){
-                setGuidesSec({sec:guidesSec.sec,idx:(guidesSec.idx-1+total)%total});
-              },style:{background:'var(--bg3)',border:'1px solid var(--border)',borderRadius:6,
-                padding:'3px 10px',color:'var(--text2)',cursor:'pointer',fontSize:13}},'←'),
-              h('button',{onClick:function(){
-                setGuidesSec({sec:guidesSec.sec,idx:(guidesSec.idx+1)%total});
-              },style:{background:'var(--bg3)',border:'1px solid var(--border)',borderRadius:6,
-                padding:'3px 10px',color:'var(--text2)',cursor:'pointer',fontSize:13}},'→')
-            ),
-            h('button',{onClick:function(){setGuidesSec(null);},
-              style:{background:'var(--bg3)',border:'1px solid var(--border)',borderRadius:6,
-                padding:'4px 10px',color:'var(--text2)',cursor:'pointer',fontSize:16}},'✕')
-          ),
-          h('img',{src:g.data,alt:'Guía',
-            style:{width:'100%',maxHeight:'70vh',objectFit:'contain',display:'block'}})
-        );
-      })()
-    ),
     // ── MODAL IMPORTAR ICONSTRUYE ─────────────────────────────────────────
     importModal&&h('div',{style:{position:'fixed',inset:0,background:'rgba(0,0,0,.82)',
       zIndex:1002,display:'flex',alignItems:'flex-start',justifyContent:'center',
@@ -10660,7 +10535,7 @@ function generarPDFSobreTiempo(rec,fecha){
   doc.save('sobretiempo_'+fecha.replace(/-/g,'')+'.pdf');
 }
 
-function generarPDFResumenSemanal(entries,conBoletas,semLabel){
+function generarPDFResumenSemanal(entries,_conBoletasEliminado,semLabel){
   var doc=new jspdf.jsPDF({orientation:'portrait',unit:'mm',format:'letter'});
   var pw=doc.internal.pageSize.getWidth(),margin=16,y=16;
   try{doc.addImage(_LOGO,'PNG',margin,y-5,28,8);}catch(e){}
@@ -10695,18 +10570,6 @@ function generarPDFResumenSemanal(entries,conBoletas,semLabel){
   doc.text('TOTAL: $'+totM.toLocaleString('es-CL'),c[0],y);
   doc.text('PAGADO: $'+totP.toLocaleString('es-CL'),c[0]+56,y);
   doc.text('POR COBRAR: $'+(totM-totP).toLocaleString('es-CL'),c[0]+112,y);
-  if(conBoletas){
-    entries.forEach(function(e){
-      if(!e.boleta)return;
-      doc.addPage();y=16;
-      doc.setFontSize(10);doc.setFont('helvetica','bold');
-      doc.text('BOLETA — '+(e.fecha?e.fecha.split('-').reverse().join('/'):''),margin,y);
-      if(e.boletaDesc){y+=5;doc.setFontSize(8);doc.setFont('helvetica','normal');doc.text(e.boletaDesc,margin,y);}
-      y+=6;
-      try{doc.addImage(e.boleta,'JPEG',margin,y,pw-margin*2,0);}
-      catch(e1){try{doc.addImage(e.boleta,'PNG',margin,y,pw-margin*2,0);}catch(e2){doc.text('[Imagen no disponible]',margin,y);}}
-    });
-  }
   doc.save('resumen_st_'+semLabel.replace(/[\s\/]/g,'-')+'.pdf');
 }
 function SobretiempoView({asistData,stData,onStSave,auth,toast}){
@@ -10732,16 +10595,12 @@ function SobretiempoView({asistData,stData,onStSave,auth,toast}){
   var montoTotal=totalConCol*monto;
   // ── Nuevos estados: historial, boleta, registros ──────────────────────
   var[vistaReg,setVistaReg]=useState(false);
-  var[boletaData,setBoletaData]=useState(null);   // keep for compat
-  var[boletaDesc,setBoletaDesc]=useState('');
-  var[boletasArr,setBoletasArr]=useState([]);      // múltiples boletas del día
+  // Fotos de boletas: función eliminada — las imágenes base64 sin comprimir
+  // inflaban el doc principal de Firestore y frenaban la sincronización de toda
+  // la app. Los registros (montos, fechas, pagos) siguen intactos.
   var[expandedId,setExpandedId]=useState(null);
-  var[conBoletas,setConBoletas]=useState(true);
   var[pagOtroNombre,setPagOtroNombre]=useState('');
   var[filtPeriod,setFiltPeriod]=useState('semana');
-  var[filtBoletaEdit,setFiltBoletaEdit]=useState(null);
-  var[boletaPagData,setBoletaPagData]=useState(null); // boleta adjunta al registrar pago
-  var[boletaPagDesc,setBoletaPagDesc]=useState('');
   // Historial almacenado dentro de stData._historial
   var historial=(stData._historial||[]).slice().sort(function(a,b){return(b.fecha||'').localeCompare(a.fecha||'');});
   // Agrupar por semana (lunes)
@@ -10761,9 +10620,7 @@ function SobretiempoView({asistData,stData,onStSave,auth,toast}){
     var totCC=jefatura.filter(function(w){return !w.sinColacion;}).length+bodega.filter(function(w){return !w.sinColacion;}).length+mantenimiento.filter(function(w){return !w.sinColacion;}).length;grupos.forEach(function(g){if(g.supervisor&&!g.supervisor.sinColacion)totCC++;(g.trabajadores||[]).forEach(function(t){if(!t.sinColacion)totCC++;});});
     var entry={id:Date.now().toString(),fecha:fecha,monto:monto,totalPersonas:totP,totalConColacion:totCC,
       montoTotal:totCC*monto,generadoPor:auth&&auth.name||'Usuario',pdfGeneradoAt:new Date().toISOString(),
-      // Combinar boleta única (legado) con array de boletas
-      boleta:null,boletaDesc:null,
-      boletas:(boletasArr.length>0?boletasArr:boletaData?[{data:boletaData,desc:boletaDesc||''}]:[]),
+      boleta:null,boletaDesc:null,boletas:[],
       pagado:false,pagadoPor:null,pagadoPorNombre:null,fechaPago:null,observacion:''};
     var hist=(stData._historial||[]).filter(function(h){return h.fecha!==fecha;});
     hist.push(entry);
@@ -10773,37 +10630,6 @@ function SobretiempoView({asistData,stData,onStSave,auth,toast}){
     var hist=(stData._historial||[]).map(function(h){return h.id===id?Object.assign({},h,patch):h;});
     onStSave(Object.assign({},stData,{_historial:hist}));
   }
-  // ── Múltiples boletas por registro ─────────────────────────────────────
-  // Compatibilidad: si el registro tiene 'boleta' antigua, la migra a array 'boletas'
-  function getBoletasArr(entry){
-    if(entry.boletas&&entry.boletas.length)return entry.boletas;
-    if(entry.boleta)return[{data:entry.boleta,desc:entry.boletaDesc||''}];
-    return[];
-  }
-  function addBoletaToHist(id,data,desc){
-    var hist=(stData._historial||[]).map(function(h){
-      if(h.id!==id)return h;
-      var arr=getBoletasArr(h).concat([{data:data,desc:desc||''}]);
-      return Object.assign({},h,{boletas:arr,boleta:null,boletaDesc:null});
-    });
-    onStSave(Object.assign({},stData,{_historial:hist}));
-  }
-  function removeBoletaFromHist(id,idx){
-    var hist=(stData._historial||[]).map(function(h){
-      if(h.id!==id)return h;
-      var arr=getBoletasArr(h).filter(function(_,i){return i!==idx;});
-      return Object.assign({},h,{boletas:arr,boleta:null,boletaDesc:null});
-    });
-    onStSave(Object.assign({},stData,{_historial:hist}));
-  }
-  function updateBoletaDesc(id,idx,desc){
-    var hist=(stData._historial||[]).map(function(h){
-      if(h.id!==id)return h;
-      var arr=getBoletasArr(h).map(function(b,i){return i===idx?Object.assign({},b,{desc:desc}):b;});
-      return Object.assign({},h,{boletas:arr,boleta:null,boletaDesc:null});
-    });
-    onStSave(Object.assign({},stData,{_historial:hist}));
-  }
   function semLabel(wk){
     var d=new Date(wk+'T12:00:00');var fin=new Date(d);fin.setDate(d.getDate()+5);
     var fmt=function(x){return x.toLocaleDateString('es-CL',{day:'2-digit',month:'2-digit'});};
@@ -10811,7 +10637,7 @@ function SobretiempoView({asistData,stData,onStSave,auth,toast}){
   }
 
   function doSave(){onStSave(Object.assign({},stData,{[fecha]:{fecha,monto,jefatura,bodega,mantenimiento,grupos,savedAt:new Date().toISOString()}}));toast&&toast('Guardado');}
-  function loadRec(){if(savedRec){setMonto(savedRec.monto||2000);setJefatura(savedRec.jefatura||[]);setBodega(savedRec.bodega||[]);setMantenimiento(savedRec.mantenimiento||[]);setGrupos(savedRec.grupos||[]);setBoletasArr([]);toast&&toast('Registro cargado');}}
+  function loadRec(){if(savedRec){setMonto(savedRec.monto||2000);setJefatura(savedRec.jefatura||[]);setBodega(savedRec.bodega||[]);setMantenimiento(savedRec.mantenimiento||[]);setGrupos(savedRec.grupos||[]);toast&&toast('Registro cargado');}}
   function loadHistEntry(entry){
     // Carga el registro completo desde stData[fecha] si existe, si no desde el historial
     var rec=stData[entry.fecha]||{};
@@ -10937,9 +10763,8 @@ function SobretiempoView({asistData,stData,onStSave,auth,toast}){
                 h('div',{style:{fontSize:10,color:wPend>0?'var(--red)':'var(--green)',fontWeight:700}},
                   wPend>0?'⚠ $'+wPend.toLocaleString('es-CL')+' pendiente':'✓ Cobro completo'),
                 h('div',{style:{display:'flex',gap:4,alignItems:'center'}},
-                  h(Switch,{on:conBoletas,onChange:setConBoletas,label:'Con boletas'}),
                   h('button',{
-                    onClick:function(){if(typeof jspdf==='undefined'){toast&&toast('jsPDF no disponible');return;}generarPDFResumenSemanal(wEntries,conBoletas,'Sem '+semLabel(wk));},
+                    onClick:function(){if(typeof jspdf==='undefined'){toast&&toast('jsPDF no disponible');return;}generarPDFResumenSemanal(wEntries,false,'Sem '+semLabel(wk));},
                     style:{padding:'4px 10px',borderRadius:7,border:'none',background:'var(--blue)',color:'#fff',fontSize:10,fontWeight:700,cursor:'pointer'}},'📥 PDF')
                 )
               ),
@@ -10951,13 +10776,11 @@ function SobretiempoView({asistData,stData,onStSave,auth,toast}){
                   var pagCol=e.pagado?'var(--green)':'var(--text3)';
                   return h('div',{key:e.id,style:{borderRadius:8,border:'1px solid '+(isExp?'var(--accent)':'var(--border)'),overflow:'hidden'}},
                     // Fila compacta
-                    h('div',{onClick:function(){setExpandedId(isExp?null:e.id);setPagOtroNombre(e.pagadoPorNombre||'');setBoletaPagData(null);setBoletaPagDesc('');},
+                    h('div',{onClick:function(){setExpandedId(isExp?null:e.id);setPagOtroNombre(e.pagadoPorNombre||'');},
                       style:{padding:'8px 10px',display:'flex',alignItems:'center',gap:8,cursor:'pointer',
                         background:isExp?'rgba(0,13,28,.7)':'transparent'}},
                       h('div',{style:{fontSize:11,fontWeight:700,color:'var(--text)',minWidth:70}},fd),
                       h('div',{style:{fontSize:10,color:'var(--text2)',flex:1}},e.totalPersonas+' pers. · $'+(e.montoTotal||0).toLocaleString('es-CL')),
-                      getBoletasArr(e).length>0&&h('span',{style:{fontSize:12,color:'var(--blue)'}},
-                        '📎 '+getBoletasArr(e).length),
                       h('div',{style:{fontSize:10,fontWeight:700,color:pagCol,flexShrink:0}},
                         e.pagado?(e.pagadoPor==='jefatura'?'Jefatura':e.pagadoPor==='otro'?e.pagadoPorNombre||'Otro':'Yo'):'⏳ Pendiente')
                     ),
@@ -10978,51 +10801,6 @@ function SobretiempoView({asistData,stData,onStSave,auth,toast}){
                         h('span',null,'·'),
                         h('span',null,'$'+(e.monto||1800).toLocaleString('es-CL')+' c/u')
                       ),
-                      // Boletas múltiples
-                      h('div',null,
-                        h('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:6}},
-                          h('div',{style:{fontSize:9,fontWeight:700,color:'var(--text3)',letterSpacing:.5,textTransform:'uppercase',flex:1}},
-                            'BOLETAS/COMPROBANTES ('+(getBoletasArr(e).length)+')'),
-                          // Botón agregar boleta
-                          h('label',{style:{display:'flex',alignItems:'center',gap:4,cursor:'pointer',
-                            padding:'3px 10px',borderRadius:6,border:'1px solid var(--blue)',
-                            background:'rgba(14,165,233,.1)',fontSize:10,fontWeight:600,color:'var(--blue)'}},
-                            h('span',null,'📷 Agregar'),
-                            h('input',{type:'file',accept:'image/*',multiple:true,style:{display:'none'},
-                              onChange:function(ev){
-                                var files=Array.from(ev.target.files);
-                                files.forEach(function(file){
-                                  var reader=new FileReader();
-                                  reader.onload=function(re){addBoletaToHist(e.id,re.target.result,file.name);};
-                                  reader.readAsDataURL(file);
-                                });
-                                ev.target.value='';
-                              }})
-                          )
-                        ),
-                        getBoletasArr(e).length===0
-                          ?h('div',{style:{fontSize:10,color:'var(--text3)',fontStyle:'italic'}},'Sin boletas adjuntas')
-                          :h('div',{style:{display:'flex',gap:8,flexWrap:'wrap'}},
-                              getBoletasArr(e).map(function(b,idx){
-                                return h('div',{key:idx,style:{background:'var(--bg3)',borderRadius:8,padding:'8px',
-                                  border:'1px solid var(--border)',display:'flex',flexDirection:'column',gap:4,width:130}},
-                                  h('img',{src:b.data,
-                                    style:{width:'100%',height:80,objectFit:'cover',borderRadius:5,border:'1px solid var(--border)',cursor:'pointer'},
-                                    onClick:function(){window.open(b.data,'_blank');},
-                                    title:'Clic para ampliar'}),
-                                  h('input',{value:b.desc||'',placeholder:'Descripción...',
-                                    onChange:function(ev){updateBoletaDesc(e.id,idx,ev.target.value);},
-                                    style:{width:'100%',background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:4,
-                                      padding:'3px 5px',color:'var(--text)',fontSize:9,outline:'none',
-                                      fontFamily:'var(--font)',boxSizing:'border-box'}}),
-                                  isAdmin&&h('button',{onClick:function(){removeBoletaFromHist(e.id,idx);},
-                                    style:{padding:'2px 0',borderRadius:4,border:'1px solid rgba(239,68,68,.3)',
-                                      background:'rgba(239,68,68,.1)',color:'var(--red)',cursor:'pointer',
-                                      fontSize:9,width:'100%'}},'✕ Eliminar')
-                                );
-                              })
-                            )
-                      ),
                       // Observación
                       h('div',null,
                         h('div',{style:{fontSize:9,fontWeight:700,color:'var(--text3)',letterSpacing:.5,marginBottom:4,textTransform:'uppercase'}},'Observación'),
@@ -11040,67 +10818,9 @@ function SobretiempoView({asistData,stData,onStSave,auth,toast}){
                               isAdmin&&h('button',{onClick:function(){updHist(e.id,{pagado:false,pagadoPor:null,pagadoPorNombre:null,fechaPago:null,boletaPago:null,boletaPagoDesc:''});},
                                 style:{fontSize:9,padding:'2px 6px',borderRadius:4,border:'1px solid var(--border)',
                                   background:'var(--bg2)',color:'var(--text3)',cursor:'pointer',marginLeft:'auto'}},'Deshacer')
-                            ),
-                            // Boleta del pago
-                            h('div',{style:{background:'var(--bg3)',borderRadius:8,padding:'8px 10px'}},
-                              h('div',{style:{fontSize:9,fontWeight:700,color:'var(--text3)',letterSpacing:.5,marginBottom:6,textTransform:'uppercase'}},'Boleta de pago'),
-                              e.boletaPago
-                                ?h('div',{style:{display:'flex',gap:8,alignItems:'center'}},
-                                    h('img',{src:e.boletaPago,style:{maxWidth:100,maxHeight:70,borderRadius:6,border:'1px solid var(--border)',cursor:'pointer'},
-                                      onClick:function(){window.open(e.boletaPago,'_blank');}}),
-                                    h('div',null,
-                                      h('div',{style:{fontSize:10,color:'var(--text2)',marginBottom:4}},e.boletaPagoDesc||'Sin descripción'),
-                                      isAdmin&&h('button',{onClick:function(){updHist(e.id,{boletaPago:null,boletaPagoDesc:''});},
-                                        style:{fontSize:9,padding:'2px 6px',borderRadius:4,border:'1px solid rgba(239,68,68,.3)',
-                                          background:'rgba(239,68,68,.1)',color:'var(--red)',cursor:'pointer'}},'Eliminar')
-                                    )
-                                  )
-                                :h('label',{style:{display:'flex',alignItems:'center',gap:6,cursor:'pointer',
-                                    padding:'6px 10px',borderRadius:6,border:'1px dashed rgba(34,197,94,.4)',
-                                    background:'transparent',width:'fit-content'}},
-                                    h('span',{style:{fontSize:14}},'📎'),
-                                    h('span',{style:{fontSize:11,color:'var(--green)',fontWeight:600}},'Adjuntar boleta de pago'),
-                                    h('input',{type:'file',accept:'image/*',style:{display:'none'},
-                                      onChange:function(ev){
-                                        var file=ev.target.files[0];if(!file)return;
-                                        var reader=new FileReader();
-                                        reader.onload=function(re){updHist(e.id,{boletaPago:re.target.result,boletaPagoDesc:file.name});};
-                                        reader.readAsDataURL(file);
-                                        toast&&toast('✓ Boleta de pago adjuntada');
-                                      }})
-                                  )
                             )
                           )
                         :h('div',{style:{display:'flex',flexDirection:'column',gap:8}},
-                            // Adjuntar boleta ANTES de registrar pago
-                            h('div',{style:{background:'var(--bg3)',borderRadius:8,padding:'8px 10px'}},
-                              h('div',{style:{fontSize:9,fontWeight:700,color:'var(--text3)',letterSpacing:.5,marginBottom:6,textTransform:'uppercase'}},'Adjuntar boleta de pago (opcional)'),
-                              boletaPagData
-                                ?h('div',{style:{display:'flex',gap:8,alignItems:'center'}},
-                                    h('img',{src:boletaPagData,style:{maxWidth:80,maxHeight:60,borderRadius:6,border:'1px solid var(--border)'}}),
-                                    h('div',{style:{flex:1}},
-                                      h('input',{value:boletaPagDesc,placeholder:'Descripción boleta...',
-                                        onChange:function(ev){setBoletaPagDesc(ev.target.value);},
-                                        style:{width:'100%',background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:6,
-                                          padding:'4px 7px',color:'var(--text)',fontSize:10,outline:'none',fontFamily:'var(--font)',boxSizing:'border-box'}}),
-                                      h('button',{onClick:function(){setBoletaPagData(null);setBoletaPagDesc('');},
-                                        style:{marginTop:4,fontSize:9,padding:'2px 6px',borderRadius:4,border:'1px solid rgba(239,68,68,.3)',
-                                          background:'rgba(239,68,68,.1)',color:'var(--red)',cursor:'pointer'}},'Quitar')
-                                    )
-                                  )
-                                :h('label',{style:{display:'flex',alignItems:'center',gap:6,cursor:'pointer',
-                                    padding:'6px 10px',borderRadius:6,border:'1px dashed rgba(14,165,233,.3)',background:'transparent'}},
-                                    h('span',{style:{fontSize:14}},'📷'),
-                                    h('span',{style:{fontSize:11,color:'var(--blue)'}},'Foto de boleta'),
-                                    h('input',{type:'file',accept:'image/*',style:{display:'none'},
-                                      onChange:function(ev){
-                                        var file=ev.target.files[0];if(!file)return;
-                                        var reader=new FileReader();
-                                        reader.onload=function(re){setBoletaPagData(re.target.result);setBoletaPagDesc(file.name);};
-                                        reader.readAsDataURL(file);
-                                      }})
-                                  )
-                            ),
                             // Botones de pago
                             h('div',{style:{fontSize:9,fontWeight:700,color:'var(--text3)',letterSpacing:.5,textTransform:'uppercase'}},'¿Quién pagó la caja chica?'),
                             h('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
@@ -11110,10 +10830,7 @@ function SobretiempoView({asistData,stData,onStSave,auth,toast}){
                                     if(opc!=='otro'||pagOtroNombre.trim()){
                                       updHist(e.id,{pagado:true,pagadoPor:opc,
                                         pagadoPorNombre:opc==='otro'?pagOtroNombre.trim():null,
-                                        fechaPago:new Date().toISOString().slice(0,10),
-                                        boletaPago:boletaPagData||null,
-                                        boletaPagoDesc:boletaPagDesc||''});
-                                      setBoletaPagData(null);setBoletaPagDesc('');
+                                        fechaPago:new Date().toISOString().slice(0,10)});
                                       toast&&toast('✓ Pago registrado');
                                     }
                                   },
@@ -11235,55 +10952,6 @@ function SobretiempoView({asistData,stData,onStSave,auth,toast}){
         );
       }),
       h('button',{onClick:addGrupo,style:{width:'100%',padding:'10px',borderRadius:10,border:'1px dashed rgba(14,165,233,.4)',background:'transparent',color:'var(--blue)',cursor:'pointer',fontSize:13,fontWeight:600}},'+ Agregar grupo de personal')
-    ),
-    // ── Boletas del día — múltiples ─────────────────────────────────────────
-    h('div',{style:{background:'var(--card)',border:'1px solid var(--border)',borderRadius:12,padding:12,marginTop:10}},
-      h('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:8}},
-        h('div',{style:{fontSize:10,color:'var(--text3)',fontWeight:700,letterSpacing:'.07em',flex:1}},
-          'BOLETAS / COMPROBANTES DEL DÍA ('+boletasArr.length+')'),
-        // Botón agregar — permite seleccionar varios archivos a la vez
-        h('label',{style:{display:'flex',alignItems:'center',gap:5,cursor:'pointer',
-          padding:'4px 10px',borderRadius:6,border:'1px solid var(--blue)',
-          background:'rgba(14,165,233,.1)',fontSize:10,fontWeight:600,color:'var(--blue)'}},
-          h('span',null,'📷 Agregar'),
-          h('input',{type:'file',accept:'image/*',multiple:true,style:{display:'none'},
-            onChange:function(ev){
-              var files=Array.from(ev.target.files);
-              files.forEach(function(file){
-                var reader=new FileReader();
-                reader.onload=function(re){
-                  setBoletasArr(function(prev){return prev.concat([{data:re.target.result,desc:file.name}]);});
-                };
-                reader.readAsDataURL(file);
-              });
-              ev.target.value='';
-            }})
-        )
-      ),
-      boletasArr.length===0
-        ?h('div',{style:{fontSize:10,color:'var(--text3)',fontStyle:'italic',textAlign:'center',padding:'8px'}},
-            'Sin boletas. Puedes agregar varias fotos a la vez.')
-        :h('div',{style:{display:'flex',gap:8,flexWrap:'wrap'}},
-            boletasArr.map(function(b,idx){
-              return h('div',{key:idx,style:{background:'var(--bg3)',borderRadius:8,padding:'8px',
-                border:'1px solid var(--border)',display:'flex',flexDirection:'column',gap:4,width:130}},
-                h('img',{src:b.data,style:{width:'100%',height:80,objectFit:'cover',borderRadius:5,cursor:'pointer'},
-                  onClick:function(){window.open(b.data,'_blank');},title:'Clic para ampliar'}),
-                h('input',{value:b.desc||'',placeholder:'Descripción...',
-                  onChange:function(ev){
-                    var desc=ev.target.value;
-                    setBoletasArr(function(prev){return prev.map(function(x,i){return i===idx?Object.assign({},x,{desc:desc}):x;});});
-                  },
-                  style:{width:'100%',background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:4,
-                    padding:'3px 5px',color:'var(--text)',fontSize:9,outline:'none',
-                    fontFamily:'var(--font)',boxSizing:'border-box'}}),
-                h('button',{onClick:function(){setBoletasArr(function(prev){return prev.filter(function(_,i){return i!==idx;});});},
-                  style:{padding:'2px 0',borderRadius:4,border:'1px solid rgba(239,68,68,.3)',
-                    background:'rgba(239,68,68,.1)',color:'var(--red)',cursor:'pointer',
-                    fontSize:9,width:'100%'}},'✕ Eliminar')
-              );
-            })
-          )
     ),
     h('div',{style:{marginTop:12}},
       h('button',{onClick:function(){
