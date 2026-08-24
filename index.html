@@ -17725,10 +17725,13 @@ function _fbDoSave(){
   }
 }
 window.fbSave=function(data,patch){
-  try{localStorage.setItem('obra_v6',JSON.stringify(data));}catch(e){}
+  // Nota: save() ya persistió el estado completo en localStorage (misma clave
+  // 'obra_v6') justo antes de llamar aquí — repetir el JSON.stringify de toda la
+  // obra en cada tecleo costaba cientos de ms en celulares, así que no se duplica.
   // patch = solo lo modificado en esta llamada; sin patch (llamada legacy) se toma el
   // estado completo — sigue funcionando, solo que sin el ahorro granular.
   var p=patch||data;
+  if(!patch){try{localStorage.setItem('obra_v6',JSON.stringify(data));}catch(e){}}
   if(p.saves&&Object.keys(p.saves).length){
     _fbPendSaves=_fbPendSaves||{};
     Object.keys(p.saves).forEach(function(dep){_fbPendSaves[dep]=p.saves[dep];});
@@ -17739,7 +17742,9 @@ window.fbSave=function(data,patch){
     _fbPendMeta[k]=p[k];
   });
   clearTimeout(_fbSaveTimer);
-  _fbSaveTimer=setTimeout(_fbDoSave,800);
+  // 250ms: suficiente para agrupar un tecleo rápido, pero el cambio llega al otro
+  // dispositivo ~medio segundo antes que con los 800ms históricos.
+  _fbSaveTimer=setTimeout(_fbDoSave,250);
 };
 // Reintento manual inmediato (botón "Reintentar ahora" del indicador de sync).
 // Devuelve true si había algo pendiente de subir.
@@ -17994,13 +17999,18 @@ if(needsSeed||versionChanged){
   var _lastSnapTime=Date.now();
   function applyRemoteSaves(newSaves){
     _lastSnapTime=Date.now();
-    try{
-      var cur={};var ls=localStorage.getItem('obra_v6');
-      if(ls)cur=JSON.parse(ls);
-      cur.saves=Object.assign({},cur.saves||{},newSaves);
-      localStorage.setItem('obra_v6',JSON.stringify(cur));
-    }catch(e){}
+    // Primero la pantalla (el usuario ve el cambio al instante); el respaldo en
+    // localStorage — que serializa toda la obra y puede tomar cientos de ms en un
+    // celular — se hace después, sin bloquear la actualización visual.
     window.dispatchEvent(new CustomEvent('fb-saves-update',{detail:newSaves}));
+    setTimeout(function(){
+      try{
+        var cur={};var ls=localStorage.getItem('obra_v6');
+        if(ls)cur=JSON.parse(ls);
+        cur.saves=Object.assign({},cur.saves||{},newSaves);
+        localStorage.setItem('obra_v6',JSON.stringify(cur));
+      }catch(e){}
+    },0);
   }
   SAVES_COL.onSnapshot(function(snap){
     if(!window._fbReady)return;
