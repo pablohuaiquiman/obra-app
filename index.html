@@ -17601,11 +17601,20 @@ function App({initialData}){
       });
       const ns={...cur,...resolved};
       try{localStorage.setItem(SK,JSON.stringify(ns));}catch(e){}
+      // Detectar qué deptos cambiaron DE VERDAD (por identidad de referencia: los
+      // onSave siempre construyen un objeto nuevo para el depto tocado y reusan las
+      // referencias de los demás). Así a Firestore viaja solo lo modificado en vez
+      // de los ~102 deptos completos en cada guardado.
+      var changedSaves=null;
       if(resolved.saves){
+        changedSaves={};
+        Object.keys(resolved.saves).forEach(function(dep){
+          if(!cur.saves||cur.saves[dep]!==resolved.saves[dep])changedSaves[dep]=resolved.saves[dep];
+        });
         // Marcar deptos modificados como "sucios" por 6s para que onSnapshot no los pise
         window._optimisticUntil=Date.now()+5000;
         window._localDirty=window._localDirty||{};
-        Object.keys(resolved.saves).forEach(function(dep){
+        Object.keys(changedSaves).forEach(function(dep){
           window._localDirty[dep]=true;
           setTimeout(function(){if(window._localDirty)delete window._localDirty[dep];},6000);
         });
@@ -17619,7 +17628,11 @@ function App({initialData}){
         window._metaDirty[k]=true;
         setTimeout(function(){if(window._metaDirty)delete window._metaDirty[k];},6000);
       });
-      if(window.fbSave)window.fbSave(ns);
+      if(window.fbSave){
+        var granular=Object.assign({},resolved);
+        if(changedSaves)granular.saves=changedSaves;
+        window.fbSave(ns,granular);
+      }
       return ns;
     });
   };
@@ -17630,7 +17643,14 @@ function App({initialData}){
   // useMemo DEBE ir antes del early return para no violar las Reglas de Hooks
   const progress=React.useMemo(function(){return calculateAllProgress(saves);},[saves]);
   if(!auth)return h(Login,{onLogin:(a)=>save({auth:a})});
-  const setTab=(t)=>save({tab:t});
+  // La pestaña activa es un dato puramente local de cada dispositivo: se guarda en
+  // localStorage para sobrevivir recargas, pero NUNCA viaja a Firestore — antes cada
+  // clic de pestaña de cualquier usuario disparaba una subida completa a la nube.
+  const setTab=(t)=>ss(function(cur){
+    var ns={...cur,tab:t};
+    try{localStorage.setItem(SK,JSON.stringify(ns));}catch(e){}
+    return ns;
+  });
   const onSave=(dep,sv)=>save({saves:{...saves,[dep]:sv}});
   const onGanttSave=(gd)=>save({ganttData:gd});
   const onWeekSave=(wk,wd)=>save({weekData:{...weekData,[wk]:wd}});
@@ -17737,7 +17757,7 @@ function App({initialData}){
           h('button',{
             onClick:function(){
               setShowSyncErr(false);
-              if(window._fbPendingData&&window.fbSave)window.fbSave(window._fbPendingData);
+              if(window.fbRetryNow&&window.fbRetryNow()){/* había pendientes: reintentando */}
               else SAVES_COL.get().then(function(snap){
                 var s={};snap.forEach(function(d){s[d.id]=d.data();});
                 window.dispatchEvent(new CustomEvent('fb-saves-update',{detail:s}));
@@ -17944,47 +17964,92 @@ window.setSyncState=function(st,errMsg){
   window.dispatchEvent(new CustomEvent('fb-sync-state',{detail:{st:st,err:window._syncError}}));
 };
 
-// ── Save to Firestore: escritura granular por depto ──
-// Cada departamento se escribe en su propio documento (obras/victoria/saves/{depId}).
-// El resto del estado (gantt, weekData, etc.) va al doc principal obras/victoria.
-// Patrón "último dato gana": elimina el race condition del flag _fbSaving anterior.
+// ── Save to Firestore: escritura granular y desacoplada ──
+// Cada departamento se escribe en su propio documento (obras/victoria/saves/{depId});
+// el resto del estado va al doc principal obras/victoria. Se acumulan pendientes
+// GRANULARES (solo los deptos y keys de meta realmente modificados) y se suben en DOS
+// commits independientes: así un % de partida (chico) nunca depende de que el doc
+// principal (grande) suba bien — antes viajaban amarrados en un solo batch atómico y
+// un fallo del doc grande botaba también el cambio chico.
+// Patrón "último dato gana": en fallo, los pendientes se RE-MERGEAN (lo nuevo pisa lo
+// fallido) en vez de restaurar un snapshot completo.
 var _fbSaveTimer=null;
-var _fbPendingData=null;
-function _fbDoSave(){
-  var d=_fbPendingData;
-  if(!d)return;
-  _fbPendingData=null;
-  window.setSyncState('uploading');
-  // Separar saves del resto del estado
-  var saves=d.saves||{};
-  var meta={};
-  Object.keys(d).forEach(function(k){if(k!=='saves'&&k!=='auth')meta[k]=d[k];});
-  // Batch: un write por depto modificado + doc principal
-  var batch=db.batch();
-  Object.keys(saves).forEach(function(dep){
-    batch.set(SAVES_COL.doc(dep),saves[dep],{merge:true});
-  });
-  batch.set(OBRA_REF,meta,{merge:true});
-  batch.commit().then(function(){
+var _fbPendSaves=null; // {dep: objSave} — solo deptos modificados aún no confirmados
+var _fbPendMeta=null;  // {key: valor} — solo keys de meta modificadas aún no confirmadas
+var _fbSavesErr=false,_fbMetaErr=false;
+function _fbMarkSynced(){
+  if(_fbSavesErr||_fbMetaErr)return; // hay una rama caída: el catch ya dejó 'error'
+  if(!_fbPendSaves&&!_fbPendMeta){
     window._fbLastSave=Date.now();
     window.setSyncState('synced');
-  }).catch(function(e){
-    var code=e&&e.code?e.code:'desconocido';
-    var msg=code==='permission-denied'?'Reglas Firestore vencidas — ir a Firebase Console':
-            code==='unavailable'?'Firebase no disponible — reintentando...':
-            code==='network-request-failed'?'Sin internet':
-            'Error Firebase: '+code;
-    console.warn('Firebase save error:',e);
-    window.setSyncState('error',msg);
-    _fbPendingData=d;
-    _fbSaveTimer=setTimeout(_fbDoSave,3000);
-  });
+  }
 }
-window.fbSave=function(data){
+function _fbRetry(e){
+  var code=e&&e.code?e.code:'desconocido';
+  var msg=code==='permission-denied'?'Reglas Firestore vencidas — ir a Firebase Console':
+          code==='unavailable'?'Firebase no disponible — reintentando...':
+          code==='network-request-failed'?'Sin internet':
+          'Error Firebase: '+code;
+  console.warn('Firebase save error:',e);
+  window.setSyncState('error',msg);
+  clearTimeout(_fbSaveTimer);
+  _fbSaveTimer=setTimeout(_fbDoSave,3000);
+}
+function _fbDoSave(){
+  var savesP=_fbPendSaves,metaP=_fbPendMeta;
+  if(!savesP&&!metaP)return;
+  _fbPendSaves=null;_fbPendMeta=null;
+  window.setSyncState('uploading');
+  if(savesP){
+    var batch=db.batch();
+    Object.keys(savesP).forEach(function(dep){
+      batch.set(SAVES_COL.doc(dep),savesP[dep],{merge:true});
+    });
+    batch.commit().then(function(){
+      _fbSavesErr=false;
+      _fbMarkSynced();
+    }).catch(function(e){
+      _fbSavesErr=true;
+      _fbPendSaves=Object.assign({},savesP,_fbPendSaves||{});
+      _fbRetry(e);
+    });
+  }
+  if(metaP){
+    OBRA_REF.set(metaP,{merge:true}).then(function(){
+      _fbMetaErr=false;
+      _fbMarkSynced();
+    }).catch(function(e){
+      _fbMetaErr=true;
+      _fbPendMeta=Object.assign({},metaP,_fbPendMeta||{});
+      _fbRetry(e);
+    });
+  }
+}
+window.fbSave=function(data,patch){
   try{localStorage.setItem('obra_v6',JSON.stringify(data));}catch(e){}
-  _fbPendingData=data;
+  // patch = solo lo modificado en esta llamada; sin patch (llamada legacy) se toma el
+  // estado completo — sigue funcionando, solo que sin el ahorro granular.
+  var p=patch||data;
+  if(p.saves&&Object.keys(p.saves).length){
+    _fbPendSaves=_fbPendSaves||{};
+    Object.keys(p.saves).forEach(function(dep){_fbPendSaves[dep]=p.saves[dep];});
+  }
+  Object.keys(p).forEach(function(k){
+    if(k==='saves'||k==='auth'||k==='tab')return;
+    _fbPendMeta=_fbPendMeta||{};
+    _fbPendMeta[k]=p[k];
+  });
   clearTimeout(_fbSaveTimer);
   _fbSaveTimer=setTimeout(_fbDoSave,800);
+};
+// Reintento manual inmediato (botón "Reintentar ahora" del indicador de sync).
+// Devuelve true si había algo pendiente de subir.
+window.fbRetryNow=function(){
+  if(!_fbPendSaves&&!_fbPendMeta)return false;
+  clearTimeout(_fbSaveTimer);
+  _fbSaveTimer=null;
+  _fbDoSave();
+  return true;
 };
 
 // ── Save granular de Masividad: un documento Firestore por depto (items + revisiones) ──
