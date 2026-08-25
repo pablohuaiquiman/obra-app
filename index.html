@@ -708,11 +708,13 @@ function calculateAllProgress(saves){
 // mostrar un estado peor que el que el supervisor ya marcó.
 var F4_MILESTONE_ID={RF:'2',R1:'1',R0:'10'};
 var BUCKET_RANK={FASE:0,R0:1,R1:2,RF:3};
-function f4MilestoneDone(dep,pid,saves){
+function f4MilestoneVal(dep,pid,saves){
   var lk=_D.lf4||{};
   var sv=saves&&saves[dep];
-  var v=(sv&&sv.f4&&sv.f4[pid]!=null)?sv.f4[pid]:(lk[dep]?(lk[dep][pid]||0):0);
-  return v>=100;
+  return(sv&&sv.f4&&sv.f4[pid]!=null)?sv.f4[pid]:(lk[dep]?(lk[dep][pid]||0):0);
+}
+function f4MilestoneDone(dep,pid,saves){
+  return f4MilestoneVal(dep,pid,saves)>=100;
 }
 function bucketOfDepto(dep,saves,pg){
   var ov=(pg.deptos[dep]||{overall:0}).overall;
@@ -2642,7 +2644,7 @@ var ITO_BUCKET_META={
 function itoBucketColor(dep,saves,pg){return ITO_BUCKET_META[bucketOfDepto(dep,saves,pg)].color;}
 function itoBucketLabel(dep,saves,pg){return ITO_BUCKET_META[bucketOfDepto(dep,saves,pg)].label;}
 function itoBucketPill(dep,saves,pg){return ITO_BUCKET_META[bucketOfDepto(dep,saves,pg)].pill;}
-function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizarraIto,onItoPatch,auth,toast}){
+function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizarraIto,itoPizarraFlags,onItoPatch,auth,toast}){
   var pg=progress||calculateAllProgress(saves);
   var isAdmin=auth&&auth.role==='Admin';
   var[view,setView]=useState('detalle'); // 'detalle' | 'resumen' | 'pizarra'
@@ -2741,9 +2743,11 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizar
   // Dentro del tablero "capataces" hay dos equipos con roles distintos en el
   // mismo ciclo de entrega: Avanzada deja el depto vestido (1 por día, L-V —
   // 5/semana c/u) para que Terminaciones haga el detalle fino (5/semana c/u,
-  // uno por cada entrega diaria de avanzada). Este mapa solo clasifica nombres
-  // para agrupar filas y calcular avisos de capacidad — el dato guardado en
-  // Firestore (itoPizarra) sigue siendo {resp,fecha} plano, sin tocar.
+  // uno por cada entrega diaria de avanzada). Este mapa clasifica nombres para
+  // agrupar filas, calcular avisos de capacidad y permitir la DOBLE asignación:
+  // en itoPizarra un depto puede tener un responsable de Avanzada Y uno de
+  // Terminaciones a la vez ({resp,fecha} legacy + {resp2,fecha2} opcional, un
+  // slot por equipo como máximo) — los datos viejos {resp,fecha} siguen válidos.
   var PIZARRA_TEAM_ORDER=['avanzada','terminaciones'];
   var PIZARRA_TEAM_META={
     avanzada:{label:'Avanzada',hint:'deja el depto vestido — 1 por día, L-V (5/semana c/u)'},
@@ -2766,7 +2770,7 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizar
       resp:['Hans Villa','Paul Castro','Alejandro Rivera','Vale Elgueta','Marcelo Savando','Angelica Farias'],
       pisoTitle:'Deptos por piso — Avanzada + Terminaciones',
       boardTitle:'Plan semanal — Avanzada → Terminaciones',
-      hint:'Avanzada (Hans·Paul·Alejandro): 1 depto vestido por día, L-V. Terminaciones (Vale·Marcelo·Angelica): 5 deptos/semana c/u, alimentados por Avanzada. Suelta un depto en el día exacto, o pínchalo para elegir la fecha a mano.'
+      hint:'Avanzada (Hans·Paul·Alejandro): 1 depto vestido por día, L-V. Terminaciones (Vale·Marcelo·Angelica): 5 deptos/semana c/u, alimentados por Avanzada. Suelta un depto en el día exacto, o pínchalo para elegir la fecha a mano. Un mismo depto puede estar asignado a Avanzada Y a Terminaciones a la vez (un slot por equipo): al soltarlo sobre un responsable solo se reemplaza el slot de su equipo, el del otro se conserva.'
     },
     ito:{
       field:'itoPizarraIto',
@@ -2781,35 +2785,135 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizar
     return PIZARRA_BOARDS[boardKey].data||{};
   }
   function pizarraAssignOf(boardKey,dep){var d=pizarraDataOf(boardKey);return(d&&d[dep])||null;}
-  function setPizarraAssign(boardKey,dep,resp,fecha){
+  // Lista normalizada de slots de un depto: [{resp,fecha}] (0, 1 o 2 entradas).
+  // El slot 2 (resp2/fecha2) solo existe en el tablero de capataces cuando el
+  // depto está asignado a Avanzada y Terminaciones a la vez.
+  function pizarraAssignsOf(boardKey,dep){
+    var a=pizarraAssignOf(boardKey,dep);
+    if(!a)return[];
+    var out=[];
+    if(a.resp)out.push({resp:a.resp,fecha:a.fecha||pizarraHoy});
+    if(a.resp2)out.push({resp:a.resp2,fecha:a.fecha2||a.fecha||pizarraHoy});
+    return out;
+  }
+  // ¿El depto ya tiene asignado un responsable de este equipo (avanzada /
+  // terminaciones) en el tablero de capataces? Alimenta los paneles separados
+  // de pendientes por equipo.
+  function pizarraTeamHasSlot(dep,team){
+    return pizarraAssignsOf('capataces',dep).some(function(s){return pizarraTeamOf(s.resp)===team;});
+  }
+  // Guarda la lista completa de slots de un depto (0=quitar, 1=normal, 2=doble
+  // asignación Avanzada+Terminaciones). Mantiene el formato legacy {resp,fecha}
+  // como slot principal para no romper datos ya guardados en otros dispositivos.
+  function setPizarraAssignSlots(boardKey,dep,slots){
     var next=Object.assign({},pizarraDataOf(boardKey));
-    if(!resp){delete next[dep];}
-    else next[dep]={resp:resp,fecha:fecha||pizarraHoy};
+    var clean=(slots||[]).filter(function(s){return s&&s.resp;});
+    if(!clean.length){delete next[dep];}
+    else{
+      var rec={resp:clean[0].resp,fecha:clean[0].fecha||pizarraHoy};
+      if(clean[1]){rec.resp2=clean[1].resp;rec.fecha2=clean[1].fecha||pizarraHoy;}
+      next[dep]=rec;
+    }
     var patch={};patch[PIZARRA_BOARDS[boardKey].field]=next;
     onItoPatch(patch);
   }
-  function clearPizarraAssign(boardKey,dep){setPizarraAssign(boardKey,dep,'',null);}
+  // Asignación por arrastre / guardado simple. En el tablero de capataces cada
+  // equipo (Avanzada / Terminaciones) tiene su propio slot: soltar el chip sobre
+  // un responsable reemplaza solo el slot de SU equipo y conserva el del otro —
+  // así un depto puede vivir la misma semana en la fila de Avanzada y en la de
+  // Terminaciones sin pisarse.
+  function setPizarraAssign(boardKey,dep,resp,fecha){
+    if(!resp){setPizarraAssignSlots(boardKey,dep,[]);return;}
+    if(boardKey!=='capataces'){setPizarraAssignSlots(boardKey,dep,[{resp:resp,fecha:fecha||pizarraHoy}]);return;}
+    var team=pizarraTeamOf(resp);
+    var slots=pizarraAssignsOf(boardKey,dep).filter(function(s){return pizarraTeamOf(s.resp)!==team;});
+    slots.push({resp:resp,fecha:fecha||pizarraHoy});
+    setPizarraAssignSlots(boardKey,dep,slots);
+  }
+  function clearPizarraAssign(boardKey,dep){setPizarraAssignSlots(boardKey,dep,[]);}
+  // ¿Este registro (con sus 2 posibles slots) incluye a este responsable? / ¿con qué fecha?
+  function pizarraRespMatches(a,resp){return!!a&&(a.resp===resp||a.resp2===resp);}
+  function pizarraFechaFor(a,resp){return a.resp2===resp?(a.fecha2||a.fecha):a.fecha;}
+  // ── Restricciones / alertas por depto (itoPizarraFlags: {dep:{texto,fecha}}) ──
+  // Marca manual compartida por ambos tableros: deptos que son oficina, se
+  // mojaron con la lluvia, etc. Se edita desde el panel de asignación del chip.
+  function pizarraFlagOf(dep){return(itoPizarraFlags&&itoPizarraFlags[dep])||null;}
+  function setPizarraFlag(dep,texto){
+    var t=(texto||'').trim();
+    var cur=pizarraFlagOf(dep);
+    if(!t&&!cur)return; // nada que guardar ni borrar — no disparar un write vacío
+    if(cur&&t===cur.texto)return; // sin cambios
+    var next=Object.assign({},itoPizarraFlags||{});
+    if(!t)delete next[dep];
+    else next[dep]={texto:t,fecha:pizarraHoy};
+    onItoPatch({itoPizarraFlags:next});
+  }
+  // ── Estado de notificación R0/R1 del depto — mismo motor que la vista general:
+  // las partidas-hito de F4 "Entrega R0" (id 10) y "Entrega R1" (id 1). Criterio
+  // acordado para leer el % de esas partidas:  50% = revisión NOTIFICADA al ITO,
+  // 100% = observaciones de esa revisión LEVANTADAS. ──
+  //   · R0 ≥ 50%   → borde morado grueso (R0 notificada)
+  //   · R0 al 100% → tachado diagonal morado ↗ (obs. R0 levantadas)
+  //   · R1 ≥ 50%   → anillo verde fluorescente (R1 notificada — se suma al borde morado)
+  //   · R1 al 100% → tachado diagonal verde ↘ (obs. R1 levantadas; con R0 forma una X)
+  var PIZARRA_NEON='#39ff14'; // verde fluorescente de las marcas R1
+  function pizarraRevMarks(dep){
+    var r0=f4MilestoneVal(dep,F4_MILESTONE_ID.R0,saves);
+    var r1=f4MilestoneVal(dep,F4_MILESTONE_ID.R1,saves);
+    return{r0notif:r0>=50,r0lev:r0>=100,r1notif:r1>=50,r1lev:r1>=100};
+  }
   function openAssignPanel(boardKey,dep){
-    var a=pizarraAssignOf(boardKey,dep);
-    setAssignDraft({resp:a?a.resp:'',fecha:a?a.fecha:pizarraHoy});
+    var slots=pizarraAssignsOf(boardKey,dep);
+    var flag=pizarraFlagOf(dep);
+    var draft={resp:'',fecha:pizarraHoy,resp2:'',fecha2:pizarraHoy,flag:flag?flag.texto:''};
+    if(boardKey==='capataces'){
+      // En el panel del tablero de capataces el draft se ordena por equipo:
+      // resp/fecha = Avanzada, resp2/fecha2 = Terminaciones (independiente del
+      // orden en que quedaron guardados los slots).
+      slots.forEach(function(s){
+        if(pizarraTeamOf(s.resp)==='terminaciones'){draft.resp2=s.resp;draft.fecha2=s.fecha;}
+        else{draft.resp=s.resp;draft.fecha=s.fecha;}
+      });
+    }else if(slots[0]){draft.resp=slots[0].resp;draft.fecha=slots[0].fecha;}
+    setAssignDraft(draft);
     setAssignBoard(boardKey);
     setAssignDep(dep);
   }
   // Chip de depto: arrastrable (fuente y también reordenable dentro del tablero) y
   // clickeable para abrir el panel de asignación fina (responsable + fecha exacta).
+  // Encima del color de estado (mismo código que la vista general) se dibujan las
+  // marcas de notificación R0/R1 (ver pizarraRevMarks) y el ícono ⚠ si el depto
+  // tiene una restricción anotada.
   function pizarraChip(boardKey,dep){
     var st=ITO_BUCKET_META[bucketOfDep(dep)];
     var ov=(pg.deptos[dep]||{overall:0}).overall;
-    var a=pizarraAssignOf(boardKey,dep);
-    var asigTxt=a?(' · '+a.resp+' · '+a.fecha.split('-').reverse().join('/')):'';
+    var slots=pizarraAssignsOf(boardKey,dep);
+    var asigTxt=slots.map(function(s){return' · '+s.resp+' · '+s.fecha.split('-').reverse().join('/');}).join('');
+    var marks=pizarraRevMarks(dep);
+    var flag=pizarraFlagOf(dep);
+    var revParts=[];
+    if(marks.r0lev)revParts.push('obs. R0 levantadas');
+    else if(marks.r0notif)revParts.push('R0 notificada');
+    if(marks.r1lev)revParts.push('obs. R1 levantadas');
+    else if(marks.r1notif)revParts.push('R1 notificada');
+    var revTxt=revParts.length?(' · '+revParts.join(' · ')):'';
+    var flagTxt=flag?(' · ⚠ '+flag.texto):'';
+    var style={fontFamily:'var(--mono)',fontSize:11,fontWeight:700,color:st.color==='var(--amber)'?'#1a1a1a':'#fff',
+      background:st.color,border:'1px solid rgba(255,255,255,.25)',borderRadius:6,padding:'3px 6px',cursor:'pointer',whiteSpace:'nowrap'};
+    if(marks.r0notif)style.border='3px solid var(--purple)';
+    if(marks.r1notif)style.boxShadow='0 0 0 2px '+PIZARRA_NEON;
+    // Tachados: R0 levantada ↗ morado, R1 levantada ↘ verde — con ambos queda una X.
+    var layers=[];
+    if(marks.r0lev)layers.push('linear-gradient(to top right,transparent calc(50% - 1.5px),var(--purple) calc(50% - 1.5px),var(--purple) calc(50% + 1.5px),transparent calc(50% + 1.5px))');
+    if(marks.r1lev)layers.push('linear-gradient(to bottom right,transparent calc(50% - 1.5px),'+PIZARRA_NEON+' calc(50% - 1.5px),'+PIZARRA_NEON+' calc(50% + 1.5px),transparent calc(50% + 1.5px))');
+    if(layers.length)style.background=layers.join(',')+','+st.color;
     return h('span',{
       key:dep,draggable:true,
       onDragStart:function(e){e.dataTransfer.setData('text/plain',dep);e.dataTransfer.effectAllowed='move';},
       onClick:function(){openAssignPanel(boardKey,dep);},
-      title:'D'+dep+' · '+Math.round(ov)+'% · '+st.label+asigTxt,
-      style:{fontFamily:'var(--mono)',fontSize:11,fontWeight:700,color:st.color==='var(--amber)'?'#1a1a1a':'#fff',
-        background:st.color,border:'1px solid rgba(255,255,255,.25)',borderRadius:6,padding:'3px 6px',cursor:'pointer'}
-    },dep);
+      title:'D'+dep+' · '+Math.round(ov)+'% · '+st.label+revTxt+flagTxt+asigTxt,
+      style:style
+    },flag?'⚠'+dep:dep);
   }
   function pizarraCellDrop(boardKey,resp,fecha){
     return function(e){
@@ -3297,13 +3401,15 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizar
   function pizarraWeekCapacity(boardKey,resp,week){
     var data=pizarraDataOf(boardKey);
     var team=pizarraTeamOf(resp);
+    // Un depto puede estar en 2 slots (Avanzada + Terminaciones): para este
+    // responsable cuenta solo el slot suyo, con la fecha de ESE slot.
     var depsInWeek=Object.keys(data||{}).filter(function(dep){
       var a=data[dep];
-      return a&&a.resp===resp&&week.days.some(function(d){return d.date===a.fecha;});
+      return pizarraRespMatches(a,resp)&&week.days.some(function(d){return d.date===pizarraFechaFor(a,resp);});
     });
     if(team==='avanzada'){
       var daysCovered=week.days.filter(function(d){
-        return depsInWeek.some(function(dep){return data[dep].fecha===d.date;});
+        return depsInWeek.some(function(dep){return pizarraFechaFor(data[dep],resp)===d.date;});
       }).length;
       return{value:daysCovered,goal:5,label:daysCovered+'/5'};
     }
@@ -3320,39 +3426,94 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizar
     return{value:value,goal:members.length*5,label:value+'/'+(members.length*5)};
   }
 
-  // Construye las 2 tarjetas (deptos sin asignar por piso + tablero semanal) de un
-  // tablero de la Pizarra. La semana/día "de hoy" queda resaltado (isCurrent/isToday
-  // ya vienen calculados en pizarraWeeks) para ubicarse rápido en el calendario.
+  // Leyenda compartida de los paneles de deptos: colores de estado (mismo código
+  // que la vista general) + marcas de notificación R0/R1 + restricción manual.
+  // Criterio: partida Entrega R0/R1 al 50% = notificada, al 100% = obs. levantadas.
+  function pizarraLegend(){
+    return h('div',null,
+      h('div',{className:'flex g8',style:{flexWrap:'wrap',marginBottom:6}},
+        ['RF','R1','R0','FASE'].map(function(k){
+          var st=ITO_BUCKET_META[k];
+          return h('div',{key:k,style:{display:'flex',alignItems:'center',gap:5}},
+            h('span',{style:{width:12,height:12,borderRadius:3,background:st.color,display:'inline-block'}}),
+            h('span',{style:{fontSize:10,color:'var(--text3)'}},st.label)
+          );
+        })
+      ),
+      h('div',{className:'flex g8',style:{flexWrap:'wrap',marginBottom:10,rowGap:6}},
+        h('div',{style:{display:'flex',alignItems:'center',gap:5}},
+          h('span',{style:{width:12,height:12,borderRadius:3,border:'3px solid var(--purple)',display:'inline-block'}}),
+          h('span',{style:{fontSize:10,color:'var(--text3)'}},'borde morado = R0 notificada (Entrega R0 al 50%)')
+        ),
+        h('div',{style:{display:'flex',alignItems:'center',gap:5}},
+          h('span',{style:{width:12,height:12,borderRadius:3,border:'3px solid var(--purple)',display:'inline-block',
+            background:'linear-gradient(to top right,transparent calc(50% - 1px),var(--purple) calc(50% - 1px),var(--purple) calc(50% + 1px),transparent calc(50% + 1px))'}}),
+          h('span',{style:{fontSize:10,color:'var(--text3)'}},'tachado morado ↗ = obs. R0 levantadas (al 100%)')
+        ),
+        h('div',{style:{display:'flex',alignItems:'center',gap:5}},
+          h('span',{style:{width:12,height:12,borderRadius:3,boxShadow:'0 0 0 2px #39ff14',display:'inline-block',margin:2,border:'1px solid rgba(255,255,255,.25)'}}),
+          h('span',{style:{fontSize:10,color:'var(--text3)'}},'anillo verde = R1 notificada (Entrega R1 al 50%)')
+        ),
+        h('div',{style:{display:'flex',alignItems:'center',gap:5}},
+          h('span',{style:{width:12,height:12,borderRadius:3,boxShadow:'0 0 0 2px #39ff14',display:'inline-block',margin:2,border:'1px solid rgba(255,255,255,.25)',
+            background:'linear-gradient(to bottom right,transparent calc(50% - 1px),#39ff14 calc(50% - 1px),#39ff14 calc(50% + 1px),transparent calc(50% + 1px))'}}),
+          h('span',{style:{fontSize:10,color:'var(--text3)'}},'tachado verde ↘ = obs. R1 levantadas (al 100%) — con R0 forma una X')
+        ),
+        h('div',{style:{display:'flex',alignItems:'center',gap:5}},
+          h('span',{style:{fontSize:11}},'⚠'),
+          h('span',{style:{fontSize:10,color:'var(--text3)'}},'con restricción — pincha el depto para ver/editar el comentario')
+        )
+      )
+    );
+  }
+  // Tarjeta "deptos por piso" de un tablero: muestra SOLO los deptos que aún
+  // están pendientes según pendingFn, con un contador arriba a la derecha. En el
+  // tablero de capataces hay una tarjeta por equipo (Avanzada / Terminaciones):
+  // así se ve de un vistazo cuántos deptos le faltan a cada equipo por separado
+  // y nada queda sin programar por descuido.
+  function renderPizarraSourceCard(boardKey,cardKey,title,pendingFn,emptyMsg,showLegend){
+    var pend=0;
+    floors.forEach(function(fl){pend+=(_D.fl[fl]||[]).filter(pendingFn).length;});
+    return h('div',{key:cardKey,className:'card'},
+      h('div',{className:'shdr'},
+        h('div',{className:'shdr-title'},title),
+        h('span',{style:{fontSize:11,fontWeight:800,fontFamily:'var(--mono)',whiteSpace:'nowrap',
+          color:pend?'var(--amber)':'var(--green)'}},pend?('Faltan '+pend):'✓ 0 pendientes')
+      ),
+      showLegend?pizarraLegend():null,
+      floors.slice().reverse().map(function(fl){
+        var deps=(_D.fl[fl]||[]).filter(pendingFn)
+          .sort(function(a,b){return parseInt(a,10)-parseInt(b,10);});
+        if(!deps.length)return null;
+        var pisoLabel=fl.charAt(0).toUpperCase()+fl.slice(1);
+        return h('div',{key:fl,style:{display:'flex',alignItems:'center',gap:8,marginBottom:8,flexWrap:'wrap'}},
+          h('span',{style:{fontSize:11,fontWeight:800,color:'var(--text)',minWidth:56}},pisoLabel),
+          h('div',{style:{display:'flex',flexWrap:'wrap',gap:4}},deps.map(function(dep){return pizarraChip(boardKey,dep);}))
+        );
+      }),
+      pend===0?h('div',{style:{fontSize:11,color:'var(--text3)',fontStyle:'italic'}},emptyMsg):null
+    );
+  }
+
+  // Construye las tarjetas de un tablero de la Pizarra: paneles de deptos
+  // pendientes (en capataces, uno por equipo) + tablero semanal. La semana/día
+  // "de hoy" queda resaltado (isCurrent/isToday ya vienen calculados en
+  // pizarraWeeks) para ubicarse rápido en el calendario.
   function renderPizarraBoard(boardKey){
     var cfg=PIZARRA_BOARDS[boardKey];
-    return[
-      h('div',{key:boardKey+'_piso',className:'card'},
-        h('div',{className:'shdr'},h('div',{className:'shdr-title'},cfg.pisoTitle)),
-        h('div',{className:'flex g8',style:{flexWrap:'wrap',marginBottom:10}},
-          ['RF','R1','R0','FASE'].map(function(k){
-            var st=ITO_BUCKET_META[k];
-            return h('div',{key:k,style:{display:'flex',alignItems:'center',gap:5}},
-              h('span',{style:{width:12,height:12,borderRadius:3,background:st.color,display:'inline-block'}}),
-              h('span',{style:{fontSize:10,color:'var(--text3)'}},st.label)
-            );
-          })
-        ),
-        // Una vez asignado (arriba de algún casillero del tablero), el depto desaparece
-        // de este panel de referencia — así se ve de un vistazo qué queda por programar.
-        floors.slice().reverse().map(function(fl){
-          var deps=(_D.fl[fl]||[]).filter(function(dep){return!pizarraAssignOf(boardKey,dep);})
-            .sort(function(a,b){return parseInt(a,10)-parseInt(b,10);});
-          if(!deps.length)return null;
-          var pisoLabel=fl.charAt(0).toUpperCase()+fl.slice(1);
-          return h('div',{key:fl,style:{display:'flex',alignItems:'center',gap:8,marginBottom:8,flexWrap:'wrap'}},
-            h('span',{style:{fontSize:11,fontWeight:800,color:'var(--text)',minWidth:56}},pisoLabel),
-            h('div',{style:{display:'flex',flexWrap:'wrap',gap:4}},deps.map(function(dep){return pizarraChip(boardKey,dep);}))
-          );
-        }),
-        floors.every(function(fl){return(_D.fl[fl]||[]).every(function(dep){return!!pizarraAssignOf(boardKey,dep);});})
-          ?h('div',{style:{fontSize:11,color:'var(--text3)',fontStyle:'italic'}},'Todos los deptos ya están asignados.')
-          :null
-      ),
+    var srcCards=boardKey==='capataces'?[
+      renderPizarraSourceCard(boardKey,'cap_piso_av','Por asignar a Avanzada — deptos por piso',
+        function(dep){return!pizarraTeamHasSlot(dep,'avanzada');},
+        'Todos los deptos ya tienen responsable de Avanzada.',true),
+      renderPizarraSourceCard(boardKey,'cap_piso_te','Por asignar a Terminaciones — deptos por piso',
+        function(dep){return!pizarraTeamHasSlot(dep,'terminaciones');},
+        'Todos los deptos ya tienen responsable de Terminaciones.',false)
+    ]:[
+      renderPizarraSourceCard(boardKey,boardKey+'_piso',cfg.pisoTitle,
+        function(dep){return!pizarraAssignOf(boardKey,dep);},
+        'Todos los deptos ya están asignados.',true)
+    ];
+    return srcCards.concat([
       h('div',{key:boardKey+'_board',className:'card'},
         h('div',{className:'shdr'},h('div',{className:'shdr-title'},cfg.boardTitle)),
         h('div',{style:{fontSize:10,color:'var(--text3)',marginBottom:8}},cfg.hint),
@@ -3421,7 +3582,7 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizar
                           var data=pizarraDataOf(boardKey);
                           var deps=Object.keys(data||{}).filter(function(dep){
                             var a=data[dep];
-                            return a&&a.resp===resp&&a.fecha===d.date;
+                            return pizarraRespMatches(a,resp)&&pizarraFechaFor(a,resp)===d.date;
                           }).sort(function(a,b){return parseInt(a,10)-parseInt(b,10);});
                           return h('td',{
                             key:w.key+'_'+d.date,onDragOver:allowDropPizarra,onDrop:pizarraCellDrop(boardKey,resp,d.date),
@@ -3448,7 +3609,7 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizar
               )
             )
       )
-    ];
+    ]);
   }
 
   // Foto del backlog completo de cada responsable (todas sus asignaciones vigentes
@@ -3459,7 +3620,7 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizar
     var buckets=['RF','R1','R0','FASE'];
     function depsOf(resp,bucket){
       return Object.keys(data||{}).filter(function(dep){
-        return data[dep].resp===resp&&bucketOfDep(dep)===bucket;
+        return pizarraRespMatches(data[dep],resp)&&bucketOfDep(dep)===bucket;
       }).sort(function(a,b){return parseInt(a,10)-parseInt(b,10);});
     }
     return h('div',{className:'card'},
@@ -3508,27 +3669,74 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizar
     style:{position:'fixed',inset:0,background:'rgba(0,0,0,.5)',zIndex:300,display:'flex',alignItems:'center',justifyContent:'center',padding:16},
     onClick:function(e){if(e.target===e.currentTarget)setAssignDep(null);}
   },
-    h('div',{className:'card',style:{maxWidth:340,width:'100%'}},
+    h('div',{className:'card',style:{maxWidth:360,width:'100%',maxHeight:'90vh',overflowY:'auto'}},
       h('div',{className:'shdr'},h('div',{className:'shdr-title'},'Asignar D'+assignDep+' — '+(PIZARRA_BOARDS[assignBoard]?PIZARRA_BOARDS[assignBoard].boardTitle:''))),
       h('div',{style:{fontSize:11,color:'var(--text3)',marginBottom:10}},
         Math.round((pg.deptos[assignDep]||{overall:0}).overall)+'% · '+ITO_BUCKET_META[bucketOfDep(assignDep)].label
       ),
-      h('div',{className:'field'},h('label',null,'Responsable'),
-        h('select',{className:'sel-input',value:assignDraft.resp,
-          onChange:function(e){setAssignDraft(Object.assign({},assignDraft,{resp:e.target.value}));}
-        },
-          h('option',{value:''},'Sin asignar'),
-          (PIZARRA_BOARDS[assignBoard]?PIZARRA_BOARDS[assignBoard].resp:[]).map(function(r){return h('option',{key:r,value:r},r);})
+      // Capataces: un slot por equipo — el mismo depto puede quedar asignado a
+      // Avanzada (lo prepara) y a Terminaciones (lo remata) en la misma semana.
+      assignBoard==='capataces'?[
+        h('div',{key:'av_r',className:'field'},h('label',null,'Responsable Avanzada'),
+          h('select',{className:'sel-input',value:assignDraft.resp,
+            onChange:function(e){setAssignDraft(Object.assign({},assignDraft,{resp:e.target.value}));}
+          },
+            h('option',{value:''},'Sin asignar'),
+            PIZARRA_BOARDS.capataces.resp.filter(function(r){return pizarraTeamOf(r)==='avanzada';}).map(function(r){return h('option',{key:r,value:r},r);})
+          )
+        ),
+        assignDraft.resp?h('div',{key:'av_f',className:'field'},h('label',null,'Fecha Avanzada'),
+          h('input',{type:'date',className:'date-input',value:assignDraft.fecha,
+            onChange:function(e){setAssignDraft(Object.assign({},assignDraft,{fecha:e.target.value||pizarraHoy}));}
+          })
+        ):null,
+        h('div',{key:'te_r',className:'field'},h('label',null,'Responsable Terminaciones'),
+          h('select',{className:'sel-input',value:assignDraft.resp2,
+            onChange:function(e){setAssignDraft(Object.assign({},assignDraft,{resp2:e.target.value}));}
+          },
+            h('option',{value:''},'Sin asignar'),
+            PIZARRA_BOARDS.capataces.resp.filter(function(r){return pizarraTeamOf(r)==='terminaciones';}).map(function(r){return h('option',{key:r,value:r},r);})
+          )
+        ),
+        assignDraft.resp2?h('div',{key:'te_f',className:'field'},h('label',null,'Fecha Terminaciones'),
+          h('input',{type:'date',className:'date-input',value:assignDraft.fecha2,
+            onChange:function(e){setAssignDraft(Object.assign({},assignDraft,{fecha2:e.target.value||pizarraHoy}));}
+          })
+        ):null
+      ]:[
+        h('div',{key:'r',className:'field'},h('label',null,'Responsable'),
+          h('select',{className:'sel-input',value:assignDraft.resp,
+            onChange:function(e){setAssignDraft(Object.assign({},assignDraft,{resp:e.target.value}));}
+          },
+            h('option',{value:''},'Sin asignar'),
+            (PIZARRA_BOARDS[assignBoard]?PIZARRA_BOARDS[assignBoard].resp:[]).map(function(r){return h('option',{key:r,value:r},r);})
+          )
+        ),
+        h('div',{key:'f',className:'field'},h('label',null,'Fecha de entrega'),
+          h('input',{type:'date',className:'date-input',value:assignDraft.fecha,
+            onChange:function(e){setAssignDraft(Object.assign({},assignDraft,{fecha:e.target.value||pizarraHoy}));}
+          })
         )
-      ),
-      h('div',{className:'field'},h('label',null,'Fecha de entrega'),
-        h('input',{type:'date',className:'date-input',value:assignDraft.fecha,
-          onChange:function(e){setAssignDraft(Object.assign({},assignDraft,{fecha:e.target.value||pizarraHoy}));}
-        })
+      ],
+      // Restricción manual del depto (compartida por ambos tableros): se ve como ⚠
+      // en el chip y el comentario aparece al mantener el cursor / tocar el chip.
+      h('div',{className:'field'},h('label',null,'⚠ Restricción / alerta (opcional)'),
+        h('input',{type:'text',className:'sel-input',value:assignDraft.flag,maxLength:120,
+          placeholder:'Ej: depto oficina · se mojó con la lluvia…',
+          onChange:function(e){setAssignDraft(Object.assign({},assignDraft,{flag:e.target.value}));}
+        }),
+        h('div',{style:{fontSize:10,color:'var(--text3)',marginTop:3}},'Deja el texto vacío para quitar la restricción.')
       ),
       h('div',{style:{display:'flex',gap:8,flexWrap:'wrap'}},
         h('button',{
-          onClick:function(){setPizarraAssign(assignBoard,assignDep,assignDraft.resp,assignDraft.fecha);setAssignDep(null);toast&&toast('✓ Asignación guardada');},
+          onClick:function(){
+            var slots=[];
+            if(assignDraft.resp)slots.push({resp:assignDraft.resp,fecha:assignDraft.fecha||pizarraHoy});
+            if(assignBoard==='capataces'&&assignDraft.resp2)slots.push({resp:assignDraft.resp2,fecha:assignDraft.fecha2||pizarraHoy});
+            setPizarraAssignSlots(assignBoard,assignDep,slots);
+            setPizarraFlag(assignDep,assignDraft.flag);
+            setAssignDep(null);toast&&toast('✓ Asignación guardada');
+          },
           style:{background:'var(--blue)',border:'none',borderRadius:6,padding:'8px 14px',color:'#fff',cursor:'pointer',fontSize:12,fontWeight:700}
         },'Guardar'),
         pizarraAssignOf(assignBoard,assignDep)?h('button',{
@@ -17351,6 +17559,7 @@ function App({initialData}){
   const itoActaCounter=state.itoActaCounter||0;
   const itoPizarra=state.itoPizarra||{};
   const itoPizarraIto=state.itoPizarraIto||{};
+  const itoPizarraFlags=state.itoPizarraFlags||{};
   const onItoPatch=(patch)=>save(patch);
   const onMatSave=(md)=>save({matData:md});
   const muebTandas=state.muebTandas||[];
@@ -17404,7 +17613,7 @@ function App({initialData}){
   else if(effectiveTab==='sobretiempo')content=h(SobretiempoView,{asistData,stData,onStSave,auth,toast:showToast});
   else if(effectiveTab==='informe')content=h(InformeSemanalView,{ganttData,saves,onSave,onGanttSave,reportData,onReportSave,auth,progress});
   else if(effectiveTab==='planmaestro')content=h(PlanMaestroView,{});
-  else if(effectiveTab==='actasito')content=h(ActasItoView,{progress,saves,itoData,itoActaCounter,itoPizarra,itoPizarraIto,onItoPatch,auth,toast:showToast});
+  else if(effectiveTab==='actasito')content=h(ActasItoView,{progress,saves,itoData,itoActaCounter,itoPizarra,itoPizarraIto,itoPizarraFlags,onItoPatch,auth,toast:showToast});
   else content=h(Dashboard,{progress,ganttData,saves,toast:showToast,execWeeks,execActiveWeek,onExecActiveWeekChange,onExecWeekSave});
   return h('div',{className:'app'},
     h('div',{className:'nav'},
