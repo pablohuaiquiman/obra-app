@@ -3551,7 +3551,10 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizar
                           fontWeight:d.isToday?800:400,textAlign:'center',
                           background:d.isToday?'rgba(14,165,233,.22)':(w.isCurrent?'rgba(14,165,233,.08)':'transparent'),
                           borderLeft:di===0?'2px solid var(--border)':'1px solid rgba(255,255,255,.06)'
-                        }},d.initial);
+                        }},
+                          h('div',{style:{fontSize:9,fontWeight:d.isToday?800:700,lineHeight:'11px'}},String(parseInt(d.date.slice(8,10),10))),
+                          h('div',{style:{lineHeight:'11px'}},d.initial)
+                        );
                       });
                       if(boardKey==='capataces'){
                         dayThs=dayThs.concat([h('th',{key:w.key+'_cap',title:'Cobertura de la semana (avisa si falta, no bloquea)',style:{
