@@ -2996,8 +2996,11 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizar
   }
 
   // ── PDF: Acta Entrega/Recepción — calcada a "ACTA DE ENTREGA TIPO.pdf" ──
-  function generarActaEntrega(dep,tipo){
-    if(typeof jspdf==='undefined'){toast&&toast('Error: jsPDF no disponible');return;}
+  // Dibuja el PDF de un acta. El contenido es determinístico (plantilla fija +
+  // dep/tipo/numero/fecha), así que también sirve para RE-generar el PDF de un
+  // acta ya registrada cuya copia en la nube se perdió o nunca llegó a subirse.
+  function construirActaDoc(dep,tipo,numero,fechaActa){
+    if(typeof jspdf==='undefined'){toast&&toast('Error: jsPDF no disponible');return null;}
     var doc=new jspdf.jsPDF({orientation:'portrait',unit:'mm',format:'letter'});
     var pw=216,ph=279,ML=13.55,MR=206.9,cw=MR-ML;
     // Fondo = la plantilla real escaneada (logo, líneas y textos fijos calcados al 100%);
@@ -3008,9 +3011,6 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizar
       doc.setFont('helvetica','bold');doc.setFontSize(8);doc.setTextColor(0,0,0);
       doc.text('X',x,y0);
     }
-    var numero=Math.max(itoActaCounter||0,maxActaNumeroExistente())+1;
-    var fechaActa=getActaDate(dep);
-
     // ── Nº correlativo (grande y en negrita, en el recuadro superior derecho) ──
     doc.setFontSize(20);doc.setFont('helvetica','bold');doc.setTextColor(0,0,0);
     doc.text(String(numero),188.1,29,{align:'center'});
@@ -3107,6 +3107,14 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizar
     doc.text('Nombre',139,250.3);
     doc.text('Fabian Ubilla',153,250.3);
     doc.text('Fecha',139,254.5);
+    return doc;
+  }
+
+  function generarActaEntrega(dep,tipo){
+    var numero=Math.max(itoActaCounter||0,maxActaNumeroExistente())+1;
+    var fechaActa=getActaDate(dep);
+    var doc=construirActaDoc(dep,tipo,numero,fechaActa);
+    if(!doc)return;
 
     var it=getIt(dep);
     var nuevaActa={numero:numero,tipo:tipo,fecha:fechaActa,pdfUrl:null,firmadaUrl:null,firmadaNombre:null};
@@ -3175,6 +3183,43 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizar
       setUploading(function(cur){var n=Object.assign({},cur);delete n[uk];return n;});
       toast&&toast('✗ '+msg);
     });
+  }
+
+  // Recupera el PDF de un acta ya registrada que quedó sin enlace "Ver PDF"
+  // (actas generadas antes de que existiera la copia en la nube, o cuya subida
+  // falló). 1º busca la copia original en Storage; si no está, RE-genera el PDF
+  // (el contenido es determinístico), lo descarga al equipo y sube la copia para
+  // que el enlace quede disponible de ahí en adelante.
+  function recuperarActaPdf(dep,acta){
+    var uk=dep+'_'+acta.numero+'_rec';
+    if(uploading[uk])return;
+    setUploading(function(cur){var n=Object.assign({},cur);n[uk]=true;return n;});
+    var fin=function(){setUploading(function(cur){var n=Object.assign({},cur);delete n[uk];return n;});};
+    var guardarUrl=function(url){
+      saveDepIto(dep,function(curDep){
+        var actas=(curDep.actas||[]).map(function(a){return a.numero===acta.numero?Object.assign({},a,{pdfUrl:url}):a;});
+        return{actas:actas};
+      });
+    };
+    var regenerar=function(){
+      var doc=construirActaDoc(dep,acta.tipo,acta.numero,acta.fecha);
+      if(!doc){fin();return;}
+      exportarPdf(doc,'acta-'+acta.numero+'-D'+dep+'-'+String(acta.tipo||'').toLowerCase()+'.pdf','Acta Entrega D'+dep+' Nº'+acta.numero,toast);
+      if(!window.fbUploadFile){fin();return;}
+      try{
+        var blob=doc.output('blob');
+        var path='actas_ito/D'+dep+'/generado_'+acta.numero+'_'+Date.now()+'.pdf';
+        window.fbUploadFile(path,blob).then(function(url){
+          guardarUrl(url);fin();toast&&toast('✓ Acta recuperada — quedó disponible en "Ver PDF"');
+        }).catch(function(e){console.warn('No se pudo subir la copia del acta:',e);fin();});
+      }catch(e){fin();}
+    };
+    (window.fbFindActaPdf?window.fbFindActaPdf(dep,acta.numero):Promise.resolve(null))
+      .then(function(url){
+        if(url){guardarUrl(url);fin();toast&&toast('✓ Acta encontrada en la nube — ya puedes verla');}
+        else regenerar();
+      })
+      .catch(function(e){console.warn('No se pudo buscar el acta en la nube:',e);regenerar();});
   }
 
   // Fila completa de un depto (header + panel expandible). La usan tanto la vista
@@ -3289,7 +3334,11 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizar
               h('span',{style:{fontSize:11,color:'var(--text3)'}},a.fecha.split('-').reverse().join('/')),
               a.pdfUrl
                 ?h('a',{href:a.pdfUrl,target:'_blank',rel:'noopener',style:{fontSize:11,color:'var(--blue)',fontWeight:700}},'📄 Ver PDF')
-                :h('span',{style:{fontSize:10,color:'var(--text3)',fontStyle:'italic'}},'guardando copia...'),
+                :h('button',{
+                    onClick:function(){recuperarActaPdf(dep,a);},
+                    title:'Busca la copia en la nube; si no existe, re-genera el PDF del acta, lo descarga y lo deja disponible en "Ver PDF"',
+                    style:{background:'none',border:'1px solid var(--blue)',borderRadius:6,padding:'3px 9px',color:'var(--blue)',cursor:'pointer',fontSize:10,fontWeight:700}
+                  },uploading[dep+'_'+a.numero+'_rec']?'Recuperando...':'📄 Recuperar PDF'),
               a.firmadaUrl
                 ?h('a',{href:a.firmadaUrl,target:'_blank',rel:'noopener',style:{fontSize:11,color:'var(--green)',fontWeight:700}},'✓ Firmada — ver')
                 :h('label',{style:{fontSize:11,color:'var(--blue)',fontWeight:700,cursor:'pointer'}},
@@ -17816,6 +17865,15 @@ const storage=firebase.storage();
 window.fbUploadFile=function(path,file){
   var ref=storage.ref().child(path);
   return ref.put(file).then(function(snap){return snap.ref.getDownloadURL();});
+};
+// ── Busca en Storage el PDF ya subido de un acta (para actas registradas sin
+// enlace guardado en Firestore). Devuelve la URL o null si no hay copia. ──
+window.fbFindActaPdf=function(dep,numero){
+  return storage.ref().child('actas_ito/D'+dep).listAll().then(function(res){
+    var pre='generado_'+numero+'_',found=null;
+    res.items.forEach(function(item){if(item.name.indexOf(pre)===0)found=item;});
+    return found?found.getDownloadURL():null;
+  });
 };
 // ── Comprime una imagen en el navegador antes de subirla (evita gastar datos móviles/Storage) ──
 // maxW: ancho máximo en px (alto se escala proporcional). quality: calidad JPEG 0-1.
