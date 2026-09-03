@@ -2860,7 +2860,8 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizar
   function pizarraRevMarks(dep){
     var r0=f4MilestoneVal(dep,F4_MILESTONE_ID.R0,saves);
     var r1=f4MilestoneVal(dep,F4_MILESTONE_ID.R1,saves);
-    return{r0notif:r0>=50,r0lev:r0>=100,r1notif:r1>=50,r1lev:r1>=100};
+    var rf=f4MilestoneVal(dep,F4_MILESTONE_ID.RF,saves);
+    return{r0notif:r0>=50,r0lev:r0>=100,r1notif:r1>=50,r1lev:r1>=100,rfnotif:rf>=50,rflev:rf>=100};
   }
   function openAssignPanel(boardKey,dep){
     var slots=pizarraAssignsOf(boardKey,dep);
@@ -3523,8 +3524,8 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizar
   // (completadas = levantadas, trabajando = notificadas). Solo lectura: se
   // calcula en vivo con el mismo motor pizarraRevMarks/bucketOfDep — no guarda nada.
   var PIZARRA_RESUMEN_GRUPOS=[
-    {key:'sin',label:'Sin notificar',hint:'aún sin Entrega R0 al 50%',color:'var(--text2)',bdr:'var(--border)',
-      test:function(m,b){return!m.r0notif&&b!=='RF';}},
+    {key:'sin',label:'Sin notificar',hint:'aún sin Entrega R0 al 50%',color:'var(--text2)',bdr:'var(--border)',full:true,
+      test:function(m,b){return!m.r0notif&&!m.rflev;}},
     {key:'r0notif',label:'R0 notificadas',hint:'Entrega R0 al 50% — obs. pendientes',color:'var(--purple)',bdr:'var(--purple)',
       test:function(m,b){return m.r0notif&&!m.r0lev;}},
     {key:'r0lev',label:'R0 levantadas',hint:'Entrega R0 al 100% — acumulado, incluye las que ya van en R1/RF',color:'var(--purple)',bdr:'var(--purple)',
@@ -3533,8 +3534,10 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizar
       test:function(m,b){return m.r1notif&&!m.r1lev;}},
     {key:'r1lev',label:'R1 levantadas',hint:'Entrega R1 al 100% — acumulado, incluye las que ya están en RF',color:PIZARRA_NEON,bdr:PIZARRA_NEON,
       test:function(m,b){return m.r1lev;}},
-    {key:'rf',label:'RF',hint:'recepción final',color:'var(--green)',bdr:'var(--green)',
-      test:function(m,b){return b==='RF';}}
+    {key:'rfnotif',label:'RF notificadas',hint:'Entrega RF al 50% — obs. pendientes',color:'var(--green)',bdr:'var(--green)',
+      test:function(m,b){return m.rfnotif&&!m.rflev;}},
+    {key:'rflev',label:'RF levantadas',hint:'Entrega RF al 100% — depto entregado',color:'var(--green)',bdr:'var(--green)',
+      test:function(m,b){return m.rflev;}}
   ];
   function renderPizarraItoResumen(){
     var conteo={};
@@ -3549,10 +3552,11 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizar
         h('span',{className:'mono',style:{fontSize:11,fontWeight:800,color:'var(--text2)',whiteSpace:'nowrap'}},allDeps.length+' deptos')
       ),
       h('div',{style:{fontSize:10,color:'var(--text3)',marginBottom:8}},'Notificadas = en ese paso con obs. pendientes (Entrega al 50%). Levantadas = acumulado de deptos con esa entrega al 100% (igual que "completadas" en Partidas), por lo que un depto puede aparecer en más de un recuadro.'),
-      h('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:8}},
+      h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}},
         PIZARRA_RESUMEN_GRUPOS.map(function(g){
           var deps=conteo[g.key];
-          return h('div',{key:g.key,style:{background:'var(--bg2)',border:'1px solid '+g.bdr,borderRadius:10,padding:'8px 10px'}},
+          return h('div',{key:g.key,style:{background:'var(--bg2)',border:'1px solid '+g.bdr,borderRadius:10,padding:'8px 10px',
+            gridColumn:g.full?'1 / -1':'auto'}},
             h('div',{style:{display:'flex',alignItems:'baseline',justifyContent:'space-between',gap:6,marginBottom:2}},
               h('span',{style:{fontSize:10,fontWeight:800,letterSpacing:'.06em',color:g.color,textTransform:'uppercase'}},g.label),
               h('span',{className:'mono',style:{fontSize:18,fontWeight:800,color:g.color}},deps.length)
@@ -3565,6 +3569,36 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizar
                       background:'rgba(255,255,255,.07)',border:'1px solid '+g.bdr,borderRadius:5,padding:'1px 5px'}},'D'+dep);
                   }))
               :h('div',{style:{fontSize:10,color:'var(--text2)',fontStyle:'italic'}},'— ninguno aún')
+          );
+        })
+      ),
+      // ── Mapa de entrega: TODOS los deptos por piso; se pintan verdes cuando su
+      // Entrega RF llega al 100% (depto entregado) — así se ve de un vistazo cómo
+      // va avanzando la entrega del edificio piso a piso.
+      h('div',{style:{marginTop:10,background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:10,padding:'8px 10px'}},
+        h('div',{style:{display:'flex',alignItems:'baseline',justifyContent:'space-between',gap:6,marginBottom:2}},
+          h('span',{style:{fontSize:10,fontWeight:800,letterSpacing:'.06em',color:'var(--text)',textTransform:'uppercase'}},'Avance de entrega — deptos por piso'),
+          h('span',{className:'mono',style:{fontSize:18,fontWeight:800,color:'var(--green)'}},conteo.rflev.length+' / '+allDeps.length)
+        ),
+        h('div',{style:{fontSize:9,color:'var(--text2)',marginBottom:6}},'verde = Entrega RF al 100% (depto entregado)'),
+        floors.slice().reverse().map(function(fl){
+          var deps=(_D.fl[fl]||[]).slice().sort(function(a,b){return parseInt(a,10)-parseInt(b,10);});
+          if(!deps.length)return null;
+          var okPiso=deps.filter(function(dep){return pizarraRevMarks(dep).rflev;}).length;
+          var pisoLabel=fl.charAt(0).toUpperCase()+fl.slice(1);
+          return h('div',{key:fl,style:{display:'flex',alignItems:'center',gap:8,marginBottom:6,flexWrap:'wrap'}},
+            h('span',{style:{fontSize:11,fontWeight:800,color:'var(--text)',minWidth:56}},pisoLabel),
+            h('span',{className:'mono',style:{fontSize:10,fontWeight:700,color:okPiso===deps.length?'var(--green)':'var(--text2)',minWidth:38}},okPiso+'/'+deps.length),
+            h('div',{style:{display:'flex',flexWrap:'wrap',gap:3}},
+              deps.map(function(dep){
+                var entregado=pizarraRevMarks(dep).rflev;
+                return h('span',{key:dep,className:'mono',title:'D'+dep+(entregado?' · entregado (RF 100%)':' · pendiente de entrega'),
+                  style:{fontSize:10,fontWeight:700,borderRadius:5,padding:'1px 5px',
+                    color:entregado?'#04220d':'var(--text2)',
+                    background:entregado?'var(--green)':'var(--bg3)',
+                    border:'1px solid '+(entregado?'var(--green)':'var(--border)')}},dep);
+              })
+            )
           );
         })
       )
