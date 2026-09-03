@@ -3516,36 +3516,39 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizar
     );
   }
   // ── Recuadro resumen Notificación ITO: cuántos deptos hay en cada estado del
-  // ciclo de revisión (R0/R1 notificadas y levantadas + RF) y cuáles son. Cada
-  // depto se cuenta UNA sola vez, en su estado más avanzado. Solo lectura: se
+  // ciclo de revisión (R0/R1 notificadas y levantadas + RF) y cuáles son. Las
+  // "notificadas" son las que están EN ese paso (obs. aún pendientes); las
+  // "levantadas" son ACUMULADAS — cuentan todo depto con esa partida al 100%
+  // aunque ya haya avanzado a R1/RF, para que cuadre 1:1 con la vista Partidas
+  // (completadas = levantadas, trabajando = notificadas). Solo lectura: se
   // calcula en vivo con el mismo motor pizarraRevMarks/bucketOfDep — no guarda nada.
   var PIZARRA_RESUMEN_GRUPOS=[
-    {key:'sin',label:'Sin notificar',hint:'aún sin Entrega R0 al 50%',color:'var(--text2)',bdr:'var(--border)'},
-    {key:'r0notif',label:'R0 notificadas',hint:'Entrega R0 al 50% — obs. pendientes',color:'var(--purple)',bdr:'var(--purple)'},
-    {key:'r0lev',label:'R0 levantadas',hint:'Entrega R0 al 100%',color:'var(--purple)',bdr:'var(--purple)'},
-    {key:'r1notif',label:'R1 notificadas',hint:'Entrega R1 al 50% — obs. pendientes',color:PIZARRA_NEON,bdr:PIZARRA_NEON},
-    {key:'r1lev',label:'R1 levantadas',hint:'Entrega R1 al 100%',color:PIZARRA_NEON,bdr:PIZARRA_NEON},
-    {key:'rf',label:'RF',hint:'recepción final',color:'var(--green)',bdr:'var(--green)'}
+    {key:'sin',label:'Sin notificar',hint:'aún sin Entrega R0 al 50%',color:'var(--text2)',bdr:'var(--border)',
+      test:function(m,b){return!m.r0notif&&b!=='RF';}},
+    {key:'r0notif',label:'R0 notificadas',hint:'Entrega R0 al 50% — obs. pendientes',color:'var(--purple)',bdr:'var(--purple)',
+      test:function(m,b){return m.r0notif&&!m.r0lev;}},
+    {key:'r0lev',label:'R0 levantadas',hint:'Entrega R0 al 100% — acumulado, incluye las que ya van en R1/RF',color:'var(--purple)',bdr:'var(--purple)',
+      test:function(m,b){return m.r0lev;}},
+    {key:'r1notif',label:'R1 notificadas',hint:'Entrega R1 al 50% — obs. pendientes',color:PIZARRA_NEON,bdr:PIZARRA_NEON,
+      test:function(m,b){return m.r1notif&&!m.r1lev;}},
+    {key:'r1lev',label:'R1 levantadas',hint:'Entrega R1 al 100% — acumulado, incluye las que ya están en RF',color:PIZARRA_NEON,bdr:PIZARRA_NEON,
+      test:function(m,b){return m.r1lev;}},
+    {key:'rf',label:'RF',hint:'recepción final',color:'var(--green)',bdr:'var(--green)',
+      test:function(m,b){return b==='RF';}}
   ];
-  function pizarraResumenEstado(dep){
-    if(bucketOfDep(dep)==='RF')return'rf';
-    var m=pizarraRevMarks(dep);
-    if(m.r1lev)return'r1lev';
-    if(m.r1notif)return'r1notif';
-    if(m.r0lev)return'r0lev';
-    if(m.r0notif)return'r0notif';
-    return'sin';
-  }
   function renderPizarraItoResumen(){
     var conteo={};
     PIZARRA_RESUMEN_GRUPOS.forEach(function(g){conteo[g.key]=[];});
-    allDeps.forEach(function(dep){conteo[pizarraResumenEstado(dep)].push(dep);});
+    allDeps.forEach(function(dep){
+      var m=pizarraRevMarks(dep),b=bucketOfDep(dep);
+      PIZARRA_RESUMEN_GRUPOS.forEach(function(g){if(g.test(m,b))conteo[g.key].push(dep);});
+    });
     return h('div',{key:'ito_resumen',className:'card'},
       h('div',{className:'shdr'},
         h('div',{className:'shdr-title'},'Resumen notificación ITO — deptos por estado'),
         h('span',{className:'mono',style:{fontSize:11,fontWeight:800,color:'var(--text2)',whiteSpace:'nowrap'}},allDeps.length+' deptos')
       ),
-      h('div',{style:{fontSize:10,color:'var(--text3)',marginBottom:8}},'Cada depto aparece una sola vez, en su estado más avanzado (Entrega R0/R1: 50% = notificada, 100% = obs. levantadas).'),
+      h('div',{style:{fontSize:10,color:'var(--text3)',marginBottom:8}},'Notificadas = en ese paso con obs. pendientes (Entrega al 50%). Levantadas = acumulado de deptos con esa entrega al 100% (igual que "completadas" en Partidas), por lo que un depto puede aparecer en más de un recuadro.'),
       h('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:8}},
         PIZARRA_RESUMEN_GRUPOS.map(function(g){
           var deps=conteo[g.key];
