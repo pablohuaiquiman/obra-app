@@ -4263,6 +4263,9 @@ function GanttView({ganttData,onGanttSave,auth,saves,toast,progress}){
   const LW=300;
   const ROW_H=42;
   const faseColor=f=>f==='1'?'var(--blue)':f==='2'?'var(--purple)':f==='3'?'var(--green)':'var(--amber)';
+  // Color de la barra de avance por % (Piso/Depto, sin significado categórico propio):
+  // 0-24% rojo, 25-49% amarillo, 50-74% naranjo, 75-99% azul, 100% verde.
+  const avanceColor=p=>p>=100?'var(--green)':p>=75?'var(--blue)':p>=50?'var(--orange)':p>=25?'var(--amber)':'var(--red)';
   // ── Edit state ──
   const[editPanel,sep]=useState(null);
   const[showReprogram,setShowReprogram]=useState(false);
@@ -4609,14 +4612,16 @@ function GanttView({ganttData,onGanttSave,auth,saves,toast,progress}){
       'FIN EST.')
   );
   // Gantt bar component
-  const GBar=({s,e,pct,color,thick=false,dragInfo,dragging=false,liveDeltaDays=0})=>{
+  const GBar=({s,e,pct,color,thick=false,dragInfo,dragging=false,liveDeltaDays=0,noLate=false})=>{
     // Mientras se arrastra esta barra, desplazar visualmente s/e por liveDeltaDays (solo preview, no persiste)
     const sShown=dragging&&liveDeltaDays&&s?n2d(d2n(s)+liveDeltaDays):s;
     const eShown=dragging&&liveDeltaDays&&e?n2d(d2n(e)+liveDeltaDays):e;
     const x1=dateX(sShown),x2=dateX(eShown);
     const p=Math.min(parseInt(pct)||0,100);
     const isDone=p>=100;
-    const isLate=e&&new Date(e)<TODAY&&p<100;
+    // noLate: Fase 4 depende de la aprobación de la inmobiliaria (RF), no de fechas calendario,
+    // así que nunca debe pintarse como "atrasada" solo por vencer una fecha estimada.
+    const isLate=!noLate&&e&&new Date(e)<TODAY&&p<100;
     const bc=isDone?'var(--green)':isLate?'var(--red)':color||'var(--blue)';
     const h_px=thick?18:12;
     const onBarDown=dragInfo?function(ev){
@@ -4718,7 +4723,7 @@ function GanttView({ganttData,onGanttSave,auth,saves,toast,progress}){
   );
   // Single row renderer
   const Row=({label,sublabel,color,bold,pct,s,e,resp,indent=0,onNav,onEdit,badge,isDone,isLate,thick=false,
-    dragId,onRowDragStart,rowDragging=false,rowDropTarget=false,barDragInfo,barDragging=false,barLiveDeltaDays=0})=>{
+    dragId,onRowDragStart,rowDragging=false,rowDropTarget=false,barDragInfo,barDragging=false,barLiveDeltaDays=0,noLate=false})=>{
     const bg=rowDropTarget?'rgba(14,165,233,.08)':isDone?'rgba(34,197,94,.04)':isLate?'rgba(239,68,68,.03)':'transparent';
     const tc=isDone?'var(--green)':isLate?'var(--red)':bold?'var(--text)':'var(--text2)';
     const handleNav=ev=>{
@@ -4772,7 +4777,7 @@ function GanttView({ganttData,onGanttSave,auth,saves,toast,progress}){
         },'✎')
       ),
       h('div',{style:{flex:1,padding:'5px 8px',display:'flex',alignItems:'center'}},
-        h(GBar,{s,e,pct:parseInt(pct)||0,color,thick,
+        h(GBar,{s,e,pct:parseInt(pct)||0,color,thick,noLate,
           dragInfo:isAdmin?barDragInfo:null,dragging:barDragging,liveDeltaDays:barLiveDeltaDays})
       )
     );
@@ -4793,9 +4798,9 @@ function GanttView({ganttData,onGanttSave,auth,saves,toast,progress}){
       const isBarDragging=barDrag&&barDrag.type==='piso'&&barDrag.idx===i;
       return h(Row,{key:i,thick:true,
         label:pi.n,sublabel:deps.length+' deptos · toca para ver',
-        color:'var(--blue2)',bold:true,pct:avgPct,s,e,resp:'',
+        color:avanceColor(avgPct),bold:true,pct:avgPct,s,e,resp:'',
         badge:{cls:pcl(avgPct),l:avgPct+'%'},
-        isDone:avgPct>=99,isLate:e&&new Date(e)<TODAY&&avgPct<99,
+        isDone:avgPct>=99,isLate:e&&new Date(e)<TODAY&&avgPct<99,noLate:true,
         onNav:()=>{snp(i);snd(null);snf(null);},
         onEdit:isAdmin?()=>openEdit('piso',i,pi.n):null,
         dragId:i,
@@ -4823,8 +4828,8 @@ function GanttView({ganttData,onGanttSave,auth,saves,toast,progress}){
       const isBarDragging=barDrag&&barDrag.type==='dep'&&barDrag.idx===di;
       return h(Row,{key:di,
         label:'Depto '+dep.d,sublabel:dep.n+' · '+pct+'%',
-        color:'var(--blue)',bold:true,pct,s,e,resp:'',
-        isDone:pct>=99,isLate,
+        color:avanceColor(pct),bold:true,pct,s,e,resp:'',
+        isDone:pct>=99,isLate,noLate:true,
         onNav:()=>{snd(di);snf(null);},
         onEdit:isAdmin?()=>openEdit('dep',di,'Depto '+dep.d):null,
         dragId:di,
@@ -4859,7 +4864,7 @@ function GanttView({ganttData,onGanttSave,auth,saves,toast,progress}){
         return h(Row,{key:'f4',
           label:'Fase 4',sublabel:'F4 · '+(_D.ps4||[]).length+' partidas · Supervisión',
           color:'var(--amber)',bold:true,pct:f4Pct,s:f4S,e:f4E,resp:'',
-          isDone:f4Pct>=99,isLate:false,
+          isDone:f4Pct>=99,isLate:false,noLate:true,
           onNav:()=>snf('f4'),
           onEdit:null,
           dragId:'f4',
@@ -4934,7 +4939,10 @@ function GanttView({ganttData,onGanttSave,auth,saves,toast,progress}){
       var excelPct=lk[dep.d]?lk[dep.d][pid]||0:0;
       var savedPct=sv[fk]&&sv[fk][pid]!=null?sv[fk][pid]:null;
       var pct=savedPct!=null?savedPct:excelPct;
-      var isLate=e&&new Date(e)<TODAY&&pct<100;
+      // Las partidas de Fase 4 dependen de la aprobación de la inmobiliaria (RF), no de fechas
+      // calendario (sus fechas son sintéticas, interpoladas al terminar Fase 3), así que nunca
+      // deben marcarse como "atrasadas" solo por vencer esa fecha estimada.
+      var isLate=!isFase4&&e&&new Date(e)<TODAY&&pct<100;
       var isEditing=editPartida&&editPartida.idx===idx;
       if(isEditing){
         rows.push(h('div',{key:'edit_'+idx,style:{
@@ -5004,7 +5012,7 @@ function GanttView({ganttData,onGanttSave,auth,saves,toast,progress}){
       var isBarDragging=barDrag&&barDrag.type==='partida'&&String(barDrag.idx)===String(pid);
       rows.push(h(Row,{key:pid,
         label:name,color:color,bold:false,pct:pct,s:s,e:e,resp:resp,
-        indent:1,isDone:pct>=100,isLate:isLate,
+        indent:1,isDone:pct>=100,isLate:isLate,noLate:isFase4,
         onEdit:isAdmin?function(ev){
           ev&&ev.stopPropagation&&ev.stopPropagation();
           var curRi=respInfo.respIdx===255||respInfo.respIdx==null?'':respInfo.respIdx;
