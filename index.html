@@ -2983,6 +2983,64 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
       return Object.assign({},curIto,{[dep]:next});
     }});
   }
+  // ── Historial de ciclos de revisión por unidad y etapa (R0/R1/RF) ──
+  // Registro aparte del % (0/25/50/75/100) que ya se edita a mano: aquí se
+  // guarda CUÁNDO se notificó cada ronda, CUÁNDO se revisó y si se rechazó
+  // (con motivo), para poder calcular días por ciclo y detectar dónde se
+  // atascan las unidades. Es puramente informativo — no mueve el % de nadie.
+  var ITO_STAGES=['R0','R1','RF'];
+  var ITO_STAGE_COLOR={R0:'var(--purple)',R1:PIZARRA_NEON,RF:'var(--green)'};
+  function getCiclos(dep,stage){
+    var it=getIt(dep);
+    return(it.ciclos&&it.ciclos[stage])||[];
+  }
+  function addCiclo(dep,stage){
+    saveDepIto(dep,function(curDep){
+      var ciclos=(curDep.ciclos&&curDep.ciclos[stage])||[];
+      var n=ciclos.length?ciclos[ciclos.length-1].n+1:1;
+      var next=ciclos.concat([{n:n,fNotif:hoy,fRevision:'',resultado:'',motivo:''}]);
+      return{ciclos:Object.assign({},curDep.ciclos,{[stage]:next})};
+    });
+  }
+  function updateCiclo(dep,stage,idx,patch){
+    saveDepIto(dep,function(curDep){
+      var ciclos=((curDep.ciclos&&curDep.ciclos[stage])||[]).slice();
+      if(!ciclos[idx])return{}; // ya no existe (borrado desde otro dispositivo) — no crashear
+      ciclos[idx]=Object.assign({},ciclos[idx],patch);
+      return{ciclos:Object.assign({},curDep.ciclos,{[stage]:ciclos})};
+    });
+  }
+  function removeCiclo(dep,stage,idx){
+    saveDepIto(dep,function(curDep){
+      var ciclos=((curDep.ciclos&&curDep.ciclos[stage])||[]).filter(function(_,i){return i!==idx;});
+      return{ciclos:Object.assign({},curDep.ciclos,{[stage]:ciclos})};
+    });
+  }
+  function cicloDias(c){
+    if(c.fNotif&&c.fRevision)return daysBetween(c.fNotif,c.fRevision);
+    if(c.fNotif)return daysSince(c.fNotif);
+    return null;
+  }
+  // Escanea TODOS los deptos × TODAS las etapas y arma dos rankings: ciclos
+  // abiertos (notificados sin revisión) hace más tiempo, y unidades con más
+  // rechazos acumulados en una misma etapa — las dos señales clásicas de
+  // cuello de botella en un proceso de revisión por rondas.
+  function pizarraBottlenecks(){
+    var abiertos=[],rechazos=[];
+    allDeps.forEach(function(dep){
+      ITO_STAGES.forEach(function(stage){
+        var ciclos=getCiclos(dep,stage);
+        if(!ciclos.length)return;
+        var last=ciclos[ciclos.length-1];
+        if(last.fNotif&&!last.fRevision)abiertos.push({dep:dep,stage:stage,n:last.n,dias:daysSince(last.fNotif)});
+        var rc=ciclos.filter(function(c){return c.resultado==='rechazado';}).length;
+        if(rc>0)rechazos.push({dep:dep,stage:stage,count:rc});
+      });
+    });
+    abiertos.sort(function(a,b){return b.dias-a.dias;});
+    rechazos.sort(function(a,b){return b.count-a.count;});
+    return{abiertos:abiertos.slice(0,8),rechazos:rechazos.slice(0,8)};
+  }
   function getNotifDate(dep){return notifDates[dep]||hoy;}
   function setNotifDate(dep,val){setNotifDates(function(cur){var n=Object.assign({},cur);n[dep]=val;return n;});}
   function getActaDate(dep){return actaDates[dep]||hoy;}
@@ -3538,6 +3596,48 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
       )
     );
   }
+  // ── Panel "Cuellos de botella": rankings en vivo a partir del historial de
+  // ciclos que se va cargando desde el editor de cada depto (ver pctEditorPanel
+  // más abajo). Vacío hasta que alguien empiece a cargar fechas — no inventa
+  // nada a partir del %.
+  function renderPizarraBottlenecks(){
+    var bn=pizarraBottlenecks();
+    var hasData=bn.abiertos.length||bn.rechazos.length;
+    function fila(items,render){
+      return items.length?h('div',{style:{display:'flex',flexDirection:'column',gap:4}},items.map(render))
+        :h('div',{style:{fontSize:10,color:'var(--text2)',fontStyle:'italic'}},'ninguno');
+    }
+    return h('div',{key:'ito_bottlenecks',className:'card'},
+      h('div',{className:'shdr'},h('div',{className:'shdr-title'},'Cuellos de botella — ciclos de revisión')),
+      h('div',{style:{fontSize:10,color:'var(--text3)',marginBottom:8}},
+        'Se arma solo con las fechas que cargues desde el editor de cada depto (pincha una unidad en los recuadros de abajo). Mientras no cargues nada, queda vacío.'),
+      !hasData?h('div',{style:{fontSize:11,color:'var(--text2)',fontStyle:'italic'}},'Aún no hay ciclos registrados.')
+        :h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}},
+          h('div',null,
+            h('div',{style:{fontSize:10,fontWeight:800,color:'var(--text)',marginBottom:5,textTransform:'uppercase',letterSpacing:'.05em'}},'Esperando revisión hace más tiempo'),
+            fila(bn.abiertos,function(o,i){
+              return h('div',{key:i,onClick:isAdmin?function(){setPctEditor({dep:o.dep,stage:o.stage});}:undefined,
+                style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:6,background:'var(--bg2)',
+                  border:'1px solid '+ITO_STAGE_COLOR[o.stage],borderRadius:6,padding:'4px 8px',cursor:isAdmin?'pointer':'default'}},
+                h('span',{className:'mono',style:{fontSize:11,fontWeight:700,color:ITO_STAGE_COLOR[o.stage]}},'D'+o.dep+' · '+o.stage+' · ciclo '+o.n),
+                h('span',{className:'mono',style:{fontSize:11,fontWeight:800,color:o.dias>=7?'var(--red)':'var(--amber)'}},o.dias+'d')
+              );
+            })
+          ),
+          h('div',null,
+            h('div',{style:{fontSize:10,fontWeight:800,color:'var(--text)',marginBottom:5,textTransform:'uppercase',letterSpacing:'.05em'}},'Más rechazos acumulados'),
+            fila(bn.rechazos,function(r,i){
+              return h('div',{key:i,onClick:isAdmin?function(){setPctEditor({dep:r.dep,stage:r.stage});}:undefined,
+                style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:6,background:'var(--bg2)',
+                  border:'1px solid '+ITO_STAGE_COLOR[r.stage],borderRadius:6,padding:'4px 8px',cursor:isAdmin?'pointer':'default'}},
+                h('span',{className:'mono',style:{fontSize:11,fontWeight:700,color:ITO_STAGE_COLOR[r.stage]}},'D'+r.dep+' · '+r.stage),
+                h('span',{className:'mono',style:{fontSize:11,fontWeight:800,color:'var(--red)'}},r.count+'×')
+              );
+            })
+          )
+        )
+    );
+  }
   // ── Recuadro resumen Notificación ITO: cuántos deptos hay en cada paso del
   // proceso completo de cada partida hito (R0/R1/RF), que avanza en 4 tramos:
   //   25%  → Notificada (recién notificada al ITO)
@@ -3702,7 +3802,7 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
         function(dep){return!pizarraAssignOf(boardKey,dep);},
         'Todos los deptos ya están asignados.',true)
     ];
-    if(boardKey==='ito')srcCards.push(renderPizarraItoResumen());
+    if(boardKey==='ito'){srcCards.push(renderPizarraBottlenecks());srcCards.push(renderPizarraItoResumen());}
     return srcCards.concat([
       h('div',{key:boardKey+'_board',className:'card'},
         h('div',{className:'shdr'},h('div',{className:'shdr-title'},cfg.boardTitle)),
@@ -3945,27 +4045,79 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
     )
   ):null;
 
-  // Editor rápido de % de la partida hito R0/R1/RF (solo Admin), abierto al
-  // pinchar un depto en cualquiera de los recuadros del resumen. Mismos 5
-  // pasos (0/25/50/75/100) que usa el editor de partidas en Pisos → depto.
+  // Editor de una unidad+etapa (solo Admin), abierto al pinchar un depto en
+  // cualquiera de los recuadros del resumen o del panel de cuellos de botella.
+  // Trae dos cosas independientes: el % (0/25/50/75/100, mismos 5 pasos que
+  // Pisos → depto) y, debajo, el historial de ciclos de revisión (fecha de
+  // notificación, fecha de revisión, resultado y motivo si se rechaza) — este
+  // historial es solo un registro de fechas, no mueve el % de nadie.
   var pctEditorPanel=(pctEditor&&isAdmin)?h('div',{
     style:{position:'fixed',inset:0,background:'rgba(0,0,0,.5)',zIndex:300,display:'flex',alignItems:'center',justifyContent:'center',padding:16},
     onClick:function(e){if(e.target===e.currentTarget)setPctEditor(null);}
   },
-    h('div',{className:'card',style:{maxWidth:320,width:'100%'}},
+    h('div',{className:'card',style:{maxWidth:420,width:'100%',maxHeight:'90vh',overflowY:'auto'}},
       h('div',{className:'shdr'},h('div',{className:'shdr-title'},'D'+pctEditor.dep+' — Entrega '+pctEditor.stage)),
-      h('div',{style:{fontSize:11,color:'var(--text3)',marginBottom:12}},
-        'Actual: '+f4MilestoneVal(pctEditor.dep,F4_MILESTONE_ID[pctEditor.stage],saves)+'%'
+      h('div',{style:{fontSize:11,color:'var(--text3)',marginBottom:8}},
+        '% actual: '+f4MilestoneVal(pctEditor.dep,F4_MILESTONE_ID[pctEditor.stage],saves)+'%'
       ),
-      h('div',{style:{display:'flex',gap:6,flexWrap:'wrap',marginBottom:12}},
+      h('div',{style:{display:'flex',gap:6,flexWrap:'wrap',marginBottom:16}},
         [0,25,50,75,100].map(function(pct){
           var cur=f4MilestoneVal(pctEditor.dep,F4_MILESTONE_ID[pctEditor.stage],saves)===pct;
           return h('button',{key:pct,
-            onClick:function(){setF4Pct(pctEditor.dep,pctEditor.stage,pct);setPctEditor(null);},
+            onClick:function(){setF4Pct(pctEditor.dep,pctEditor.stage,pct);},
             style:{flex:'1 1 30%',padding:'9px 4px',borderRadius:8,fontSize:13,fontWeight:800,fontFamily:'var(--mono)',cursor:'pointer',
               background:cur?'var(--blue)':'var(--bg2)',border:'1px solid '+(cur?'var(--blue)':'var(--border)'),color:cur?'#fff':'var(--text)'}
           },pct+'%');
         })
+      ),
+      h('div',{style:{borderTop:'1px solid var(--border)',paddingTop:10,marginBottom:10}},
+        h('div',{style:{fontSize:11,fontWeight:800,color:'var(--text)',letterSpacing:'.05em',marginBottom:2}},'HISTORIAL DE CICLOS'),
+        h('div',{style:{fontSize:9,color:'var(--text2)',marginBottom:8}},'Fecha de notificación, fecha de revisión y resultado de cada ronda. Si se rechaza, agrega el motivo y abre un ciclo nuevo abajo.'),
+        getCiclos(pctEditor.dep,pctEditor.stage).map(function(c,idx){
+          var dias=cicloDias(c);
+          var abierto=c.fNotif&&!c.fRevision;
+          return h('div',{key:idx,style:{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 10px',marginBottom:8}},
+            h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:6}},
+              h('span',{style:{fontSize:11,fontWeight:800,color:'var(--text)'}},'Ciclo '+c.n),
+              h('div',{style:{display:'flex',alignItems:'center',gap:6}},
+                dias!=null?h('span',{className:'mono',style:{fontSize:10,fontWeight:800,color:abierto?(dias>=7?'var(--red)':'var(--amber)'):'var(--text2)'}},
+                  dias+'d'+(abierto?' (en curso)':'')):null,
+                h('button',{onClick:function(){removeCiclo(pctEditor.dep,pctEditor.stage,idx);},
+                  style:{background:'none',border:'none',color:'var(--text3)',cursor:'pointer',fontSize:13,padding:'0 2px'}},'✕')
+              )
+            ),
+            h('div',{style:{display:'flex',gap:6,flexWrap:'wrap',marginBottom:6}},
+              h('div',{style:{flex:'1 1 130px'}},
+                h('div',{style:{fontSize:9,color:'var(--text2)',marginBottom:2}},'Fecha notificación'),
+                h('input',{type:'date',className:'date-input',value:c.fNotif||'',
+                  onChange:function(e){updateCiclo(pctEditor.dep,pctEditor.stage,idx,{fNotif:e.target.value});}})
+              ),
+              h('div',{style:{flex:'1 1 130px'}},
+                h('div',{style:{fontSize:9,color:'var(--text2)',marginBottom:2}},'Fecha revisión'),
+                h('input',{type:'date',className:'date-input',value:c.fRevision||'',
+                  onChange:function(e){updateCiclo(pctEditor.dep,pctEditor.stage,idx,{fRevision:e.target.value});}})
+              )
+            ),
+            h('div',{style:{display:'flex',gap:6,marginBottom:c.resultado==='rechazado'?6:0}},
+              [['','Pendiente','var(--text2)'],['aprobado','Aprobado','var(--green)'],['rechazado','Rechazado','var(--red)']].map(function(o){
+                var sel=(c.resultado||'')===o[0];
+                return h('button',{key:o[0],
+                  onClick:function(){updateCiclo(pctEditor.dep,pctEditor.stage,idx,{resultado:o[0]});},
+                  style:{flex:1,padding:'5px 4px',borderRadius:6,fontSize:10,fontWeight:700,cursor:'pointer',
+                    background:sel?o[2]:'var(--bg3)',border:'1px solid '+(sel?o[2]:'var(--border)'),color:sel?'#04220d':'var(--text2)'}
+                },o[1]);
+              })
+            ),
+            c.resultado==='rechazado'?h('input',{type:'text',className:'sel-input',value:c.motivo||'',maxLength:160,
+              placeholder:'Motivo del rechazo…',
+              onChange:function(e){updateCiclo(pctEditor.dep,pctEditor.stage,idx,{motivo:e.target.value});}
+            }):null
+          );
+        }),
+        h('button',{
+          onClick:function(){addCiclo(pctEditor.dep,pctEditor.stage);},
+          style:{width:'100%',background:'transparent',border:'1px dashed var(--border)',borderRadius:8,padding:'8px 10px',color:'var(--text2)',cursor:'pointer',fontSize:11,fontWeight:700}
+        },'+ Agregar ciclo')
       ),
       h('button',{
         onClick:function(){setPctEditor(null);},
