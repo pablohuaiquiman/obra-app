@@ -2990,6 +2990,7 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
   // atascan las unidades. Es puramente informativo — no mueve el % de nadie.
   var ITO_STAGES=['R0','R1','RF'];
   var ITO_STAGE_COLOR={R0:'var(--purple)',R1:PIZARRA_NEON,RF:'var(--green)'};
+  var STAGE_LEV_KEY={R0:'r0lev',R1:'r1lev',RF:'rflev'}; // clave de pizarraRevMarks() para "esa etapa llegó a 100%"
   function getCiclos(dep,stage){
     var it=getIt(dep);
     return(it.ciclos&&it.ciclos[stage])||[];
@@ -3016,20 +3017,51 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
       return{ciclos:Object.assign({},curDep.ciclos,{[stage]:ciclos})};
     });
   }
+  // ── Cierre del ciclo: ¿ya se generó el acta de esa etapa? ──
+  // Una unidad puede quedar "levantada" (100%) mucho tiempo sin que a nadie
+  // se le ocurra generar el acta correspondiente — este check es justamente
+  // para que ese hueco no pase desapercibido: se ve en un recuadro aparte y
+  // alimenta el ranking de cuellos de botella de más abajo.
+  function isActaOk(dep,stage){
+    var it=getIt(dep);
+    return!!(it.actaOk&&it.actaOk[stage]);
+  }
+  function setActaOk(dep,stage,val){
+    saveDepIto(dep,function(curDep){
+      return{actaOk:Object.assign({},curDep.actaOk,{[stage]:val})};
+    });
+  }
+  // Fecha de referencia para "hace cuánto está levantada sin acta": la fecha
+  // de revisión del último ciclo aprobado de esa etapa (si se cargó). Sin ese
+  // dato no se puede calcular antigüedad — la unidad igual aparece en el
+  // checklist, solo sin días.
+  function fechaLevantada(dep,stage){
+    var ciclos=getCiclos(dep,stage);
+    for(var i=ciclos.length-1;i>=0;i--){
+      if(ciclos[i].resultado==='aprobado'&&ciclos[i].fRevision)return ciclos[i].fRevision;
+    }
+    return null;
+  }
   function cicloDias(c){
     if(c.fNotif&&c.fRevision)return daysBetween(c.fNotif,c.fRevision);
     if(c.fNotif)return daysSince(c.fNotif);
     return null;
   }
-  // Escanea TODOS los deptos × TODAS las etapas y arma tres rankings: ciclos
+  // Escanea TODOS los deptos × TODAS las etapas y arma cuatro rankings: ciclos
   // abiertos (notificados sin revisión) hace más tiempo, unidades con más
-  // rechazos acumulados en una misma etapa, y ciclos con más observaciones
-  // en un solo listado — señales clásicas de cuello de botella en un proceso
-  // de revisión por rondas.
+  // rechazos acumulados en una misma etapa, ciclos con más observaciones en
+  // un solo listado, y etapas levantadas (100%) que llevan más tiempo SIN
+  // acta generada — señales clásicas de cuello de botella en un proceso de
+  // revisión por rondas.
   function pizarraBottlenecks(){
-    var abiertos=[],rechazos=[],obs=[];
+    var abiertos=[],rechazos=[],obs=[],sinActa=[];
     allDeps.forEach(function(dep){
+      var marks=pizarraRevMarks(dep);
       ITO_STAGES.forEach(function(stage){
+        if(marks[STAGE_LEV_KEY[stage]]&&!isActaOk(dep,stage)){
+          var fref=fechaLevantada(dep,stage);
+          sinActa.push({dep:dep,stage:stage,dias:fref?daysSince(fref):null});
+        }
         var ciclos=getCiclos(dep,stage);
         if(!ciclos.length)return;
         var last=ciclos[ciclos.length-1];
@@ -3044,7 +3076,15 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
     abiertos.sort(function(a,b){return b.dias-a.dias;});
     rechazos.sort(function(a,b){return b.count-a.count;});
     obs.sort(function(a,b){return b.count-a.count;});
-    return{abiertos:abiertos.slice(0,8),rechazos:rechazos.slice(0,8),obs:obs.slice(0,8)};
+    // Las que tienen fecha (más antiguas primero) van antes que las que no
+    // tienen ningún dato cargado — esas últimas quedan al final, no arriba.
+    sinActa.sort(function(a,b){
+      if(a.dias==null&&b.dias==null)return 0;
+      if(a.dias==null)return 1;
+      if(b.dias==null)return-1;
+      return b.dias-a.dias;
+    });
+    return{abiertos:abiertos.slice(0,8),rechazos:rechazos.slice(0,8),obs:obs.slice(0,8),sinActa:sinActa.slice(0,8)};
   }
   function getNotifDate(dep){return notifDates[dep]||hoy;}
   function setNotifDate(dep,val){setNotifDates(function(cur){var n=Object.assign({},cur);n[dep]=val;return n;});}
@@ -3607,7 +3647,7 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
   // nada a partir del %.
   function renderPizarraBottlenecks(){
     var bn=pizarraBottlenecks();
-    var hasData=bn.abiertos.length||bn.rechazos.length||bn.obs.length;
+    var hasData=bn.abiertos.length||bn.rechazos.length||bn.obs.length||bn.sinActa.length;
     function fila(items,render){
       return items.length?h('div',{style:{display:'flex',flexDirection:'column',gap:4}},items.map(render))
         :h('div',{style:{fontSize:10,color:'var(--text2)',fontStyle:'italic'}},'ninguno');
@@ -3615,9 +3655,20 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
     return h('div',{key:'ito_bottlenecks',className:'card'},
       h('div',{className:'shdr'},h('div',{className:'shdr-title'},'Cuellos de botella — ciclos de revisión')),
       h('div',{style:{fontSize:10,color:'var(--text3)',marginBottom:8}},
-        'Se arma solo con las fechas y datos que cargues desde el editor de cada depto (pincha una unidad en los recuadros de abajo). Mientras no cargues nada, queda vacío.'),
+        'Se arma solo con las fechas y datos que cargues desde el editor de cada depto (pincha una unidad en los recuadros de abajo, o el check de "con Acta"). Mientras no cargues nada, queda vacío.'),
       !hasData?h('div',{style:{fontSize:11,color:'var(--text2)',fontStyle:'italic'}},'Aún no hay ciclos registrados.')
-        :h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8}},
+        :h('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(190px,1fr))',gap:8}},
+          h('div',null,
+            h('div',{style:{fontSize:10,fontWeight:800,color:'var(--text)',marginBottom:5,textTransform:'uppercase',letterSpacing:'.05em'}},'Levantada hace más tiempo sin acta'),
+            fila(bn.sinActa,function(s,i){
+              return h('div',{key:i,onClick:isAdmin?function(){setPctEditor({dep:s.dep,stage:s.stage});}:undefined,
+                style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:6,background:'var(--bg2)',
+                  border:'1px solid '+ITO_STAGE_COLOR[s.stage],borderRadius:6,padding:'4px 8px',cursor:isAdmin?'pointer':'default'}},
+                h('span',{className:'mono',style:{fontSize:11,fontWeight:700,color:ITO_STAGE_COLOR[s.stage]}},'D'+s.dep+' · '+s.stage),
+                h('span',{className:'mono',style:{fontSize:11,fontWeight:800,color:s.dias==null?'var(--text2)':(s.dias>=14?'var(--red)':'var(--amber)')}},s.dias==null?'sin fecha':(s.dias+'d'))
+              );
+            })
+          ),
           h('div',null,
             h('div',{style:{fontSize:10,fontWeight:800,color:'var(--text)',marginBottom:5,textTransform:'uppercase',letterSpacing:'.05em'}},'Esperando revisión hace más tiempo'),
             fila(bn.abiertos,function(o,i){
@@ -3729,6 +3780,46 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
               :h('div',{style:{fontSize:10,color:'var(--text2)',fontStyle:'italic'}},'— ninguno aún')
           );
         })
+      ),
+      // ── Cierre del ciclo — con Acta: unidades ya levantadas (100%) en cada
+      // etapa, con un check para marcar apenas se genere el acta de entrega
+      // correspondiente. Es el paso que más se pierde de vista — una unidad
+      // puede quedar "lista" mucho tiempo sin que nadie note que falta el
+      // acta — por eso va en un recuadro final aparte, no mezclado con
+      // "Levantadas" de arriba, y alimenta el ranking de cuellos de botella.
+      h('div',{style:{marginTop:10,paddingTop:10,borderTop:'1px solid var(--border)'}},
+        h('div',{style:{fontSize:11,fontWeight:800,color:'var(--text)',letterSpacing:'.05em',marginBottom:2}},'CIERRE — CON ACTA'),
+        h('div',{style:{fontSize:9,color:'var(--text2)',marginBottom:8}},'Unidades con esa etapa levantada (100%).'+(isAdmin?' Marca el check apenas se genere el acta de entrega — así no se pierden de vista las que llevan tiempo esperando.':'')),
+        h('div',{style:{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8}},
+          ITO_STAGES.map(function(stage){
+            var color=ITO_STAGE_COLOR[stage];
+            var deps=allDeps.filter(function(dep){return pizarraRevMarks(dep)[STAGE_LEV_KEY[stage]];})
+              .sort(function(a,b){return parseInt(a,10)-parseInt(b,10);});
+            var conActa=deps.filter(function(dep){return isActaOk(dep,stage);});
+            return h('div',{key:stage,style:{background:'var(--bg2)',border:'1px solid '+color,borderRadius:10,padding:'8px 10px'}},
+              h('div',{style:{display:'flex',alignItems:'baseline',justifyContent:'space-between',gap:6,marginBottom:5}},
+                h('span',{style:{fontSize:10,fontWeight:800,letterSpacing:'.06em',color:color,textTransform:'uppercase'}},stage+' con acta'),
+                h('span',{className:'mono',style:{fontSize:13,fontWeight:800,color:color}},conActa.length+'/'+deps.length)
+              ),
+              deps.length?h('div',{style:{display:'flex',flexDirection:'column',gap:3}},
+                deps.map(function(dep){
+                  var ok=isActaOk(dep,stage);
+                  return h('div',{key:dep,
+                    onClick:isAdmin?function(){setActaOk(dep,stage,!ok);}:undefined,
+                    title:isAdmin?('D'+dep+' · pincha para marcar/desmarcar acta '+stage):('D'+dep),
+                    style:{display:'flex',alignItems:'center',gap:6,fontSize:11,fontWeight:700,
+                      color:ok?'var(--text2)':'var(--text)',cursor:isAdmin?'pointer':'default',
+                      padding:'2px 4px',borderRadius:4,background:ok?'transparent':'rgba(239,68,68,.10)'}
+                  },
+                    h('span',{style:{fontSize:13}},ok?'☑':'☐'),
+                    h('span',{className:'mono'},'D'+dep),
+                    !ok?h('span',{style:{fontSize:9,color:'var(--red)',marginLeft:'auto'}},'sin acta'):null
+                  );
+                })
+              ):h('div',{style:{fontSize:10,color:'var(--text2)',fontStyle:'italic'}},'— aún ninguna levantada')
+            );
+          })
+        )
       ),
       // ── Mapas de entrega: TODOS los deptos por piso; se pintan verdes cuando la
       // etapa (R1 o RF) llega al 50% (notificada) y quedan tachados cuando llega
