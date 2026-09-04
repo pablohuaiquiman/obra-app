@@ -3600,11 +3600,12 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizar
           h('div',{style:{display:'flex',flexWrap:'wrap',gap:3}},
             deps.map(function(dep){
               var e=estadoOf(dep);
+              var fondo=(e.started||e.done)?color:'var(--bg3)';
+              var tachado='linear-gradient(to top right,transparent calc(50% - 1.5px),'+onColor+' calc(50% - 1.5px),'+onColor+' calc(50% + 1.5px),transparent calc(50% + 1.5px))';
               return h('span',{key:dep,className:'mono',title:'D'+dep+(e.done?(' · terminado ('+suffix+' 100%)'):e.started?(' · '+suffix+' notificada (50%)'):' · pendiente'),
                 style:{fontSize:10,fontWeight:700,borderRadius:5,padding:'1px 5px',
-                  textDecoration:e.done?'line-through':'none',
                   color:(e.started||e.done)?onColor:'var(--text2)',
-                  background:(e.started||e.done)?color:'var(--bg3)',
+                  background:e.done?(tachado+','+fondo):fondo,
                   border:'1px solid '+((e.started||e.done)?color:'var(--border)')}},dep);
             })
           )
