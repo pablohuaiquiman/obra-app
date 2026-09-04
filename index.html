@@ -2998,7 +2998,7 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
     saveDepIto(dep,function(curDep){
       var ciclos=(curDep.ciclos&&curDep.ciclos[stage])||[];
       var n=ciclos.length?ciclos[ciclos.length-1].n+1:1;
-      var next=ciclos.concat([{n:n,fNotif:hoy,fRevision:'',resultado:'',motivo:''}]);
+      var next=ciclos.concat([{n:n,fNotif:hoy,fRevision:'',resultado:'',motivo:'',numObs:''}]);
       return{ciclos:Object.assign({},curDep.ciclos,{[stage]:next})};
     });
   }
@@ -3021,12 +3021,13 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
     if(c.fNotif)return daysSince(c.fNotif);
     return null;
   }
-  // Escanea TODOS los deptos × TODAS las etapas y arma dos rankings: ciclos
-  // abiertos (notificados sin revisión) hace más tiempo, y unidades con más
-  // rechazos acumulados en una misma etapa — las dos señales clásicas de
-  // cuello de botella en un proceso de revisión por rondas.
+  // Escanea TODOS los deptos × TODAS las etapas y arma tres rankings: ciclos
+  // abiertos (notificados sin revisión) hace más tiempo, unidades con más
+  // rechazos acumulados en una misma etapa, y ciclos con más observaciones
+  // en un solo listado — señales clásicas de cuello de botella en un proceso
+  // de revisión por rondas.
   function pizarraBottlenecks(){
-    var abiertos=[],rechazos=[];
+    var abiertos=[],rechazos=[],obs=[];
     allDeps.forEach(function(dep){
       ITO_STAGES.forEach(function(stage){
         var ciclos=getCiclos(dep,stage);
@@ -3035,11 +3036,15 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
         if(last.fNotif&&!last.fRevision)abiertos.push({dep:dep,stage:stage,n:last.n,dias:daysSince(last.fNotif)});
         var rc=ciclos.filter(function(c){return c.resultado==='rechazado';}).length;
         if(rc>0)rechazos.push({dep:dep,stage:stage,count:rc});
+        ciclos.forEach(function(c){
+          if(c.numObs!=null&&c.numObs!=='')obs.push({dep:dep,stage:stage,n:c.n,count:parseInt(c.numObs,10)||0});
+        });
       });
     });
     abiertos.sort(function(a,b){return b.dias-a.dias;});
     rechazos.sort(function(a,b){return b.count-a.count;});
-    return{abiertos:abiertos.slice(0,8),rechazos:rechazos.slice(0,8)};
+    obs.sort(function(a,b){return b.count-a.count;});
+    return{abiertos:abiertos.slice(0,8),rechazos:rechazos.slice(0,8),obs:obs.slice(0,8)};
   }
   function getNotifDate(dep){return notifDates[dep]||hoy;}
   function setNotifDate(dep,val){setNotifDates(function(cur){var n=Object.assign({},cur);n[dep]=val;return n;});}
@@ -3602,7 +3607,7 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
   // nada a partir del %.
   function renderPizarraBottlenecks(){
     var bn=pizarraBottlenecks();
-    var hasData=bn.abiertos.length||bn.rechazos.length;
+    var hasData=bn.abiertos.length||bn.rechazos.length||bn.obs.length;
     function fila(items,render){
       return items.length?h('div',{style:{display:'flex',flexDirection:'column',gap:4}},items.map(render))
         :h('div',{style:{fontSize:10,color:'var(--text2)',fontStyle:'italic'}},'ninguno');
@@ -3610,9 +3615,9 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
     return h('div',{key:'ito_bottlenecks',className:'card'},
       h('div',{className:'shdr'},h('div',{className:'shdr-title'},'Cuellos de botella — ciclos de revisión')),
       h('div',{style:{fontSize:10,color:'var(--text3)',marginBottom:8}},
-        'Se arma solo con las fechas que cargues desde el editor de cada depto (pincha una unidad en los recuadros de abajo). Mientras no cargues nada, queda vacío.'),
+        'Se arma solo con las fechas y datos que cargues desde el editor de cada depto (pincha una unidad en los recuadros de abajo). Mientras no cargues nada, queda vacío.'),
       !hasData?h('div',{style:{fontSize:11,color:'var(--text2)',fontStyle:'italic'}},'Aún no hay ciclos registrados.')
-        :h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}},
+        :h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8}},
           h('div',null,
             h('div',{style:{fontSize:10,fontWeight:800,color:'var(--text)',marginBottom:5,textTransform:'uppercase',letterSpacing:'.05em'}},'Esperando revisión hace más tiempo'),
             fila(bn.abiertos,function(o,i){
@@ -3632,6 +3637,17 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
                   border:'1px solid '+ITO_STAGE_COLOR[r.stage],borderRadius:6,padding:'4px 8px',cursor:isAdmin?'pointer':'default'}},
                 h('span',{className:'mono',style:{fontSize:11,fontWeight:700,color:ITO_STAGE_COLOR[r.stage]}},'D'+r.dep+' · '+r.stage),
                 h('span',{className:'mono',style:{fontSize:11,fontWeight:800,color:'var(--red)'}},r.count+'×')
+              );
+            })
+          ),
+          h('div',null,
+            h('div',{style:{fontSize:10,fontWeight:800,color:'var(--text)',marginBottom:5,textTransform:'uppercase',letterSpacing:'.05em'}},'Más observaciones en un ciclo'),
+            fila(bn.obs,function(o,i){
+              return h('div',{key:i,onClick:isAdmin?function(){setPctEditor({dep:o.dep,stage:o.stage});}:undefined,
+                style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:6,background:'var(--bg2)',
+                  border:'1px solid '+ITO_STAGE_COLOR[o.stage],borderRadius:6,padding:'4px 8px',cursor:isAdmin?'pointer':'default'}},
+                h('span',{className:'mono',style:{fontSize:11,fontWeight:700,color:ITO_STAGE_COLOR[o.stage]}},'D'+o.dep+' · '+o.stage+' · ciclo '+o.n),
+                h('span',{className:'mono',style:{fontSize:11,fontWeight:800,color:'var(--amber)'}},o.count+' obs.')
               );
             })
           )
@@ -4072,7 +4088,7 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
       ),
       h('div',{style:{borderTop:'1px solid var(--border)',paddingTop:10,marginBottom:10}},
         h('div',{style:{fontSize:11,fontWeight:800,color:'var(--text)',letterSpacing:'.05em',marginBottom:2}},'HISTORIAL DE CICLOS'),
-        h('div',{style:{fontSize:9,color:'var(--text2)',marginBottom:8}},'Fecha de notificación, fecha de revisión y resultado de cada ronda. Si se rechaza, agrega el motivo y abre un ciclo nuevo abajo.'),
+        h('div',{style:{fontSize:9,color:'var(--text2)',marginBottom:8}},'Fecha de notificación, fecha de revisión, cuántas observaciones dejaron en esa revisión y el resultado de cada ronda. Si se rechaza, agrega el motivo y abre un ciclo nuevo abajo.'),
         getCiclos(pctEditor.dep,pctEditor.stage).map(function(c,idx){
           var dias=cicloDias(c);
           var abierto=c.fNotif&&!c.fRevision;
@@ -4080,6 +4096,7 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
             h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:6}},
               h('span',{style:{fontSize:11,fontWeight:800,color:'var(--text)'}},'Ciclo '+c.n),
               h('div',{style:{display:'flex',alignItems:'center',gap:6}},
+                c.numObs!=null&&c.numObs!==''?h('span',{className:'mono',style:{fontSize:10,fontWeight:800,color:'var(--amber)'}},c.numObs+' obs.'):null,
                 dias!=null?h('span',{className:'mono',style:{fontSize:10,fontWeight:800,color:abierto?(dias>=7?'var(--red)':'var(--amber)'):'var(--text2)'}},
                   dias+'d'+(abierto?' (en curso)':'')):null,
                 h('button',{onClick:function(){removeCiclo(pctEditor.dep,pctEditor.stage,idx);},
@@ -4096,6 +4113,11 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
                 h('div',{style:{fontSize:9,color:'var(--text2)',marginBottom:2}},'Fecha revisión'),
                 h('input',{type:'date',className:'date-input',value:c.fRevision||'',
                   onChange:function(e){updateCiclo(pctEditor.dep,pctEditor.stage,idx,{fRevision:e.target.value});}})
+              ),
+              h('div',{style:{flex:'1 1 90px'}},
+                h('div',{style:{fontSize:9,color:'var(--text2)',marginBottom:2}},'N° observaciones'),
+                h('input',{type:'number',min:0,className:'date-input',value:c.numObs!=null?c.numObs:'',placeholder:'—',
+                  onChange:function(e){updateCiclo(pctEditor.dep,pctEditor.stage,idx,{numObs:e.target.value});}})
               )
             ),
             h('div',{style:{display:'flex',gap:6,marginBottom:c.resultado==='rechazado'?6:0}},
