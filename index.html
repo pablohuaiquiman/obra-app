@@ -3572,37 +3572,40 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizar
           );
         })
       ),
-      // ── Mapas de entrega: TODOS los deptos por piso; se pintan cuando la marca
-      // (R1 o RF) llega al 100% — así se ve de un vistazo cómo va avanzando la
-      // entrega del edificio piso a piso, en cada etapa del ciclo.
-      renderPizarraEntregaMapa('r1lev','R1',PIZARRA_NEON,'#04220d'),
-      renderPizarraEntregaMapa('rflev','RF','var(--green)','#04220d')
+      // ── Mapas de entrega: TODOS los deptos por piso; se pintan verdes cuando la
+      // etapa (R1 o RF) llega al 50% (notificada) y quedan tachados cuando llega
+      // al 100% (levantada = terminado) — así se ve de un vistazo tanto lo que
+      // está en curso como lo que ya se cerró, piso a piso.
+      renderPizarraEntregaMapa('r1notif','r1lev','R1',PIZARRA_NEON,'#04220d'),
+      renderPizarraEntregaMapa('rfnotif','rflev','RF','var(--green)','#04220d')
     );
   }
-  function renderPizarraEntregaMapa(markKey,suffix,color,onColor){
-    return h('div',{key:'mapa_'+markKey,style:{marginTop:10,background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:10,padding:'8px 10px'}},
+  function renderPizarraEntregaMapa(notifKey,levKey,suffix,color,onColor){
+    function estadoOf(dep){var m=pizarraRevMarks(dep);return{started:m[notifKey],done:m[levKey]};}
+    return h('div',{key:'mapa_'+levKey,style:{marginTop:10,background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:10,padding:'8px 10px'}},
       h('div',{style:{display:'flex',alignItems:'baseline',justifyContent:'space-between',gap:6,marginBottom:2}},
         h('span',{style:{fontSize:10,fontWeight:800,letterSpacing:'.06em',color:'var(--text)',textTransform:'uppercase'}},'Avance de entrega — deptos por piso '+suffix),
         h('span',{className:'mono',style:{fontSize:18,fontWeight:800,color:color}},
-          allDeps.filter(function(dep){return pizarraRevMarks(dep)[markKey];}).length+' / '+allDeps.length)
+          allDeps.filter(function(dep){return estadoOf(dep).done;}).length+' / '+allDeps.length)
       ),
-      h('div',{style:{fontSize:9,color:'var(--text2)',marginBottom:6}},'verde = Entrega '+suffix+' al 100% (completo)'),
+      h('div',{style:{fontSize:9,color:'var(--text2)',marginBottom:6}},'verde = Entrega '+suffix+' al 50% (notificada) · tachado = al 100% (terminado)'),
       floors.slice().reverse().map(function(fl){
         var deps=(_D.fl[fl]||[]).slice().sort(function(a,b){return parseInt(a,10)-parseInt(b,10);});
         if(!deps.length)return null;
-        var okPiso=deps.filter(function(dep){return pizarraRevMarks(dep)[markKey];}).length;
+        var okPiso=deps.filter(function(dep){return estadoOf(dep).done;}).length;
         var pisoLabel=fl.charAt(0).toUpperCase()+fl.slice(1);
         return h('div',{key:fl,style:{display:'flex',alignItems:'center',gap:8,marginBottom:6,flexWrap:'wrap'}},
           h('span',{style:{fontSize:11,fontWeight:800,color:'var(--text)',minWidth:56}},pisoLabel),
           h('span',{className:'mono',style:{fontSize:10,fontWeight:700,color:okPiso===deps.length?color:'var(--text2)',minWidth:38}},okPiso+'/'+deps.length),
           h('div',{style:{display:'flex',flexWrap:'wrap',gap:3}},
             deps.map(function(dep){
-              var ok=pizarraRevMarks(dep)[markKey];
-              return h('span',{key:dep,className:'mono',title:'D'+dep+(ok?(' · completo ('+suffix+' 100%)'):' · pendiente'),
+              var e=estadoOf(dep);
+              return h('span',{key:dep,className:'mono',title:'D'+dep+(e.done?(' · terminado ('+suffix+' 100%)'):e.started?(' · '+suffix+' notificada (50%)'):' · pendiente'),
                 style:{fontSize:10,fontWeight:700,borderRadius:5,padding:'1px 5px',
-                  color:ok?onColor:'var(--text2)',
-                  background:ok?color:'var(--bg3)',
-                  border:'1px solid '+(ok?color:'var(--border)')}},dep);
+                  textDecoration:e.done?'line-through':'none',
+                  color:(e.started||e.done)?onColor:'var(--text2)',
+                  background:(e.started||e.done)?color:'var(--bg3)',
+                  border:'1px solid '+((e.started||e.done)?color:'var(--border)')}},dep);
             })
           )
         );
