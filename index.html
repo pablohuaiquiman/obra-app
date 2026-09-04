@@ -3804,18 +3804,27 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
     );
   }
   function renderPizarraEntregaMapa(notifKey,levKey,suffix,color,onColor){
-    function estadoOf(dep){var m=pizarraRevMarks(dep);return{started:m[notifKey],done:m[levKey]};}
+    // "suffix" es 'R1'/'RF' — coincide 1:1 con la clave de ITO_STAGES/isActaOk,
+    // así que se reutiliza directo sin parámetro aparte. El tachado (cierre
+    // visual) solo se pinta cuando la unidad ya quedó "con Acta" — llegar al
+    // 100% (levantada) por sí solo ya rellena el color, pero el tachado queda
+    // reservado para cuando el acta de entrega realmente se generó.
+    function estadoOf(dep){
+      var m=pizarraRevMarks(dep);
+      var done=m[levKey];
+      return{started:m[notifKey],done:done,actaDone:done&&isActaOk(dep,suffix)};
+    }
     return h('div',{key:'mapa_'+levKey,style:{marginTop:10,background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:10,padding:'8px 10px'}},
       h('div',{style:{display:'flex',alignItems:'baseline',justifyContent:'space-between',gap:6,marginBottom:2}},
         h('span',{style:{fontSize:10,fontWeight:800,letterSpacing:'.06em',color:'var(--text)',textTransform:'uppercase'}},'Avance de entrega — deptos por piso '+suffix),
         h('span',{className:'mono',style:{fontSize:18,fontWeight:800,color:color}},
-          allDeps.filter(function(dep){return estadoOf(dep).done;}).length+' / '+allDeps.length)
+          allDeps.filter(function(dep){return estadoOf(dep).actaDone;}).length+' / '+allDeps.length)
       ),
-      h('div',{style:{fontSize:9,color:'var(--text2)',marginBottom:6}},'verde = Entrega '+suffix+' al 50% (notificada) · tachado = al 100% (terminado)'),
+      h('div',{style:{fontSize:9,color:'var(--text2)',marginBottom:6}},'verde = Entrega '+suffix+' al 50% (notificada) o levantada (100%) · tachado = con Acta generada (cierre)'),
       floors.slice().reverse().map(function(fl){
         var deps=(_D.fl[fl]||[]).slice().sort(function(a,b){return parseInt(a,10)-parseInt(b,10);});
         if(!deps.length)return null;
-        var okPiso=deps.filter(function(dep){return estadoOf(dep).done;}).length;
+        var okPiso=deps.filter(function(dep){return estadoOf(dep).actaDone;}).length;
         var pisoLabel=fl.charAt(0).toUpperCase()+fl.slice(1);
         return h('div',{key:fl,style:{display:'flex',alignItems:'center',gap:8,marginBottom:6,flexWrap:'wrap'}},
           h('span',{style:{fontSize:11,fontWeight:800,color:'var(--text)',minWidth:56}},pisoLabel),
@@ -3825,10 +3834,10 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
               var e=estadoOf(dep);
               var fondo=(e.started||e.done)?color:'var(--bg3)';
               var tachado='linear-gradient(to top right,transparent calc(50% - 1.5px),'+onColor+' calc(50% - 1.5px),'+onColor+' calc(50% + 1.5px),transparent calc(50% + 1.5px))';
-              return h('span',{key:dep,className:'mono',title:'D'+dep+(e.done?(' · terminado ('+suffix+' 100%)'):e.started?(' · '+suffix+' notificada (50%)'):' · pendiente'),
+              return h('span',{key:dep,className:'mono',title:'D'+dep+(e.actaDone?(' · con Acta — cierre '+suffix):e.done?(' · '+suffix+' levantada (100%), aún sin Acta'):e.started?(' · '+suffix+' notificada (50%)'):' · pendiente'),
                 style:{fontSize:10,fontWeight:700,borderRadius:5,padding:'1px 5px',
                   color:(e.started||e.done)?onColor:'var(--text2)',
-                  background:e.done?(tachado+','+fondo):fondo,
+                  background:e.actaDone?(tachado+','+fondo):fondo,
                   border:'1px solid '+((e.started||e.done)?color:'var(--border)')}},dep);
             })
           )
