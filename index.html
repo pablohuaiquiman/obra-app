@@ -2861,14 +2861,15 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizar
     var r0=f4MilestoneVal(dep,F4_MILESTONE_ID.R0,saves);
     var r1=f4MilestoneVal(dep,F4_MILESTONE_ID.R1,saves);
     var rf=f4MilestoneVal(dep,F4_MILESTONE_ID.RF,saves);
-    // r0trab/r1trab/rftrab: 75% = "trabajando" — ya se está levantando la
-    // observación, entre notificada (50%) y levantada (100%). Sirve solo para
-    // el detalle del resumen; el resto de la Pizarra (chips, leyenda, mapas de
-    // entrega) sigue usando notif(≥50)/lev(≥100) sin cambios.
+    // r0ini/r0lista/r0trab (25%/50%/75%) son el desglose fino que usa SOLO el
+    // recuadro de resumen (proceso completo: notificada→listado obs.→
+    // trabajando→levantada). El resto de la Pizarra (chips, leyenda, mapas de
+    // entrega) sigue usando notif(≥50)/lev(≥100) sin cambios, para no alterar
+    // nada de lo que ya funciona ahí.
     return{
-      r0notif:r0>=50,r0trab:r0>=75&&r0<100,r0lev:r0>=100,
-      r1notif:r1>=50,r1trab:r1>=75&&r1<100,r1lev:r1>=100,
-      rfnotif:rf>=50,rftrab:rf>=75&&rf<100,rflev:rf>=100
+      r0notif:r0>=50,r0ini:r0>=25&&r0<50,r0lista:r0>=50&&r0<75,r0trab:r0>=75&&r0<100,r0lev:r0>=100,
+      r1notif:r1>=50,r1ini:r1>=25&&r1<50,r1lista:r1>=50&&r1<75,r1trab:r1>=75&&r1<100,r1lev:r1>=100,
+      rfnotif:rf>=50,rfini:rf>=25&&rf<50,rflista:rf>=50&&rf<75,rftrab:rf>=75&&rf<100,rflev:rf>=100
     };
   }
   function openAssignPanel(boardKey,dep){
@@ -3524,32 +3525,42 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizar
       )
     );
   }
-  // ── Recuadro resumen Notificación ITO: cuántos deptos hay en cada estado del
-  // ciclo de revisión (R0/R1/RF: notificada 50% → trabajando 75% → levantada
-  // 100%) y cuáles son. "Notificadas" = recién notificada, obs. sin iniciar.
-  // "Trabajando" = ya se está levantando la observación (75%). "Levantadas"
-  // son ACUMULADAS — cuentan todo depto con esa partida al 100% aunque ya haya
-  // avanzado a la siguiente etapa, para que cuadre 1:1 con la vista Partidas
-  // (completadas = levantadas). Solo lectura: se calcula en vivo con el mismo
-  // motor pizarraRevMarks/bucketOfDep — no guarda nada.
+  // ── Recuadro resumen Notificación ITO: cuántos deptos hay en cada paso del
+  // proceso completo de cada partida hito (R0/R1/RF), que avanza en 4 tramos:
+  //   25%  → Notificada (recién notificada al ITO)
+  //   50%  → Listado de observaciones (la observación quedó registrada)
+  //   75%  → Trabajando en obs. (se está levantando)
+  //   100% → Levantada (ACUMULADA — cuenta todo depto que ya llegó a 100% en
+  //          esa partida aunque haya avanzado a la siguiente etapa, para
+  //          cuadrar 1:1 con "completadas" en la vista Partidas)
+  // Solo lectura: se calcula en vivo con pizarraRevMarks/bucketOfDep — no
+  // guarda nada. Este desglose de 25%/50% es exclusivo de este recuadro; el
+  // resto de la Pizarra (chips, leyenda, mapas de entrega) sigue usando el
+  // criterio 50%/100% de siempre, sin cambios.
   var PIZARRA_RESUMEN_GRUPOS=[
-    {key:'sin',label:'Sin notificar',hint:'aún sin Entrega R0 al 50%',color:'var(--text2)',bdr:'var(--border)',full:true,
-      test:function(m,b){return!m.r0notif&&!m.rflev;}},
-    {key:'r0notif',label:'R0 notificadas',hint:'Entrega R0 al 50% — obs. pendientes, sin iniciar',color:'var(--purple)',bdr:'var(--purple)',
-      test:function(m,b){return m.r0notif&&!m.r0trab&&!m.r0lev;}},
-    {key:'r0trab',label:'R0 trabajando',hint:'Entrega R0 al 75% — levantando la observación',color:'var(--amber)',bdr:'var(--amber)',
+    {key:'sin',label:'Sin notificar',hint:'aún sin Entrega R0 al 25%',color:'var(--text2)',bdr:'var(--border)',full:true,
+      test:function(m,b){return!m.r0ini&&!m.r0lista&&!m.r0trab&&!m.r0lev;}},
+    {key:'r0notif',label:'R0 notificadas',hint:'Entrega R0 al 25% — recién notificada',color:'var(--purple)',bdr:'var(--purple)',
+      test:function(m,b){return m.r0ini;}},
+    {key:'r0lista',label:'R0 listado de observaciones',hint:'Entrega R0 al 50% — observación registrada',color:'var(--blue)',bdr:'var(--blue)',
+      test:function(m,b){return m.r0lista;}},
+    {key:'r0trab',label:'R0 trabajando en obs.',hint:'Entrega R0 al 75% — levantando la observación',color:'var(--amber)',bdr:'var(--amber)',
       test:function(m,b){return m.r0trab;}},
     {key:'r0lev',label:'R0 levantadas',hint:'Entrega R0 al 100% — acumulado, incluye las que ya van en R1/RF',color:'var(--purple)',bdr:'var(--purple)',
       test:function(m,b){return m.r0lev;}},
-    {key:'r1notif',label:'R1 notificadas',hint:'Entrega R1 al 50% — obs. pendientes, sin iniciar',color:PIZARRA_NEON,bdr:PIZARRA_NEON,
-      test:function(m,b){return m.r1notif&&!m.r1trab&&!m.r1lev;}},
-    {key:'r1trab',label:'R1 trabajando',hint:'Entrega R1 al 75% — levantando la observación',color:'var(--amber)',bdr:'var(--amber)',
+    {key:'r1notif',label:'R1 notificadas',hint:'Entrega R1 al 25% — recién notificada',color:PIZARRA_NEON,bdr:PIZARRA_NEON,
+      test:function(m,b){return m.r1ini;}},
+    {key:'r1lista',label:'R1 listado de observaciones',hint:'Entrega R1 al 50% — observación registrada',color:'var(--blue)',bdr:'var(--blue)',
+      test:function(m,b){return m.r1lista;}},
+    {key:'r1trab',label:'R1 trabajando en obs.',hint:'Entrega R1 al 75% — levantando la observación',color:'var(--amber)',bdr:'var(--amber)',
       test:function(m,b){return m.r1trab;}},
     {key:'r1lev',label:'R1 levantadas',hint:'Entrega R1 al 100% — acumulado, incluye las que ya están en RF',color:PIZARRA_NEON,bdr:PIZARRA_NEON,
       test:function(m,b){return m.r1lev;}},
-    {key:'rfnotif',label:'RF notificadas',hint:'Entrega RF al 50% — obs. pendientes, sin iniciar',color:'var(--green)',bdr:'var(--green)',
-      test:function(m,b){return m.rfnotif&&!m.rftrab&&!m.rflev;}},
-    {key:'rftrab',label:'RF trabajando',hint:'Entrega RF al 75% — levantando la observación',color:'var(--amber)',bdr:'var(--amber)',
+    {key:'rfnotif',label:'RF notificadas',hint:'Entrega RF al 25% — recién notificada',color:'var(--green)',bdr:'var(--green)',
+      test:function(m,b){return m.rfini;}},
+    {key:'rflista',label:'RF listado de observaciones',hint:'Entrega RF al 50% — observación registrada',color:'var(--blue)',bdr:'var(--blue)',
+      test:function(m,b){return m.rflista;}},
+    {key:'rftrab',label:'RF trabajando en obs.',hint:'Entrega RF al 75% — levantando la observación',color:'var(--amber)',bdr:'var(--amber)',
       test:function(m,b){return m.rftrab;}},
     {key:'rflev',label:'RF levantadas',hint:'Entrega RF al 100% — depto entregado',color:'var(--green)',bdr:'var(--green)',
       test:function(m,b){return m.rflev;}}
@@ -3566,8 +3577,8 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizar
         h('div',{className:'shdr-title'},'Resumen notificación ITO — deptos por estado'),
         h('span',{className:'mono',style:{fontSize:11,fontWeight:800,color:'var(--text2)',whiteSpace:'nowrap'}},allDeps.length+' deptos')
       ),
-      h('div',{style:{fontSize:10,color:'var(--text3)',marginBottom:8}},'Notificadas (50%) = obs. sin iniciar. Trabajando (75%) = levantando la observación. Levantadas (100%, acumulado) = igual que "completadas" en Partidas. Un depto puede aparecer en más de un recuadro.'),
-      h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8}},
+      h('div',{style:{fontSize:10,color:'var(--text3)',marginBottom:8}},'Notificadas (25%) → Listado de observaciones (50%) → Trabajando en obs. (75%) → Levantadas (100%, acumulado = igual que "completadas" en Partidas). Un depto puede aparecer en más de un recuadro.'),
+      h('div',{style:{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8}},
         PIZARRA_RESUMEN_GRUPOS.map(function(g){
           var deps=conteo[g.key];
           return h('div',{key:g.key,style:{background:'var(--bg2)',border:'1px solid '+g.bdr,borderRadius:10,padding:'8px 10px',
