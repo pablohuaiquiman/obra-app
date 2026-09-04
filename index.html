@@ -3728,8 +3728,8 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
       test:function(m,b){return m.r0trab;}},
     {key:'r0lev',label:'R0 levantadas',hint:'Entrega R0 al 100% — acumulado, incluye las que ya van en R1/RF',color:'var(--purple)',bdr:'var(--purple)',stage:'R0',
       test:function(m,b){return m.r0lev;}},
-    {key:'r0acta',label:'R0 con Acta',hint:'Cierre: acta de entrega generada — pincha el depto para marcarla',color:'var(--purple)',bdr:'var(--purple)',stage:'R0',acta:true,
-      test:function(m,b){return m.r0lev;}},
+    {key:'r0acta',label:'R0 con Acta',hint:'Cierre: acta de entrega ya generada',color:'var(--purple)',bdr:'var(--purple)',stage:'R0',acta:true,
+      test:function(m,b,dep){return m.r0lev&&isActaOk(dep,'R0');}},
     {key:'r1notif',label:'R1 notificadas',hint:'Entrega R1 al 25% — recién notificada',color:PIZARRA_NEON,bdr:PIZARRA_NEON,stage:'R1',
       test:function(m,b){return m.r1ini;}},
     {key:'r1lista',label:'R1 listado de observaciones',hint:'Entrega R1 al 50% — observación registrada',color:'var(--blue)',bdr:'var(--blue)',stage:'R1',
@@ -3738,8 +3738,8 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
       test:function(m,b){return m.r1trab;}},
     {key:'r1lev',label:'R1 levantadas',hint:'Entrega R1 al 100% — acumulado, incluye las que ya están en RF',color:PIZARRA_NEON,bdr:PIZARRA_NEON,stage:'R1',
       test:function(m,b){return m.r1lev;}},
-    {key:'r1acta',label:'R1 con Acta',hint:'Cierre: acta de entrega generada — pincha el depto para marcarla',color:PIZARRA_NEON,bdr:PIZARRA_NEON,stage:'R1',acta:true,
-      test:function(m,b){return m.r1lev;}},
+    {key:'r1acta',label:'R1 con Acta',hint:'Cierre: acta de entrega ya generada',color:PIZARRA_NEON,bdr:PIZARRA_NEON,stage:'R1',acta:true,
+      test:function(m,b,dep){return m.r1lev&&isActaOk(dep,'R1');}},
     {key:'rfnotif',label:'RF notificadas',hint:'Entrega RF al 25% — recién notificada',color:'var(--green)',bdr:'var(--green)',stage:'RF',
       test:function(m,b){return m.rfini;}},
     {key:'rflista',label:'RF listado de observaciones',hint:'Entrega RF al 50% — observación registrada',color:'var(--blue)',bdr:'var(--blue)',stage:'RF',
@@ -3748,46 +3748,44 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
       test:function(m,b){return m.rftrab;}},
     {key:'rflev',label:'RF levantadas',hint:'Entrega RF al 100% — depto entregado',color:'var(--green)',bdr:'var(--green)',stage:'RF',
       test:function(m,b){return m.rflev;}},
-    {key:'rfacta',label:'RF con Acta',hint:'Cierre: acta de entrega generada — pincha el depto para marcarla',color:'var(--green)',bdr:'var(--green)',stage:'RF',acta:true,
-      test:function(m,b){return m.rflev;}}
+    {key:'rfacta',label:'RF con Acta',hint:'Cierre: acta de entrega ya generada',color:'var(--green)',bdr:'var(--green)',stage:'RF',acta:true,
+      test:function(m,b,dep){return m.rflev&&isActaOk(dep,'RF');}}
   ];
   function renderPizarraItoResumen(){
     var conteo={};
     PIZARRA_RESUMEN_GRUPOS.forEach(function(g){conteo[g.key]=[];});
     allDeps.forEach(function(dep){
       var m=pizarraRevMarks(dep),b=bucketOfDep(dep);
-      PIZARRA_RESUMEN_GRUPOS.forEach(function(g){if(g.test(m,b))conteo[g.key].push(dep);});
+      PIZARRA_RESUMEN_GRUPOS.forEach(function(g){if(g.test(m,b,dep))conteo[g.key].push(dep);});
     });
     return h('div',{key:'ito_resumen',className:'card'},
       h('div',{className:'shdr'},
         h('div',{className:'shdr-title'},'Resumen notificación ITO — deptos por estado'),
         h('span',{className:'mono',style:{fontSize:11,fontWeight:800,color:'var(--text2)',whiteSpace:'nowrap'}},allDeps.length+' deptos')
       ),
-      h('div',{style:{fontSize:10,color:'var(--text3)',marginBottom:8}},'Notificadas (25%) → Listado de observaciones (50%) → Trabajando en obs. (75%) → Levantadas (100%) → Con Acta (cierre). Levantadas y Con Acta son acumuladas — un depto puede aparecer en más de un recuadro.'+(isAdmin?' Pincha un depto para abrir su detalle (% y fechas); ahí también se marca el acta.':'')),
+      h('div',{style:{fontSize:10,color:'var(--text3)',marginBottom:8}},'Notificadas (25%) → Listado de observaciones (50%) → Trabajando en obs. (75%) → Levantadas (100%) → Con Acta (cierre). Levantadas es acumulada; Con Acta solo muestra las que ya se marcaron en el detalle. Un depto puede aparecer en más de un recuadro.'+(isAdmin?' Pincha un depto para abrir su detalle (% y fechas); ahí también se marca el acta.':'')),
       h('div',{style:{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:8}},
         PIZARRA_RESUMEN_GRUPOS.map(function(g){
           var deps=conteo[g.key];
-          var conActa=g.acta?deps.filter(function(dep){return isActaOk(dep,g.stage);}):null;
           return h('div',{key:g.key,style:{background:'var(--bg2)',border:'1px solid '+g.bdr,borderRadius:10,padding:'8px 10px',
             gridColumn:g.full?'1 / -1':'auto'}},
             h('div',{style:{display:'flex',alignItems:'baseline',justifyContent:'space-between',gap:6,marginBottom:2}},
               h('span',{style:{fontSize:10,fontWeight:800,letterSpacing:'.06em',color:g.color,textTransform:'uppercase'}},g.label),
-              h('span',{className:'mono',style:{fontSize:18,fontWeight:800,color:g.color}},g.acta?(conActa.length+'/'+deps.length):deps.length)
+              h('span',{className:'mono',style:{fontSize:18,fontWeight:800,color:g.color}},deps.length)
             ),
             h('div',{style:{fontSize:9,color:'var(--text2)',marginBottom:5}},g.hint),
             deps.length
               ?h('div',{style:{display:'flex',flexWrap:'wrap',gap:3}},
                   deps.map(function(dep){
-                    var ok=g.acta&&isActaOk(dep,g.stage);
                     return h('span',{key:dep,className:'mono',
                       onClick:isAdmin?function(){setPctEditor({dep:dep,stage:g.stage});}:undefined,
-                      title:isAdmin?('D'+dep+(g.acta?(ok?' · con acta — pincha para ver el detalle':' · sin acta — pincha para marcarla en el detalle'):(' · pincha para cambiar el % de '+g.stage))):('D'+dep),
+                      title:isAdmin?('D'+dep+(g.acta?' · con acta — pincha para ver el detalle':(' · pincha para cambiar el % de '+g.stage))):('D'+dep),
                       style:{fontSize:10,fontWeight:700,cursor:isAdmin?'pointer':'default',borderRadius:5,padding:'1px 5px',
-                      color:g.acta?(ok?'var(--green)':'var(--red)'):'#fff',
-                      background:g.acta?(ok?'rgba(34,197,94,.12)':'rgba(239,68,68,.12)'):'rgba(255,255,255,.07)',
-                      border:'1px solid '+(g.acta?(ok?'var(--green)':'var(--red)'):g.bdr)}},(g.acta?(ok?'✓ ':'○ '):'')+'D'+dep);
+                      color:g.acta?'var(--green)':'#fff',
+                      background:g.acta?'rgba(34,197,94,.12)':'rgba(255,255,255,.07)',
+                      border:'1px solid '+(g.acta?'var(--green)':g.bdr)}},(g.acta?'✓ ':'')+'D'+dep);
                   }))
-              :h('div',{style:{fontSize:10,color:'var(--text2)',fontStyle:'italic'}},'— ninguno aún')
+              :h('div',{style:{fontSize:10,color:'var(--text2)',fontStyle:'italic'}},g.acta?'— aún ninguna con acta':'— ninguno aún')
           );
         })
       ),
