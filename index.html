@@ -2644,7 +2644,7 @@ var ITO_BUCKET_META={
 function itoBucketColor(dep,saves,pg){return ITO_BUCKET_META[bucketOfDepto(dep,saves,pg)].color;}
 function itoBucketLabel(dep,saves,pg){return ITO_BUCKET_META[bucketOfDepto(dep,saves,pg)].label;}
 function itoBucketPill(dep,saves,pg){return ITO_BUCKET_META[bucketOfDepto(dep,saves,pg)].pill;}
-function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizarraIto,itoPizarraFlags,onItoPatch,auth,toast}){
+function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,itoPizarraIto,itoPizarraFlags,onItoPatch,auth,toast}){
   var pg=progress||calculateAllProgress(saves);
   var isAdmin=auth&&auth.role==='Admin';
   var[view,setView]=useState('detalle'); // 'detalle' | 'resumen' | 'pizarra'
@@ -2657,6 +2657,7 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizar
   var[assignBoard,setAssignBoard]=useState(null); // 'capataces' | 'ito' — a qué tablero de la Pizarra pertenece assignDep
   var[assignDep,setAssignDep]=useState(null); // depto abierto en el panel de asignación de la Pizarra
   var[assignDraft,setAssignDraft]=useState({resp:'',fecha:''});
+  var[pctEditor,setPctEditor]=useState(null); // {dep,stage:'R0'|'R1'|'RF'} — editor de % abierto desde el resumen (solo Admin)
   var hoy=new Date().toISOString().slice(0,10);
   var floors=Object.keys(_D.fl);
   // La Pizarra ahora arranca unas semanas atrás de hoy (para poder revisar el
@@ -2689,6 +2690,18 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizar
   }
   function bucketOfDep(dep){
     return bucketOfDepto(dep,saves,pg);
+  }
+  // Edita a mano el % de la partida hito R0/R1/RF de un depto (solo Admin) —
+  // mismo mecanismo que el editor de partidas de Pisos (onSave con el saves[dep]
+  // completo), pero accesible directo desde el resumen de la Pizarra ITO para
+  // no tener que ir hasta Pisos → depto → Fase 4 a mover el mismo número.
+  function setF4Pct(dep,stage,pct){
+    var pid=F4_MILESTONE_ID[stage];
+    var sv=saves[dep]||{f1:{},f2:{},f3:{},f4:{}};
+    var ns=Object.assign({},sv,{f4:Object.assign({},sv.f4,{})});
+    ns.f4[pid]=pct;
+    onSave(dep,ns);
+    toast&&toast('✓ D'+dep+' — '+stage+' '+pct+'%');
   }
 
   // ── Pizarra: plan semanal (arriba: todos los deptos por piso para arrastrar;
@@ -3538,31 +3551,31 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizar
   // resto de la Pizarra (chips, leyenda, mapas de entrega) sigue usando el
   // criterio 50%/100% de siempre, sin cambios.
   var PIZARRA_RESUMEN_GRUPOS=[
-    {key:'sin',label:'Sin notificar',hint:'aún sin Entrega R0 al 25%',color:'var(--text2)',bdr:'var(--border)',full:true,
+    {key:'sin',label:'Sin notificar',hint:'aún sin Entrega R0 al 25%',color:'var(--text2)',bdr:'var(--border)',full:true,stage:'R0',
       test:function(m,b){return!m.r0ini&&!m.r0lista&&!m.r0trab&&!m.r0lev;}},
-    {key:'r0notif',label:'R0 notificadas',hint:'Entrega R0 al 25% — recién notificada',color:'var(--purple)',bdr:'var(--purple)',
+    {key:'r0notif',label:'R0 notificadas',hint:'Entrega R0 al 25% — recién notificada',color:'var(--purple)',bdr:'var(--purple)',stage:'R0',
       test:function(m,b){return m.r0ini;}},
-    {key:'r0lista',label:'R0 listado de observaciones',hint:'Entrega R0 al 50% — observación registrada',color:'var(--blue)',bdr:'var(--blue)',
+    {key:'r0lista',label:'R0 listado de observaciones',hint:'Entrega R0 al 50% — observación registrada',color:'var(--blue)',bdr:'var(--blue)',stage:'R0',
       test:function(m,b){return m.r0lista;}},
-    {key:'r0trab',label:'R0 trabajando en obs.',hint:'Entrega R0 al 75% — levantando la observación',color:'var(--amber)',bdr:'var(--amber)',
+    {key:'r0trab',label:'R0 trabajando en obs.',hint:'Entrega R0 al 75% — levantando la observación',color:'var(--amber)',bdr:'var(--amber)',stage:'R0',
       test:function(m,b){return m.r0trab;}},
-    {key:'r0lev',label:'R0 levantadas',hint:'Entrega R0 al 100% — acumulado, incluye las que ya van en R1/RF',color:'var(--purple)',bdr:'var(--purple)',
+    {key:'r0lev',label:'R0 levantadas',hint:'Entrega R0 al 100% — acumulado, incluye las que ya van en R1/RF',color:'var(--purple)',bdr:'var(--purple)',stage:'R0',
       test:function(m,b){return m.r0lev;}},
-    {key:'r1notif',label:'R1 notificadas',hint:'Entrega R1 al 25% — recién notificada',color:PIZARRA_NEON,bdr:PIZARRA_NEON,
+    {key:'r1notif',label:'R1 notificadas',hint:'Entrega R1 al 25% — recién notificada',color:PIZARRA_NEON,bdr:PIZARRA_NEON,stage:'R1',
       test:function(m,b){return m.r1ini;}},
-    {key:'r1lista',label:'R1 listado de observaciones',hint:'Entrega R1 al 50% — observación registrada',color:'var(--blue)',bdr:'var(--blue)',
+    {key:'r1lista',label:'R1 listado de observaciones',hint:'Entrega R1 al 50% — observación registrada',color:'var(--blue)',bdr:'var(--blue)',stage:'R1',
       test:function(m,b){return m.r1lista;}},
-    {key:'r1trab',label:'R1 trabajando en obs.',hint:'Entrega R1 al 75% — levantando la observación',color:'var(--amber)',bdr:'var(--amber)',
+    {key:'r1trab',label:'R1 trabajando en obs.',hint:'Entrega R1 al 75% — levantando la observación',color:'var(--amber)',bdr:'var(--amber)',stage:'R1',
       test:function(m,b){return m.r1trab;}},
-    {key:'r1lev',label:'R1 levantadas',hint:'Entrega R1 al 100% — acumulado, incluye las que ya están en RF',color:PIZARRA_NEON,bdr:PIZARRA_NEON,
+    {key:'r1lev',label:'R1 levantadas',hint:'Entrega R1 al 100% — acumulado, incluye las que ya están en RF',color:PIZARRA_NEON,bdr:PIZARRA_NEON,stage:'R1',
       test:function(m,b){return m.r1lev;}},
-    {key:'rfnotif',label:'RF notificadas',hint:'Entrega RF al 25% — recién notificada',color:'var(--green)',bdr:'var(--green)',
+    {key:'rfnotif',label:'RF notificadas',hint:'Entrega RF al 25% — recién notificada',color:'var(--green)',bdr:'var(--green)',stage:'RF',
       test:function(m,b){return m.rfini;}},
-    {key:'rflista',label:'RF listado de observaciones',hint:'Entrega RF al 50% — observación registrada',color:'var(--blue)',bdr:'var(--blue)',
+    {key:'rflista',label:'RF listado de observaciones',hint:'Entrega RF al 50% — observación registrada',color:'var(--blue)',bdr:'var(--blue)',stage:'RF',
       test:function(m,b){return m.rflista;}},
-    {key:'rftrab',label:'RF trabajando en obs.',hint:'Entrega RF al 75% — levantando la observación',color:'var(--amber)',bdr:'var(--amber)',
+    {key:'rftrab',label:'RF trabajando en obs.',hint:'Entrega RF al 75% — levantando la observación',color:'var(--amber)',bdr:'var(--amber)',stage:'RF',
       test:function(m,b){return m.rftrab;}},
-    {key:'rflev',label:'RF levantadas',hint:'Entrega RF al 100% — depto entregado',color:'var(--green)',bdr:'var(--green)',
+    {key:'rflev',label:'RF levantadas',hint:'Entrega RF al 100% — depto entregado',color:'var(--green)',bdr:'var(--green)',stage:'RF',
       test:function(m,b){return m.rflev;}}
   ];
   function renderPizarraItoResumen(){
@@ -3577,7 +3590,7 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizar
         h('div',{className:'shdr-title'},'Resumen notificación ITO — deptos por estado'),
         h('span',{className:'mono',style:{fontSize:11,fontWeight:800,color:'var(--text2)',whiteSpace:'nowrap'}},allDeps.length+' deptos')
       ),
-      h('div',{style:{fontSize:10,color:'var(--text3)',marginBottom:8}},'Notificadas (25%) → Listado de observaciones (50%) → Trabajando en obs. (75%) → Levantadas (100%, acumulado = igual que "completadas" en Partidas). Un depto puede aparecer en más de un recuadro.'),
+      h('div',{style:{fontSize:10,color:'var(--text3)',marginBottom:8}},'Notificadas (25%) → Listado de observaciones (50%) → Trabajando en obs. (75%) → Levantadas (100%, acumulado = igual que "completadas" en Partidas). Un depto puede aparecer en más de un recuadro.'+(isAdmin?' Pincha un depto para cambiar su % a mano.':'')),
       h('div',{style:{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8}},
         PIZARRA_RESUMEN_GRUPOS.map(function(g){
           var deps=conteo[g.key];
@@ -3591,7 +3604,10 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizar
             deps.length
               ?h('div',{style:{display:'flex',flexWrap:'wrap',gap:3}},
                   deps.map(function(dep){
-                    return h('span',{key:dep,className:'mono',style:{fontSize:10,fontWeight:700,color:'#fff',
+                    return h('span',{key:dep,className:'mono',
+                      onClick:isAdmin?function(){setPctEditor({dep:dep,stage:g.stage});}:undefined,
+                      title:isAdmin?('D'+dep+' · pincha para cambiar el % de '+g.stage):('D'+dep),
+                      style:{fontSize:10,fontWeight:700,color:'#fff',cursor:isAdmin?'pointer':'default',
                       background:'rgba(255,255,255,.07)',border:'1px solid '+g.bdr,borderRadius:5,padding:'1px 5px'}},'D'+dep);
                   }))
               :h('div',{style:{fontSize:10,color:'var(--text2)',fontStyle:'italic'}},'— ninguno aún')
@@ -3929,6 +3945,35 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizar
     )
   ):null;
 
+  // Editor rápido de % de la partida hito R0/R1/RF (solo Admin), abierto al
+  // pinchar un depto en cualquiera de los recuadros del resumen. Mismos 5
+  // pasos (0/25/50/75/100) que usa el editor de partidas en Pisos → depto.
+  var pctEditorPanel=(pctEditor&&isAdmin)?h('div',{
+    style:{position:'fixed',inset:0,background:'rgba(0,0,0,.5)',zIndex:300,display:'flex',alignItems:'center',justifyContent:'center',padding:16},
+    onClick:function(e){if(e.target===e.currentTarget)setPctEditor(null);}
+  },
+    h('div',{className:'card',style:{maxWidth:320,width:'100%'}},
+      h('div',{className:'shdr'},h('div',{className:'shdr-title'},'D'+pctEditor.dep+' — Entrega '+pctEditor.stage)),
+      h('div',{style:{fontSize:11,color:'var(--text3)',marginBottom:12}},
+        'Actual: '+f4MilestoneVal(pctEditor.dep,F4_MILESTONE_ID[pctEditor.stage],saves)+'%'
+      ),
+      h('div',{style:{display:'flex',gap:6,flexWrap:'wrap',marginBottom:12}},
+        [0,25,50,75,100].map(function(pct){
+          var cur=f4MilestoneVal(pctEditor.dep,F4_MILESTONE_ID[pctEditor.stage],saves)===pct;
+          return h('button',{key:pct,
+            onClick:function(){setF4Pct(pctEditor.dep,pctEditor.stage,pct);setPctEditor(null);},
+            style:{flex:'1 1 30%',padding:'9px 4px',borderRadius:8,fontSize:13,fontWeight:800,fontFamily:'var(--mono)',cursor:'pointer',
+              background:cur?'var(--blue)':'var(--bg2)',border:'1px solid '+(cur?'var(--blue)':'var(--border)'),color:cur?'#fff':'var(--text)'}
+          },pct+'%');
+        })
+      ),
+      h('button',{
+        onClick:function(){setPctEditor(null);},
+        style:{background:'transparent',border:'1px solid var(--border)',borderRadius:6,padding:'8px 14px',color:'var(--text2)',cursor:'pointer',fontSize:12,fontWeight:700}
+      },'Cerrar')
+    )
+  ):null;
+
   return h('div',{className:'page gap10'},
     h('div',{className:'shdr'},h('div',{className:'shdr-title'},'Actas ITO')),
     h('div',{className:'ftabs'},
@@ -3944,7 +3989,8 @@ function ActasItoView({progress,saves,itoData,itoActaCounter,itoPizarra,itoPizar
     view==='pizarra'?pizarraView:view==='resumen'?resumenView:h('div',{className:'gap10',style:{marginTop:10}},
       visibleDeps.map(renderDepRow)
     ),
-    assignPanel
+    assignPanel,
+    pctEditorPanel
   );
 }
 // ── GANTT VIEW ──────────────────────────────────────────────
@@ -17791,7 +17837,7 @@ function App({initialData}){
   else if(effectiveTab==='sobretiempo')content=h(SobretiempoView,{asistData,stData,onStSave,auth,toast:showToast});
   else if(effectiveTab==='informe')content=h(InformeSemanalView,{ganttData,saves,onSave,onGanttSave,reportData,onReportSave,auth,progress});
   else if(effectiveTab==='planmaestro')content=h(PlanMaestroView,{});
-  else if(effectiveTab==='actasito')content=h(ActasItoView,{progress,saves,itoData,itoActaCounter,itoPizarra,itoPizarraIto,itoPizarraFlags,onItoPatch,auth,toast:showToast});
+  else if(effectiveTab==='actasito')content=h(ActasItoView,{progress,saves,onSave,itoData,itoActaCounter,itoPizarra,itoPizarraIto,itoPizarraFlags,onItoPatch,auth,toast:showToast});
   else content=h(Dashboard,{progress,ganttData,saves,toast:showToast,execWeeks,execActiveWeek,onExecActiveWeekChange,onExecWeekSave});
   return h('div',{className:'app'},
     h('div',{className:'nav'},
