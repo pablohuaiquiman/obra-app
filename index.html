@@ -3892,7 +3892,7 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
         function(dep){return!pizarraAssignOf(boardKey,dep);},
         'Todos los deptos ya están asignados.',true)
     ];
-    if(boardKey==='ito'){srcCards.push(renderPizarraBottlenecks());srcCards.push(renderPizarraItoResumen());}
+    if(boardKey==='ito'){srcCards.unshift(renderPizarraItoResumen());srcCards.push(renderPizarraBottlenecks());}
     return srcCards.concat([
       h('div',{key:boardKey+'_board',className:'card'},
         h('div',{className:'shdr'},h('div',{className:'shdr-title'},cfg.boardTitle)),
