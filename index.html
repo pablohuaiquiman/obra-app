@@ -3764,11 +3764,17 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
         h('span',{className:'mono',style:{fontSize:11,fontWeight:800,color:'var(--text2)',whiteSpace:'nowrap'}},allDeps.length+' deptos')
       ),
       h('div',{style:{fontSize:10,color:'var(--text3)',marginBottom:8}},'Notificadas (25%) → Listado de observaciones (50%) → Trabajando en obs. (75%) → Levantadas (100%) → Con Acta (cierre). Levantadas es acumulada; Con Acta solo muestra las que ya se marcaron en el detalle. Un depto puede aparecer en más de un recuadro.'+(isAdmin?' Pincha un depto para abrir su detalle (% y fechas); ahí también se marca el acta.':'')),
-      h('div',{style:{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:8}},
+      h('div',{style:{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:'8px 22px'}},
         PIZARRA_RESUMEN_GRUPOS.map(function(g){
           var deps=conteo[g.key];
-          return h('div',{key:g.key,style:{background:'var(--bg2)',border:'1px solid '+g.bdr,borderRadius:10,padding:'8px 10px',
+          // Flecha de ciclo hacia el siguiente paso (25%→50%→75%→100%→Acta):
+          // no va después de "Sin notificar" (ancho completo) ni después del
+          // último paso de cada fila (Con Acta, ya es el cierre).
+          var showArrow=!g.full&&!g.acta;
+          return h('div',{key:g.key,style:{position:'relative',background:'var(--bg2)',border:'1px solid '+g.bdr,borderRadius:10,padding:'8px 10px',
             gridColumn:g.full?'1 / -1':'auto'}},
+            showArrow?h('span',{'aria-hidden':'true',style:{position:'absolute',top:'50%',right:-19,transform:'translateY(-50%)',
+              fontSize:18,fontWeight:900,color:'var(--red)',zIndex:2,textShadow:'0 0 4px rgba(0,0,0,.6)',pointerEvents:'none'}},'➜'):null,
             h('div',{style:{display:'flex',alignItems:'baseline',justifyContent:'space-between',gap:6,marginBottom:2}},
               h('span',{style:{fontSize:10,fontWeight:800,letterSpacing:'.06em',color:g.color,textTransform:'uppercase'}},g.label),
               h('span',{className:'mono',style:{fontSize:18,fontWeight:800,color:g.color}},deps.length)
