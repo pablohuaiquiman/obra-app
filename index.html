@@ -3874,6 +3874,31 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
     );
   }
 
+  // Tarjeta de CONTROL DE AVANCE: a diferencia de renderPizarraSourceCard (que
+  // oculta el depto apenas se asigna), acá se listan SIEMPRE el 100% de los
+  // deptos, piso a piso — nunca desaparece ninguno, solo cambia de color/estado
+  // (bucket RF/R1/R0/Fase + marcas R0/R1) a medida que avanza. Es el tablero
+  // fijo para tener de un vistazo el estado real de todas las unidades.
+  function renderPizarraFullStatusCard(boardKey,cardKey,title){
+    return h('div',{key:cardKey,className:'card'},
+      h('div',{className:'shdr'},
+        h('div',{className:'shdr-title'},title),
+        h('span',{style:{fontSize:11,fontWeight:800,fontFamily:'var(--mono)',whiteSpace:'nowrap',color:'var(--text3)'}},
+          allDeps.length+' deptos')
+      ),
+      pizarraLegend(),
+      floors.slice().reverse().map(function(fl){
+        var deps=(_D.fl[fl]||[]).slice().sort(function(a,b){return parseInt(a,10)-parseInt(b,10);});
+        if(!deps.length)return null;
+        var pisoLabel=fl.charAt(0).toUpperCase()+fl.slice(1);
+        return h('div',{key:fl,style:{display:'flex',alignItems:'center',gap:8,marginBottom:8,flexWrap:'wrap'}},
+          h('span',{style:{fontSize:11,fontWeight:800,color:'var(--text)',minWidth:56}},pisoLabel),
+          h('div',{style:{display:'flex',flexWrap:'wrap',gap:4}},deps.map(function(dep){return pizarraChip(boardKey,dep);}))
+        );
+      })
+    );
+  }
+
   // Construye las tarjetas de un tablero de la Pizarra: paneles de deptos
   // pendientes (en capataces, uno por equipo) + tablero semanal. La semana/día
   // "de hoy" queda resaltado (isCurrent/isToday ya vienen calculados en
@@ -3892,7 +3917,10 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
         function(dep){return!pizarraAssignOf(boardKey,dep);},
         'Todos los deptos ya están asignados.',true)
     ];
-    if(boardKey==='ito'){srcCards.push(renderPizarraBottlenecks());}
+    if(boardKey==='ito'){
+      srcCards.push(renderPizarraFullStatusCard(boardKey,'ito_control_avance','Control de avance ITO — todos los deptos'));
+      srcCards.push(renderPizarraBottlenecks());
+    }
     return srcCards.concat([
       h('div',{key:boardKey+'_board',className:'card'},
         h('div',{className:'shdr'},h('div',{className:'shdr-title'},cfg.boardTitle)),
