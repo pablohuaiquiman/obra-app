@@ -2819,15 +2819,22 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
   // asignación Avanzada+Terminaciones). Mantiene el formato legacy {resp,fecha}
   // como slot principal para no romper datos ya guardados en otros dispositivos.
   function setPizarraAssignSlots(boardKey,dep,slots){
-    var next=Object.assign({},pizarraDataOf(boardKey));
     var clean=(slots||[]).filter(function(s){return s&&s.resp;});
-    if(!clean.length){delete next[dep];}
-    else{
-      var rec={resp:clean[0].resp,fecha:clean[0].fecha||pizarraHoy};
-      if(clean[1]){rec.resp2=clean[1].resp;rec.fecha2=clean[1].fecha||pizarraHoy;}
-      next[dep]=rec;
-    }
-    var patch={};patch[PIZARRA_BOARDS[boardKey].field]=next;
+    var patch={};
+    // Patch como función (cur=>nuevoValor), igual que itoData más abajo: así el
+    // merge se calcula sobre el dato más reciente confirmado en vez de sobre la
+    // instantánea de props capturada al momento del arrastre — dos drags seguidos
+    // (o un drag mientras aún no confirma el anterior) ya no se pisan entre sí.
+    patch[PIZARRA_BOARDS[boardKey].field]=function(cur){
+      var next=Object.assign({},cur||{});
+      if(!clean.length){delete next[dep];}
+      else{
+        var rec={resp:clean[0].resp,fecha:clean[0].fecha||pizarraHoy};
+        if(clean[1]){rec.resp2=clean[1].resp;rec.fecha2=clean[1].fecha||pizarraHoy;}
+        next[dep]=rec;
+      }
+      return next;
+    };
     onItoPatch(patch);
   }
   // Asignación por arrastre / guardado simple. En el tablero de capataces cada
@@ -2856,10 +2863,12 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
     var cur=pizarraFlagOf(dep);
     if(!t&&!cur)return; // nada que guardar ni borrar — no disparar un write vacío
     if(cur&&t===cur.texto)return; // sin cambios
-    var next=Object.assign({},itoPizarraFlags||{});
-    if(!t)delete next[dep];
-    else next[dep]={texto:t,fecha:pizarraHoy};
-    onItoPatch({itoPizarraFlags:next});
+    onItoPatch({itoPizarraFlags:function(curFlags){
+      var next=Object.assign({},curFlags||{});
+      if(!t)delete next[dep];
+      else next[dep]={texto:t,fecha:pizarraHoy};
+      return next;
+    }});
   }
   // ── Estado de notificación R0/R1 del depto — mismo motor que la vista general:
   // las partidas-hito de F4 "Entrega R0" (id 10) y "Entrega R1" (id 1). Criterio
@@ -18028,13 +18037,20 @@ function App({initialData}){
         });
         autoSaveBackup(ns);
       }
-      // Marcar como "sucios" los campos meta (todo excepto saves/auth/tab) por 6s,
-      // así un snapshot remoto que llegue antes de que confirme esta escritura no la pisa.
+      // Marcar como "sucios" los campos meta (todo excepto saves/auth/tab): así un
+      // snapshot remoto que llegue antes de que confirme esta escritura no la pisa.
+      // La limpieza real ocurre en _fbDoSave apenas Firestore CONFIRMA el guardado
+      // (dura lo que demore la subida real, no un plazo fijo) — antes se limpiaba
+      // sola a los 6s pasara lo que pasara, y en obra con señal débil el guardado
+      // real (con reintentos cada 3s) podía tardar más que eso: un snapshot viejo
+      // llegaba dentro de esa ventana y revertía el cambio recién hecho. Se deja
+      // igual un plazo de seguridad largo (30s) por si el guardado nunca llega a
+      // dispararse (ej. Firebase aún no listo), para no bloquear la sync para siempre.
       window._metaDirty=window._metaDirty||{};
       Object.keys(resolved).forEach(function(k){
         if(k==='saves'||k==='auth'||k==='tab')return;
         window._metaDirty[k]=true;
-        setTimeout(function(){if(window._metaDirty)delete window._metaDirty[k];},6000);
+        setTimeout(function(){if(window._metaDirty)delete window._metaDirty[k];},30000);
       });
       if(window.fbSave){
         var granular=Object.assign({},resolved);
@@ -18457,6 +18473,9 @@ function _fbDoSave(){
   if(metaP){
     OBRA_REF.set(metaP,{merge:true}).then(function(){
       _fbMetaErr=false;
+      // Guardado confirmado de verdad: recién ahora se limpia el flag "sucio" de
+      // estas keys, así un onSnapshot que llegue después ya no puede revertirlas.
+      if(window._metaDirty)Object.keys(metaP).forEach(function(k){delete window._metaDirty[k];});
       _fbMarkSynced();
     }).catch(function(e){
       _fbMetaErr=true;
