@@ -2647,7 +2647,7 @@ function itoBucketPill(dep,saves,pg){return ITO_BUCKET_META[bucketOfDepto(dep,sa
 function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,itoPizarraIto,itoPizarraFlags,onItoPatch,auth,toast}){
   var pg=progress||calculateAllProgress(saves);
   var isAdmin=auth&&auth.role==='Admin';
-  var[view,setView]=useState('detalle'); // 'detalle' | 'resumen' | 'pizarra'
+  var[view,setView]=useState('pizarra'); // 'detalle' | 'resumen' | 'pizarra' — la Pizarra es la vista principal al entrar
   var[selPiso,setSelPiso]=useState('all');
   var[expandedDep,setExpandedDep]=useState(null);
   var[obsInputs,setObsInputs]=useState({});
