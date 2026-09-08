@@ -3012,10 +3012,12 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
     var v0=f4MilestoneVal(dep,F4_MILESTONE_ID.R0,saves);
     var v1=f4MilestoneVal(dep,F4_MILESTONE_ID.R1,saves);
     var vrf=f4MilestoneVal(dep,F4_MILESTONE_ID.RF,saves);
-    // Relleno del chip: por defecto el color del bucket (según %), pero si el
-    // hito YA está formalmente cerrado (no solo el %) manda el hito por sobre
-    // el bucket — R1 con acta = verde oscuro, RF entregada = verde fluor.
-    var fill=vrf>=100?PIZARRA_NEON:v1>=100?PIZARRA_GREEN_DARK:st.color;
+    // Relleno del chip: por defecto el color del bucket (según %). RF entregada
+    // (hito F4 al 100%) manda verde fluor. R1 con Acta manda verde oscuro — pero
+    // esto usa el flag administrativo actaOk (marcado a mano, ver pizarraActaToggle),
+    // NO el % de la partida Entrega R1: así marcar/quitar el Acta es puramente
+    // informativo y nunca mueve el avance de obra del depto.
+    var fill=vrf>=100?PIZARRA_NEON:isActaOk(dep,'R1')?PIZARRA_GREEN_DARK:st.color;
     function cycleLetter(v){return v>=75?'T':v>=50?'R':v>=25?'N':null;}
     var tickColor=(fill===PIZARRA_NEON)?'#04220d':PIZARRA_NEON; // ✓ oscuro sobre fondo verde fluor
     var sym=null,symColor=null;
@@ -4209,15 +4211,17 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
     );
   }
 
-  // Casilla "con Acta" (Entrega R1): sin pasar por el %, marca/desmarca de un
-  // clic el hito R1 en 100/0 — para cuando en terreno ya se cerró con acta
-  // pero nadie va a cargar el 25/50/75 intermedio en Pisos → Fase 4.
+  // Casilla "con Acta" (R1): marca/desmarca de un clic si YA se generó el acta
+  // de Entrega R1 para ese depto. Usa el flag administrativo actaOk (isActaOk/
+  // setActaOk, el mismo que ya usaba el recuadro resumen para "R1 con Acta") —
+  // NO toca el % de la partida Entrega R1 en Fase 4, así que jamás mueve el
+  // avance de obra del depto: es puro registro de "¿tenemos el papel o no?".
   function pizarraActaToggle(dep){
-    var on=f4MilestoneVal(dep,F4_MILESTONE_ID.R1,saves)>=100;
+    var on=isActaOk(dep,'R1');
     return h('span',{
       key:'acta_'+dep,
-      onClick:isAdmin?function(){setF4Pct(dep,'R1',on?0:100);}:undefined,
-      title:isAdmin?('D'+dep+' · '+(on?'con Acta R1 — pincha para quitarla':'sin Acta R1 — pincha para marcarla con acta')):
+      onClick:isAdmin?function(){setActaOk(dep,'R1',!on);}:undefined,
+      title:isAdmin?('D'+dep+' · '+(on?'con Acta R1 — pincha para quitarla':'sin Acta R1 — pincha para marcarla con acta')+' (no mueve el avance de obra)'):
         ('D'+dep+' · '+(on?'con Acta R1':'sin Acta R1')),
       style:{display:'inline-flex',alignItems:'center',justifyContent:'center',width:16,height:16,borderRadius:4,
         fontSize:10,fontWeight:900,lineHeight:1,cursor:isAdmin?'pointer':'default',
