@@ -3932,8 +3932,7 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
     ];
     // Orden pedido para el bloque ITO: 1) Control de avance (todos los deptos,
     // renombrado), 2) Deptos por piso — Notificación ITO, 3) Plan semanal —
-    // Notificación ITO. Los cuellos de botella pasan después del plan semanal
-    // para no romper esa secuencia.
+    // Notificación ITO. El orden entre bloques se arma en pizarraView.
     if(boardKey==='ito'){
       srcCards.unshift(renderPizarraFullStatusCard(boardKey,'ito_control_avance','Control de avance — todos los deptos'));
     }
@@ -4043,7 +4042,7 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
               )
             )
       )
-    ]).concat(boardKey==='ito'?[renderPizarraBottlenecks()]:[]);
+    ]);
   }
 
   // Foto del backlog completo de cada responsable (todas sus asignaciones vigentes
@@ -4095,12 +4094,15 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
 
   // Orden de la Pizarra (pedido en obra): primero el bloque ITO — Control de
   // avance (todos los deptos), Deptos por piso — Notificación ITO y su Plan
-  // semanal (+ cuellos de botella) — y recién después el resumen de
-  // notificaciones, el tablero de capataces y la carga por responsable.
+  // semanal — seguido de inmediato por el bloque de capataces (Por asignar a
+  // Avanzada, Por asignar a Terminaciones y su Plan semanal). Al final quedan
+  // los cuellos de botella, el resumen de notificaciones y la carga por
+  // responsable.
   var pizarraView=h('div',{className:'gap10'},
     renderPizarraBoard('ito'),
-    renderPizarraItoResumen(),
     renderPizarraBoard('capataces'),
+    renderPizarraBottlenecks(),
+    renderPizarraItoResumen(),
     renderPizarraOwnershipPanel()
   );
 
