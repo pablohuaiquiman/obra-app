@@ -4209,6 +4209,22 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
     );
   }
 
+  // Casilla "con Acta" (Entrega R1): sin pasar por el %, marca/desmarca de un
+  // clic el hito R1 en 100/0 — para cuando en terreno ya se cerró con acta
+  // pero nadie va a cargar el 25/50/75 intermedio en Pisos → Fase 4.
+  function pizarraActaToggle(dep){
+    var on=f4MilestoneVal(dep,F4_MILESTONE_ID.R1,saves)>=100;
+    return h('span',{
+      key:'acta_'+dep,
+      onClick:isAdmin?function(){setF4Pct(dep,'R1',on?0:100);}:undefined,
+      title:isAdmin?('D'+dep+' · '+(on?'con Acta R1 — pincha para quitarla':'sin Acta R1 — pincha para marcarla con acta')):
+        ('D'+dep+' · '+(on?'con Acta R1':'sin Acta R1')),
+      style:{display:'inline-flex',alignItems:'center',justifyContent:'center',width:16,height:16,borderRadius:4,
+        fontSize:10,fontWeight:900,lineHeight:1,cursor:isAdmin?'pointer':'default',
+        background:on?PIZARRA_GREEN_DARK:'var(--bg2)',border:'1px solid '+(on?PIZARRA_GREEN_DARK:'var(--border)'),
+        color:on?'#fff':'var(--text3)'}
+    },on?'✓':'');
+  }
   // Tarjeta de CONTROL DE AVANCE: a diferencia de renderPizarraSourceCard (que
   // oculta el depto apenas se asigna), acá se listan SIEMPRE el 100% de los
   // deptos, piso a piso — nunca desaparece ninguno, solo cambia de color/estado
@@ -4222,13 +4238,18 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
           allDeps.length+' deptos')
       ),
       pizarraLegend(),
+      isAdmin&&h('div',{style:{fontSize:10,color:'var(--text3)',marginBottom:8}},
+        'El cuadrito junto a cada depto marca/quita el Acta R1 en un clic (sin pasar por el %).'),
       floors.slice().reverse().map(function(fl){
         var deps=(_D.fl[fl]||[]).slice().sort(function(a,b){return parseInt(a,10)-parseInt(b,10);});
         if(!deps.length)return null;
         var pisoLabel=fl.charAt(0).toUpperCase()+fl.slice(1);
         return h('div',{key:fl,style:{display:'flex',alignItems:'center',gap:8,marginBottom:8,flexWrap:'wrap'}},
           h('span',{style:{fontSize:11,fontWeight:800,color:'var(--text)',minWidth:56}},pisoLabel),
-          h('div',{style:{display:'flex',flexWrap:'wrap',gap:4}},deps.map(function(dep){return pizarraChip(boardKey,dep);}))
+          h('div',{style:{display:'flex',flexWrap:'wrap',gap:4}},deps.map(function(dep){
+            return h('div',{key:dep,style:{display:'flex',alignItems:'center',gap:2}},
+              pizarraChip(boardKey,dep),pizarraActaToggle(dep));
+          }))
         );
       })
     );
