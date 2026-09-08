@@ -3013,11 +3013,13 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
     var v1=f4MilestoneVal(dep,F4_MILESTONE_ID.R1,saves);
     var vrf=f4MilestoneVal(dep,F4_MILESTONE_ID.RF,saves);
     // Relleno del chip: por defecto el color del bucket (según %). RF entregada
-    // (hito F4 al 100%) manda verde fluor. R1 con Acta manda verde oscuro — pero
-    // esto usa el flag administrativo actaOk (marcado a mano, ver pizarraActaToggle),
-    // NO el % de la partida Entrega R1: así marcar/quitar el Acta es puramente
-    // informativo y nunca mueve el avance de obra del depto.
-    var fill=vrf>=100?PIZARRA_NEON:isActaOk(dep,'R1')?PIZARRA_GREEN_DARK:st.color;
+    // (hito F4 al 100%) manda verde fluor. R1 con Acta manda verde oscuro — por
+    // CUALQUIERA de dos caminos: el % real de la partida Entrega R1 llegó a 100
+    // (vía oficial, en Pisos → Fase 4) O el flag administrativo actaOk está
+    // marcado a mano (ver pizarraActaToggle, no toca el %). Así el % real sigue
+    // pintando verde como siempre, y la casilla rápida es solo un atajo que
+    // nunca mueve el avance de obra por sí sola.
+    var fill=vrf>=100?PIZARRA_NEON:(v1>=100||isActaOk(dep,'R1'))?PIZARRA_GREEN_DARK:st.color;
     function cycleLetter(v){return v>=75?'T':v>=50?'R':v>=25?'N':null;}
     var tickColor=(fill===PIZARRA_NEON)?'#04220d':PIZARRA_NEON; // ✓ oscuro sobre fondo verde fluor
     var sym=null,symColor=null;
