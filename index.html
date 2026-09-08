@@ -3728,18 +3728,17 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
       // 50% R (revisado), 75% T (trabajando), 100% cierre del ciclo.
       h('div',{className:'flex g8',style:{flexWrap:'wrap',marginBottom:10,rowGap:6}},
         item(h('span',{style:{width:12,height:12,borderRadius:3,border:'3px solid '+PIZARRA_MORADO_MARK,display:'inline-block'}}),
-          'borde morado = ciclo R0 en curso (Entrega R0 ≥25%)'),
+          'ciclo R0'),
         item(h('span',{style:{width:12,height:12,borderRadius:3,border:'3px solid '+PIZARRA_MORADO_MARK,display:'inline-block',
           background:'linear-gradient(to top right,transparent calc(50% - 1px),'+PIZARRA_MORADO_MARK+' calc(50% - 1px),'+PIZARRA_MORADO_MARK+' calc(50% + 1px),transparent calc(50% + 1px))'}}),
-          'tachado morado = obs. R0 resueltas (100%)'),
+          'R0 lista'),
         item(h('span',{style:{width:12,height:12,borderRadius:3,boxShadow:'0 0 0 2px '+PIZARRA_NEON,display:'inline-block',margin:2,border:'1px solid rgba(255,255,255,.25)'}}),
-          'anillo verde = ciclo R1 en curso (Entrega R1 ≥25%)'),
-        item(h('span',null,letra('N','#fbbf24'),' ',letra('R',PIZARRA_NEON),' ',letra('T','var(--orange)')),
-          'letra del ciclo vigente: N=Notificado (25%) · R=Revisado (50%) · T=Trabajando (75%) — en el ciclo RF las 3 van naranjas sobre fondo celeste'),
-        item(letra('✓',PIZARRA_NEON),
-          '✓ = R1 al 100% (con acta) · RF al 100% queda verde fluorescente = entregado'),
-        item(h('span',{style:{fontSize:11}},'⚠'),
-          'con restricción — pincha el depto para ver/editar el comentario')
+          'ciclo R1'),
+        item(letra('N','#fbbf24'),'Notificado'),
+        item(letra('R',PIZARRA_NEON),'Revisado'),
+        item(letra('T','var(--orange)'),'Trabajando'),
+        item(letra('✓',PIZARRA_NEON),'con acta / entregado'),
+        item(h('span',{style:{fontSize:11}},'⚠'),'restricción')
       )
     );
   }
@@ -4033,19 +4032,19 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
         h('div',{style:{display:'flex',alignItems:'center',gap:14,marginBottom:8,flexWrap:'wrap'}},
           h('div',{style:{display:'flex',alignItems:'center',gap:5}},
             h('span',{style:{width:10,height:10,borderRadius:3,background:'rgba(14,165,233,.28)',border:'1px solid var(--blue)',display:'inline-block'}}),
-            h('span',{style:{fontSize:10,color:'var(--text3)'}},'= semana / día de hoy')
+            h('span',{style:{fontSize:10,color:'var(--text3)'}},'hoy')
           ),
           h('div',{style:{display:'flex',alignItems:'center',gap:5}},
             h('span',{style:{width:10,height:10,borderRadius:3,background:'var(--bg2)',border:'1px solid var(--border)',opacity:.5,display:'inline-block'}}),
-            h('span',{style:{fontSize:10,color:'var(--text3)'}},'= semana ya pasada — revisa si se cumplió, o arrastra el depto a una semana futura')
+            h('span',{style:{fontSize:10,color:'var(--text3)'}},'semana pasada')
           ),
           h('div',{style:{display:'flex',alignItems:'center',gap:5}},
             h('span',{style:{width:10,height:10,borderRadius:3,background:'rgba(239,68,68,.20)',border:'1px solid var(--red)',display:'inline-block'}}),
-            h('span',{style:{fontSize:10,color:'var(--red)'}},'= feriado')
+            h('span',{style:{fontSize:10,color:'var(--red)'}},'feriado')
           ),
           h('div',{style:{display:'flex',alignItems:'center',gap:5}},
             h('span',{style:{width:10,height:10,borderRadius:3,background:'var(--blue)',opacity:.62,display:'inline-block'}}),
-            h('span',{style:{fontSize:10,color:'var(--text3)'}},'= depto con duración: parte nítido y sigue atenuado hasta su fecha de término (se fija al pinchar el depto)')
+            h('span',{style:{fontSize:10,color:'var(--text3)'}},'atenuado = sigue hasta su término')
           )
         ),
         pizarraWeeks.length===0
