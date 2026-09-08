@@ -2933,8 +2933,8 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
     FASE:{label:'Fase',color:'var(--red)'}
   };
   // Colores de las letras de ciclo: N=Notificado (amarillo-naranjo), R=Revisado
-  // (blanco), T=Trabajando (naranja). El ✓ (listo/con acta) va en verde fluor.
-  var PIZARRA_LETTER_COLORS={N:'#fbbf24',R:'#fff',T:'var(--orange)'};
+  // (verde fluor), T=Trabajando (naranja). El ✓ (listo/con acta) va en verde fluor.
+  var PIZARRA_LETTER_COLORS={N:'#fbbf24',R:PIZARRA_NEON,T:'var(--orange)'};
   function pizarraRevMarks(dep){
     var r0=f4MilestoneVal(dep,F4_MILESTONE_ID.R0,saves);
     var r1=f4MilestoneVal(dep,F4_MILESTONE_ID.R1,saves);
@@ -3734,7 +3734,7 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
           'tachado morado = obs. R0 resueltas (100%)'),
         item(h('span',{style:{width:12,height:12,borderRadius:3,boxShadow:'0 0 0 2px '+PIZARRA_NEON,display:'inline-block',margin:2,border:'1px solid rgba(255,255,255,.25)'}}),
           'anillo verde = ciclo R1 en curso (Entrega R1 ≥25%)'),
-        item(h('span',null,letra('N','#fbbf24'),' ',letra('R','#fff'),' ',letra('T','var(--orange)')),
+        item(h('span',null,letra('N','#fbbf24'),' ',letra('R',PIZARRA_NEON),' ',letra('T','var(--orange)')),
           'letra del ciclo vigente: N=Notificado (25%) · R=Revisado (50%) · T=Trabajando (75%) — en el ciclo RF las 3 van naranjas sobre fondo celeste'),
         item(letra('✓',PIZARRA_NEON),
           '✓ = R1 al 100% (con acta) · RF al 100% queda verde fluorescente = entregado'),
