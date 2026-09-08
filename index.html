@@ -4234,7 +4234,17 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
   // deptos, piso a piso — nunca desaparece ninguno, solo cambia de color/estado
   // (bucket RF/R1/R0/Fase + marcas R0/R1) a medida que avanza. Es el tablero
   // fijo para tener de un vistazo el estado real de todas las unidades.
+  // Ejes de la grilla: últimos 2 dígitos del depto (misma posición en la planta
+  // repetida piso a piso, ej. 422/322/222/122 comparten eje '22') — mismo criterio
+  // que la Matriz de estado por piso del Dashboard, pero ordenado descendente
+  // (22 → 01) para que cada columna quede alineada verticalmente entre pisos.
+  function pizarraGridAxes(){
+    var set={};
+    floors.forEach(function(fl){(_D.fl[fl]||[]).forEach(function(dep){set[dep.slice(-2)]=true;});});
+    return Object.keys(set).sort(function(a,b){return parseInt(b,10)-parseInt(a,10);});
+  }
   function renderPizarraFullStatusCard(boardKey,cardKey,title){
+    var axes=pizarraGridAxes();
     return h('div',{key:cardKey,className:'card'},
       h('div',{className:'shdr'},
         h('div',{className:'shdr-title'},title),
@@ -4244,18 +4254,32 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
       pizarraLegend(),
       isAdmin&&h('div',{style:{fontSize:10,color:'var(--text3)',marginBottom:8}},
         'El cuadrito junto a cada depto marca/quita el Acta R1 en un clic (sin pasar por el %).'),
-      floors.slice().reverse().map(function(fl){
-        var deps=(_D.fl[fl]||[]).slice().sort(function(a,b){return parseInt(a,10)-parseInt(b,10);});
-        if(!deps.length)return null;
-        var pisoLabel=fl.charAt(0).toUpperCase()+fl.slice(1);
-        return h('div',{key:fl,style:{display:'flex',alignItems:'center',gap:8,marginBottom:8,flexWrap:'wrap'}},
-          h('span',{style:{fontSize:11,fontWeight:800,color:'var(--text)',minWidth:56}},pisoLabel),
-          h('div',{style:{display:'flex',flexWrap:'wrap',gap:4}},deps.map(function(dep){
-            return h('div',{key:dep,style:{display:'flex',alignItems:'center',gap:2}},
-              pizarraChip(boardKey,dep),pizarraActaToggle(dep));
-          }))
-        );
-      })
+      h('div',{className:'gt-wrap'},
+        h('table',{style:{borderCollapse:'collapse'}},
+          h('thead',null,h('tr',null,
+            h('th',{style:{padding:'4px 8px',position:'sticky',left:0,background:'var(--bg2)',zIndex:2,color:'var(--text3)',fontSize:10,textAlign:'left'}},'PISO'),
+            axes.map(function(ax){return h('th',{key:ax,style:{padding:'4px 6px',color:'var(--text3)',fontSize:10,textAlign:'center',fontFamily:'var(--mono)'}},ax);})
+          )),
+          h('tbody',null,
+            floors.slice().reverse().map(function(fl){
+              var deps=_D.fl[fl]||[];
+              if(!deps.length)return null;
+              var pisoLabel=fl.charAt(0).toUpperCase()+fl.slice(1);
+              return h('tr',{key:fl},
+                h('td',{style:{padding:'4px 8px',fontWeight:800,color:'var(--text)',position:'sticky',left:0,background:'var(--card)',fontSize:11,whiteSpace:'nowrap'}},pisoLabel),
+                axes.map(function(ax){
+                  var dep=deps.filter(function(d){return d.slice(-2)===ax;})[0];
+                  if(!dep)return h('td',{key:ax,style:{padding:3}});
+                  return h('td',{key:ax,style:{padding:3}},
+                    h('div',{style:{display:'flex',alignItems:'center',gap:2}},
+                      pizarraChip(boardKey,dep),pizarraActaToggle(dep))
+                  );
+                })
+              );
+            })
+          )
+        )
+      )
     );
   }
 
