@@ -18856,6 +18856,15 @@ function _fbDoSave(){
     }).catch(function(e){
       _fbSavesErr=true;
       _fbPendSaves=Object.assign({},savesP,_fbPendSaves||{});
+      // Mismo resguardo que en metaP más abajo: re-arma la ventana "sucia" de estos
+      // deptos para que un onSnapshot con el dato viejo (el guardado real todavía no
+      // pasó) no revierta el % recién editado mientras siguen los reintentos.
+      window._localDirty=window._localDirty||{};
+      window._optimisticUntil=Date.now()+6000;
+      Object.keys(savesP).forEach(function(dep){
+        window._localDirty[dep]=true;
+        setTimeout(function(){if(window._localDirty)delete window._localDirty[dep];},6000);
+      });
       _fbRetry(e);
     });
   }
@@ -18869,6 +18878,20 @@ function _fbDoSave(){
     }).catch(function(e){
       _fbMetaErr=true;
       _fbPendMeta=Object.assign({},metaP,_fbPendMeta||{});
+      // Re-armar el flag "sucio" de estas keys: el plazo de 30s de save() es solo
+      // un resguardo por si el guardado nunca llega a INTENTARSE (ej. Firebase aún
+      // no listo) — acá SÍ se intentó y falló (señal mala en obra, típicamente), y
+      // _fbRetry ya va a reintentar cada 3s. Si no se re-arma, ese plazo de 30s se
+      // cumple igual aunque el reintento siga fallando, y el próximo dato que llega
+      // de Firestore (todavía el viejo, porque nunca se guardó) pisa el cambio local
+      // recién hecho — ej: un depto que se acaba de eliminar de la Pizarra reaparece
+      // solo, en el mismo lugar. Mientras haya reintentos en curso, se sigue
+      // renovando; se limpia recién cuando el guardado confirma de verdad (arriba).
+      window._metaDirty=window._metaDirty||{};
+      Object.keys(metaP).forEach(function(k){
+        window._metaDirty[k]=true;
+        setTimeout(function(){if(window._metaDirty)delete window._metaDirty[k];},30000);
+      });
       _fbRetry(e);
     });
   }
