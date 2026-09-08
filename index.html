@@ -2705,7 +2705,7 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
   }
 
   // ── Pizarra: plan semanal (arriba: todos los deptos por piso para arrastrar;
-  // abajo: semanas lun-vie hasta fin de septiembre × responsable). Dos tableros
+  // abajo: semanas lun-vie hasta fin de diciembre × responsable). Dos tableros
   // independientes comparten esta misma mecánica: uno para los capataces y otro
   // para el ITO (Sebastián y Fabián — cuándo notificar cada depto). ──
   var MESES_CORTOS=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
@@ -2723,17 +2723,21 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
   var pizarraHoyMonday=pizarraFmt(pizarraMondayOf(new Date())); // lunes de "esta semana" — sáb/dom quedan después del viernes, así que comparar contra el lunes (no un rango mon..fri) es lo único que funciona todos los días
   // Semanas lun-vie desde PIZARRA_SEMANAS_ATRAS semanas antes de hoy (para poder
   // revisar si se cumplió lo programado en semanas pasadas y, si no, arrastrar esos
-  // deptos hacia una semana futura) hasta la semana que contiene el 30 de septiembre
-  // del año en curso (si el 30/09 ya pasó, no se generan semanas). Cada semana trae
+  // deptos hacia una semana futura) hasta la semana que contiene el 31 de diciembre
+  // del año en curso (si ya pasó, no se generan semanas). Cada semana trae
   // además sus 5 días (L·M·M·J·V); se marca cuál semana/día es "hoy" para resaltarlo,
   // y cuáles ya quedaron atrás (isPast) para atenuarlas visualmente.
   var DIAS_INICIALES=['L','M','M','J','V'];
   var PIZARRA_SEMANAS_ATRAS=4;
+  // Feriados que se pintan en rojo en ambos tableros (YYYY-MM-DD). El 19 y 20 de
+  // sep caen sáb/dom y la pizarra es L-V, así que no se dibujan, pero quedan
+  // listados igual por si se reprograma algo sobre esas fechas.
+  var PIZARRA_FERIADOS={'2026-09-17':1,'2026-09-18':1,'2026-09-19':1,'2026-09-20':1};
   var pizarraWeeks=useMemo(function(){
     var weeks=[];
     var cur=pizarraMondayOf(new Date());
     cur.setDate(cur.getDate()-7*PIZARRA_SEMANAS_ATRAS);
-    var limite=new Date(new Date().getFullYear(),8,30); // mes 8 = septiembre (0-index)
+    var limite=new Date(new Date().getFullYear(),11,31); // mes 11 = diciembre (0-index)
     if(limite<cur)return weeks;
     var n=1;
     while(cur<=limite){
@@ -2745,7 +2749,7 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
       for(var di=0;di<5;di++){
         var dd=new Date(cur);dd.setDate(dd.getDate()+di);
         var dStr=pizarraFmt(dd);
-        days.push({date:dStr,initial:DIAS_INICIALES[di],isToday:dStr===pizarraHoy,isPast:dStr<pizarraHoy});
+        days.push({date:dStr,initial:DIAS_INICIALES[di],isToday:dStr===pizarraHoy,isPast:dStr<pizarraHoy,isFeriado:!!PIZARRA_FERIADOS[dStr]});
       }
       weeks.push({key:monStr,mon:monStr,fri:friStr,label:label,days:days,isCurrent:monStr===pizarraHoyMonday,isPast:friStr<pizarraHoy});
       cur=new Date(cur);cur.setDate(cur.getDate()+7);
@@ -3943,10 +3947,14 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
           h('div',{style:{display:'flex',alignItems:'center',gap:5}},
             h('span',{style:{width:10,height:10,borderRadius:3,background:'var(--bg2)',border:'1px solid var(--border)',opacity:.5,display:'inline-block'}}),
             h('span',{style:{fontSize:10,color:'var(--text3)'}},'= semana ya pasada — revisa si se cumplió, o arrastra el depto a una semana futura')
+          ),
+          h('div',{style:{display:'flex',alignItems:'center',gap:5}},
+            h('span',{style:{width:10,height:10,borderRadius:3,background:'rgba(239,68,68,.20)',border:'1px solid var(--red)',display:'inline-block'}}),
+            h('span',{style:{fontSize:10,color:'var(--red)'}},'= feriado')
           )
         ),
         pizarraWeeks.length===0
-          ?h('div',{style:{fontSize:11,color:'var(--text3)',fontStyle:'italic'}},'No quedan semanas hasta fin de septiembre.')
+          ?h('div',{style:{fontSize:11,color:'var(--text3)',fontStyle:'italic'}},'No quedan semanas hasta fin de diciembre.')
           :h('div',{className:'gt-wrap'},
               h('table',{style:{borderCollapse:'collapse',fontSize:11}},
                 h('thead',null,
@@ -3963,14 +3971,15 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
                   h('tr',null,
                     pizarraWeeks.map(function(w){
                       var dayThs=w.days.map(function(d,di){
-                        return h('th',{key:w.key+'_'+d.date,title:d.date.split('-').reverse().join('/'),style:{
+                        // Feriado: el rojo manda sobre el resaltado azul de "hoy" para que no pase piola.
+                        return h('th',{key:w.key+'_'+d.date,title:d.date.split('-').reverse().join('/')+(d.isFeriado?' · FERIADO':''),style:{
                           padding:'2px 4px',opacity:d.isPast?.55:1,
-                          color:d.isToday?'var(--blue)':'var(--text3)',fontSize:9,fontFamily:'var(--mono)',
-                          fontWeight:d.isToday?800:400,textAlign:'center',
-                          background:d.isToday?'rgba(14,165,233,.22)':(w.isCurrent?'rgba(14,165,233,.08)':'transparent'),
+                          color:d.isFeriado?'var(--red)':(d.isToday?'var(--blue)':'var(--text3)'),fontSize:9,fontFamily:'var(--mono)',
+                          fontWeight:(d.isToday||d.isFeriado)?800:400,textAlign:'center',
+                          background:d.isFeriado?'rgba(239,68,68,.20)':(d.isToday?'rgba(14,165,233,.22)':(w.isCurrent?'rgba(14,165,233,.08)':'transparent')),
                           borderLeft:di===0?'2px solid var(--border)':'1px solid rgba(255,255,255,.06)'
                         }},
-                          h('div',{style:{fontSize:9,fontWeight:d.isToday?800:700,lineHeight:'11px'}},String(parseInt(d.date.slice(8,10),10))),
+                          h('div',{style:{fontSize:9,fontWeight:(d.isToday||d.isFeriado)?800:700,lineHeight:'11px'}},String(parseInt(d.date.slice(8,10),10))),
                           h('div',{style:{lineHeight:'11px'}},d.initial)
                         );
                       });
@@ -4007,8 +4016,9 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
                           }).sort(function(a,b){return parseInt(a,10)-parseInt(b,10);});
                           return h('td',{
                             key:w.key+'_'+d.date,onDragOver:allowDropPizarra,onDrop:pizarraCellDrop(boardKey,resp,d.date),
+                            title:d.isFeriado?'FERIADO — '+d.date.split('-').reverse().join('/'):undefined,
                             style:{padding:3,minWidth:34,verticalAlign:'top',borderBottom:rowBdr,opacity:w.isPast?.6:1,
-                              background:d.isToday?'rgba(14,165,233,.10)':(w.isCurrent?'rgba(14,165,233,.04)':'transparent'),
+                              background:d.isFeriado?'rgba(239,68,68,.10)':(d.isToday?'rgba(14,165,233,.10)':(w.isCurrent?'rgba(14,165,233,.04)':'transparent')),
                               borderLeft:di===0?'2px solid var(--border)':'1px dashed rgba(255,255,255,.08)'}
                           },
                             h('div',{style:{display:'flex',flexDirection:'column',gap:2}},deps.map(function(dep){return pizarraChip(boardKey,dep);}))
