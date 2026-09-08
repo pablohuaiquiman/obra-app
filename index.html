@@ -2912,15 +2912,29 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
       return next;
     }});
   }
-  // ── Estado de notificación R0/R1 del depto — mismo motor que la vista general:
-  // las partidas-hito de F4 "Entrega R0" (id 10) y "Entrega R1" (id 1). Criterio
-  // acordado para leer el % de esas partidas:  50% = revisión NOTIFICADA al ITO,
-  // 100% = observaciones de esa revisión LEVANTADAS. ──
-  //   · R0 ≥ 50%   → borde morado grueso (R0 notificada)
-  //   · R0 al 100% → tachado diagonal morado ↗ (obs. R0 levantadas)
-  //   · R1 ≥ 50%   → anillo verde fluorescente (R1 notificada — se suma al borde morado)
-  //   · R1 al 100% → tachado diagonal verde ↘ (obs. R1 levantadas; con R0 forma una X)
-  var PIZARRA_NEON='#39ff14'; // verde fluorescente de las marcas R1
+  // ── Estado de notificación R0/R1/RF del depto — mismo motor que la vista
+  // general: las partidas-hito de F4 "Entrega R0" (id 10), "Entrega R1" (id 1)
+  // y "Entrega RF" (id 2). Criterio de los CHIPS de la Pizarra (ver pizarraChip):
+  // cada ciclo se lee al 25/50/75/100 → N=Notificado, R=Revisado, T=Trabajando,
+  // 100=cierre (R0: tachado morado / R1: ✓ con acta / RF: fondo verde fluor + ✓).
+  // pizarraRevMarks (abajo) alimenta SOLO el recuadro de resumen y los mapas de
+  // entrega, con su propio desglose — no se toca para no alterar esas vistas.
+  var PIZARRA_NEON='#39ff14'; // verde fluorescente (marcas R1 y estado RF)
+  // Morado CLARO para bordes/tachados del ciclo R0: el morado normal se pierde
+  // sobre el nuevo fondo morado del estado R0 — este tono se ve en ambos fondos.
+  var PIZARRA_MORADO_MARK='#d8b4fe';
+  // Paleta de estado exclusiva de la Pizarra (pedida en obra): RF verde
+  // fluorescente, R1 celeste, R0 morado, Fase rojo. El resto del módulo
+  // (Detalle/Resumen) sigue usando ITO_BUCKET_META sin cambios.
+  var PIZARRA_BUCKET_META={
+    RF:{label:'RF',color:PIZARRA_NEON},
+    R1:{label:'R1',color:'var(--blue)'},
+    R0:{label:'R0',color:'var(--purple)'},
+    FASE:{label:'Fase',color:'var(--red)'}
+  };
+  // Colores de las letras de ciclo: N=Notificado (amarillo-naranjo), R=Revisado
+  // (blanco), T=Trabajando (naranja). El ✓ (listo/con acta) va en verde fluor.
+  var PIZARRA_LETTER_COLORS={N:'#fbbf24',R:'#fff',T:'var(--orange)'};
   function pizarraRevMarks(dep){
     var r0=f4MilestoneVal(dep,F4_MILESTONE_ID.R0,saves);
     var r1=f4MilestoneVal(dep,F4_MILESTONE_ID.R1,saves);
@@ -2962,7 +2976,7 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
   // duración: {cont:true} marca los días de continuación (después del inicio)
   // para atenuarlos levemente — así se ve dónde parte la barra y hasta dónde llega.
   function pizarraChip(boardKey,dep,opts){
-    var st=ITO_BUCKET_META[bucketOfDep(dep)];
+    var st=PIZARRA_BUCKET_META[bucketOfDep(dep)];
     var ov=(pg.deptos[dep]||{overall:0}).overall;
     var slots=pizarraAssignsOf(boardKey,dep);
     var asigTxt=slots.map(function(s){
@@ -2970,24 +2984,44 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
       if(s.fechaFin)f+=' → '+s.fechaFin.split('-').reverse().join('/');
       return' · '+s.resp+' · '+f;
     }).join('');
-    var marks=pizarraRevMarks(dep);
     var flag=pizarraFlagOf(dep);
-    var revParts=[];
-    if(marks.r0lev)revParts.push('obs. R0 levantadas');
-    else if(marks.r0notif)revParts.push('R0 notificada');
-    if(marks.r1lev)revParts.push('obs. R1 levantadas');
-    else if(marks.r1notif)revParts.push('R1 notificada');
+    // ── Ciclos R0 → R1 → RF (partidas-hito de F4, leídas al 25/50/75/100%):
+    // 25 = Notificado (N) · 50 = Revisado (R) · 75 = Trabajando (T) · 100 = cierre.
+    // Cierres: R0 100 = tachado morado (obs. resueltas) · R1 100 = ✓ (con acta)
+    // · RF 100 = fondo verde fluorescente + ✓ (entregado). Se muestra la letra
+    // del ciclo VIGENTE (el primero que aún no llega a 100).
+    var v0=f4MilestoneVal(dep,F4_MILESTONE_ID.R0,saves);
+    var v1=f4MilestoneVal(dep,F4_MILESTONE_ID.R1,saves);
+    var vrf=f4MilestoneVal(dep,F4_MILESTONE_ID.RF,saves);
+    function cycleLetter(v){return v>=75?'T':v>=50?'R':v>=25?'N':null;}
+    var tickColor=st.color===PIZARRA_NEON?'#04220d':PIZARRA_NEON; // ✓ oscuro sobre fondo verde fluor
+    var sym=null,symColor=null;
+    if(vrf>=100){sym='✓';symColor=tickColor;}
+    else if(vrf>=25){sym=cycleLetter(vrf);symColor='var(--orange)';} // ciclo RF: letras naranjas
+    else if(v1>=100){sym='✓';symColor=tickColor;}
+    else if(v1>=25){sym=cycleLetter(v1);symColor=PIZARRA_LETTER_COLORS[sym];}
+    else if(v0>=25&&v0<100){sym=cycleLetter(v0);symColor=PIZARRA_LETTER_COLORS[sym];}
+    // Texto del tooltip por ciclo
+    function stageTxt(v,name,cierre){
+      if(v>=100)return cierre;
+      if(v>=75)return name+' trabajando';
+      if(v>=50)return name+' revisada';
+      if(v>=25)return name+' notificada';
+      return null;
+    }
+    var revParts=[stageTxt(v0,'R0','obs. R0 resueltas'),stageTxt(v1,'R1','R1 con acta ✓'),stageTxt(vrf,'RF','RF entregada ✓')]
+      .filter(Boolean);
     var revTxt=revParts.length?(' · '+revParts.join(' · ')):'';
     var flagTxt=flag?(' · ⚠ '+flag.texto):'';
-    var style={fontFamily:'var(--mono)',fontSize:11,fontWeight:700,color:st.color==='var(--amber)'?'#1a1a1a':'#fff',
+    var style={fontFamily:'var(--mono)',fontSize:11,fontWeight:700,color:st.color===PIZARRA_NEON?'#1a1a1a':'#fff',
       background:st.color,border:'1px solid rgba(255,255,255,.25)',borderRadius:6,padding:'3px 6px',cursor:'pointer',whiteSpace:'nowrap'};
-    if(marks.r0notif)style.border='3px solid var(--purple)';
-    if(marks.r1notif)style.boxShadow='0 0 0 2px '+PIZARRA_NEON;
-    // Tachados: R0 levantada ↗ morado, R1 levantada ↘ verde — con ambos queda una X.
-    var layers=[];
-    if(marks.r0lev)layers.push('linear-gradient(to top right,transparent calc(50% - 1.5px),var(--purple) calc(50% - 1.5px),var(--purple) calc(50% + 1.5px),transparent calc(50% + 1.5px))');
-    if(marks.r1lev)layers.push('linear-gradient(to bottom right,transparent calc(50% - 1.5px),'+PIZARRA_NEON+' calc(50% - 1.5px),'+PIZARRA_NEON+' calc(50% + 1.5px),transparent calc(50% + 1.5px))');
-    if(layers.length)style.background=layers.join(',')+','+st.color;
+    // Bordes acumulativos: morado desde que parte el ciclo R0, anillo verde desde que parte el R1.
+    if(v0>=25)style.border='3px solid '+PIZARRA_MORADO_MARK;
+    if(v1>=25)style.boxShadow='0 0 0 2px '+PIZARRA_NEON;
+    // Tachado morado ↗ al cerrar R0 (obs. resueltas) — se mantiene de ahí en adelante.
+    if(v0>=100){
+      style.background='linear-gradient(to top right,transparent calc(50% - 1.5px),'+PIZARRA_MORADO_MARK+' calc(50% - 1.5px),'+PIZARRA_MORADO_MARK+' calc(50% + 1.5px),transparent calc(50% + 1.5px)),'+st.color;
+    }
     if(opts&&opts.cont)style.opacity=.62; // día de continuación de una asignación con duración
     return h('span',{
       key:dep,draggable:true,
@@ -2995,7 +3029,10 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
       onClick:function(){openAssignPanel(boardKey,dep);},
       title:'D'+dep+' · '+Math.round(ov)+'% · '+st.label+revTxt+flagTxt+asigTxt,
       style:style
-    },flag?'⚠'+dep:dep);
+    },
+      (flag?'⚠':'')+dep,
+      sym?h('span',{style:{marginLeft:3,fontWeight:900,color:symColor}},sym):null
+    );
   }
   function pizarraCellDrop(boardKey,resp,fecha){
     return function(e){
@@ -3671,39 +3708,38 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
   // que la vista general) + marcas de notificación R0/R1 + restricción manual.
   // Criterio: partida Entrega R0/R1 al 50% = notificada, al 100% = obs. levantadas.
   function pizarraLegend(){
+    function item(swatch,txt){
+      return h('div',{style:{display:'flex',alignItems:'center',gap:5}},swatch,
+        h('span',{style:{fontSize:10,color:'var(--text3)'}},txt));
+    }
+    function letra(l,c){return h('span',{style:{fontFamily:'var(--mono)',fontSize:11,fontWeight:900,color:c}},l);}
     return h('div',null,
+      // Colores de estado propios de la Pizarra: RF verde fluor · R1 celeste · R0 morado · Fase rojo.
       h('div',{className:'flex g8',style:{flexWrap:'wrap',marginBottom:6}},
         ['RF','R1','R0','FASE'].map(function(k){
-          var st=ITO_BUCKET_META[k];
+          var st=PIZARRA_BUCKET_META[k];
           return h('div',{key:k,style:{display:'flex',alignItems:'center',gap:5}},
             h('span',{style:{width:12,height:12,borderRadius:3,background:st.color,display:'inline-block'}}),
             h('span',{style:{fontSize:10,color:'var(--text3)'}},st.label)
           );
         })
       ),
+      // Ciclos R0→R1→RF sobre las partidas Entrega R0/R1/RF: 25% N (notificado),
+      // 50% R (revisado), 75% T (trabajando), 100% cierre del ciclo.
       h('div',{className:'flex g8',style:{flexWrap:'wrap',marginBottom:10,rowGap:6}},
-        h('div',{style:{display:'flex',alignItems:'center',gap:5}},
-          h('span',{style:{width:12,height:12,borderRadius:3,border:'3px solid var(--purple)',display:'inline-block'}}),
-          h('span',{style:{fontSize:10,color:'var(--text3)'}},'borde morado = R0 notificada (Entrega R0 al 50%)')
-        ),
-        h('div',{style:{display:'flex',alignItems:'center',gap:5}},
-          h('span',{style:{width:12,height:12,borderRadius:3,border:'3px solid var(--purple)',display:'inline-block',
-            background:'linear-gradient(to top right,transparent calc(50% - 1px),var(--purple) calc(50% - 1px),var(--purple) calc(50% + 1px),transparent calc(50% + 1px))'}}),
-          h('span',{style:{fontSize:10,color:'var(--text3)'}},'tachado morado ↗ = obs. R0 levantadas (al 100%)')
-        ),
-        h('div',{style:{display:'flex',alignItems:'center',gap:5}},
-          h('span',{style:{width:12,height:12,borderRadius:3,boxShadow:'0 0 0 2px #39ff14',display:'inline-block',margin:2,border:'1px solid rgba(255,255,255,.25)'}}),
-          h('span',{style:{fontSize:10,color:'var(--text3)'}},'anillo verde = R1 notificada (Entrega R1 al 50%)')
-        ),
-        h('div',{style:{display:'flex',alignItems:'center',gap:5}},
-          h('span',{style:{width:12,height:12,borderRadius:3,boxShadow:'0 0 0 2px #39ff14',display:'inline-block',margin:2,border:'1px solid rgba(255,255,255,.25)',
-            background:'linear-gradient(to bottom right,transparent calc(50% - 1px),#39ff14 calc(50% - 1px),#39ff14 calc(50% + 1px),transparent calc(50% + 1px))'}}),
-          h('span',{style:{fontSize:10,color:'var(--text3)'}},'tachado verde ↘ = obs. R1 levantadas (al 100%) — con R0 forma una X')
-        ),
-        h('div',{style:{display:'flex',alignItems:'center',gap:5}},
-          h('span',{style:{fontSize:11}},'⚠'),
-          h('span',{style:{fontSize:10,color:'var(--text3)'}},'con restricción — pincha el depto para ver/editar el comentario')
-        )
+        item(h('span',{style:{width:12,height:12,borderRadius:3,border:'3px solid '+PIZARRA_MORADO_MARK,display:'inline-block'}}),
+          'borde morado = ciclo R0 en curso (Entrega R0 ≥25%)'),
+        item(h('span',{style:{width:12,height:12,borderRadius:3,border:'3px solid '+PIZARRA_MORADO_MARK,display:'inline-block',
+          background:'linear-gradient(to top right,transparent calc(50% - 1px),'+PIZARRA_MORADO_MARK+' calc(50% - 1px),'+PIZARRA_MORADO_MARK+' calc(50% + 1px),transparent calc(50% + 1px))'}}),
+          'tachado morado = obs. R0 resueltas (100%)'),
+        item(h('span',{style:{width:12,height:12,borderRadius:3,boxShadow:'0 0 0 2px '+PIZARRA_NEON,display:'inline-block',margin:2,border:'1px solid rgba(255,255,255,.25)'}}),
+          'anillo verde = ciclo R1 en curso (Entrega R1 ≥25%)'),
+        item(h('span',null,letra('N','#fbbf24'),' ',letra('R','#fff'),' ',letra('T','var(--orange)')),
+          'letra del ciclo vigente: N=Notificado (25%) · R=Revisado (50%) · T=Trabajando (75%) — en el ciclo RF las 3 van naranjas sobre fondo celeste'),
+        item(letra('✓',PIZARRA_NEON),
+          '✓ = R1 al 100% (con acta) · RF al 100% queda verde fluorescente = entregado'),
+        item(h('span',{style:{fontSize:11}},'⚠'),
+          'con restricción — pincha el depto para ver/editar el comentario')
       )
     );
   }
@@ -4128,7 +4164,7 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
         h('table',{style:{borderCollapse:'collapse',fontSize:11,width:'100%'}},
           h('thead',null,h('tr',null,
             h('th',{style:{textAlign:'left',padding:'4px 8px',color:'var(--text3)',fontSize:10}},'RESPONSABLE'),
-            buckets.map(function(b){return h('th',{key:b,style:{textAlign:'left',padding:'4px 8px',color:'var(--text3)',fontSize:10}},ITO_BUCKET_META[b].label);})
+            buckets.map(function(b){return h('th',{key:b,style:{textAlign:'left',padding:'4px 8px',color:'var(--text3)',fontSize:10}},PIZARRA_BUCKET_META[b].label);})
           )),
           h('tbody',null,
             Array.prototype.concat.apply([],PIZARRA_BOARDS.capataces.resp.map(function(resp,ri){
@@ -4143,7 +4179,7 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
                   var deps=depsOf(resp,b);
                   return h('td',{key:b,style:{padding:4,verticalAlign:'top'}},
                     deps.length?h('div',{style:{display:'flex',flexWrap:'wrap',gap:3}},
-                      deps.map(function(dep){return h('span',{key:dep,style:{fontFamily:'var(--mono)',fontSize:10,fontWeight:700,color:ITO_BUCKET_META[b].color,background:'rgba(255,255,255,.06)',border:'1px solid '+ITO_BUCKET_META[b].color,borderRadius:5,padding:'2px 5px'}},dep);})
+                      deps.map(function(dep){return h('span',{key:dep,style:{fontFamily:'var(--mono)',fontSize:10,fontWeight:700,color:PIZARRA_BUCKET_META[b].color,background:'rgba(255,255,255,.06)',border:'1px solid '+PIZARRA_BUCKET_META[b].color,borderRadius:5,padding:'2px 5px'}},dep);})
                     ):h('span',{style:{fontSize:10,color:'var(--text3)',fontStyle:'italic'}},'—')
                   );
                 })
