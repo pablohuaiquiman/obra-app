@@ -2830,6 +2830,24 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
     return pizarraFmt(d);
   }
   function pizarraDiasEntre(a,b){return Math.round((new Date(b+'T00:00:00')-new Date(a+'T00:00:00'))/86400000);}
+  // ── Días hábiles (L-V, saltando PIZARRA_FERIADOS) para el programa rítmico ──
+  function pizarraEsHabil(dateStr){
+    var d=new Date(dateStr+'T00:00:00').getDay();
+    return d!==0&&d!==6&&!PIZARRA_FERIADOS[dateStr];
+  }
+  function pizarraProxHabil(dateStr){ // el mismo día si ya es hábil; si no, el siguiente hábil
+    var cur=dateStr;
+    while(!pizarraEsHabil(cur))cur=pizarraAddDays(cur,1);
+    return cur;
+  }
+  function pizarraAddHabiles(dateStr,n){
+    var cur=dateStr,left=n;
+    while(left>0){
+      cur=pizarraAddDays(cur,1);
+      if(pizarraEsHabil(cur))left--;
+    }
+    return cur;
+  }
   // ¿El depto ya tiene asignado un responsable de este equipo (avanzada /
   // terminaciones) en el tablero de capataces? Alimenta los paneles separados
   // de pendientes por equipo.
@@ -3742,6 +3760,212 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
       )
     );
   }
+  // ══ PROGRAMA RÍTMICO ITO — pisos 2 a 5 completos a R1 ══
+  // Encadena en vivo el ciclo de cada depto a partir del plan semanal de
+  // capataces (slot Avanzada = fin de fase) y de los avances reales de los
+  // hitos R0/R1. Nada se guarda en Firestore: es 100% derivado.
+  // Ciclo (días hábiles): fin fase → +1 parte Terminaciones → +4 listo/notif R0
+  // → +2 revisión ITO → +2 obs levantadas = notif R1 → +2 revisión → +2 R1 listo.
+  var PIZARRA_RITMO_PISOS=['piso 2','piso 3','piso 4','piso 5'];
+  var PIZARRA_RITMO_DUR={term:4,rev:2,lev:2};
+  function computePizarraRitmo(){
+    var avanzada=PIZARRA_BOARDS.capataces.resp.filter(function(r){return pizarraTeamOf(r)==='avanzada';});
+    var perDay=avanzada.length||3; // deptos que Avanzada entrega por día (1 por responsable)
+    var deps=[];
+    PIZARRA_RITMO_PISOS.forEach(function(fl){
+      (_D.fl[fl]||[]).slice().sort(function(a,b){return parseInt(a,10)-parseInt(b,10);})
+        .forEach(function(dep){deps.push({dep:dep,piso:fl});});
+    });
+    // 1. Fin de fase: fecha real del slot Avanzada si existe; el resto se
+    // autoprograma a ritmo parejo (perDay deptos por día hábil) a continuación
+    // de la última fecha ya programada (o de hoy, lo que sea mayor).
+    var maxFin=pizarraHoy;
+    var porProgramar=[];
+    deps.forEach(function(d){
+      var av=null;
+      pizarraAssignsOf('capataces',d.dep).forEach(function(s){if(pizarraTeamOf(s.resp)==='avanzada')av=s;});
+      if(av){d.finFase=av.fechaFin||av.fecha;d.auto=false;if(d.finFase>maxFin)maxFin=d.finFase;}
+      else porProgramar.push(d);
+    });
+    var cursor=pizarraProxHabil(pizarraAddDays(maxFin,1)),slotDia=0;
+    porProgramar.forEach(function(d){
+      d.finFase=cursor;d.auto=true;
+      slotDia++;
+      if(slotDia>=perDay){slotDia=0;cursor=pizarraAddHabiles(cursor,1);}
+    });
+    // 2. Hitos encadenados + estado real (criterio 25=N/50=R/75=T/100=cierre)
+    var sug=[],fin='';
+    deps.forEach(function(d){
+      d.iniTerm=pizarraAddHabiles(pizarraProxHabil(d.finFase),1);
+      d.notifR0=pizarraAddHabiles(d.iniTerm,PIZARRA_RITMO_DUR.term);
+      d.revR0=pizarraAddHabiles(d.notifR0,PIZARRA_RITMO_DUR.rev);
+      d.levR0=pizarraAddHabiles(d.revR0,PIZARRA_RITMO_DUR.lev);
+      d.notifR1=d.levR0; // al levantar las obs R0 se notifica R1
+      d.revR1=pizarraAddHabiles(d.notifR1,PIZARRA_RITMO_DUR.rev);
+      d.levR1=pizarraAddHabiles(d.revR1,PIZARRA_RITMO_DUR.lev);
+      if(d.levR1>fin)fin=d.levR1;
+      d.v0=f4MilestoneVal(d.dep,F4_MILESTONE_ID.R0,saves);
+      d.v1=f4MilestoneVal(d.dep,F4_MILESTONE_ID.R1,saves);
+      d.r1Listo=d.v1>=100;
+      d.flag=pizarraFlagOf(d.dep);
+      // Hito por columna: fecha programada + ¿cumplido? (para pintar verde/rojo)
+      d.cols=[
+        {k:'finFase',f:d.finFase,done:bucketOfDep(d.dep)!=='FASE'},
+        {k:'notifR0',f:d.notifR0,done:d.v0>=25},
+        {k:'revR0',f:d.revR0,done:d.v0>=50},
+        {k:'levR0',f:d.levR0,done:d.v0>=100},
+        {k:'notifR1',f:d.notifR1,done:d.v1>=25},
+        {k:'revR1',f:d.revR1,done:d.v1>=50},
+        {k:'levR1',f:d.levR1,done:d.v1>=100}
+      ];
+      d.cols.forEach(function(c){c.vencido=!c.done&&c.f<pizarraHoy;});
+      // 3. Asistente de ritmo (reglas locales, sin escritura automática)
+      if(d.r1Listo)return;
+      if(d.v0>=25&&d.v0<50&&pizarraHoy>d.revR0)
+        sug.push({tipo:'rojo',txt:'ITO no ha revisado la R0 de D'+d.dep+' (venció el '+ddmm(d.revR0)+', hace '+pizarraDiasEntre(d.revR0,pizarraHoy)+' días)'});
+      else if(d.v1>=25&&d.v1<50&&pizarraHoy>d.revR1)
+        sug.push({tipo:'rojo',txt:'ITO no ha revisado la R1 de D'+d.dep+' (venció el '+ddmm(d.revR1)+', hace '+pizarraDiasEntre(d.revR1,pizarraHoy)+' días)'});
+      if(d.flag)
+        sug.push({tipo:'amarillo',txt:'Atrasar/reprogramar D'+d.dep+': restricción "'+d.flag.texto+'"'+(pizarraHoy>d.finFase?' y su fase ya venció':'')});
+      else if(pizarraHoy>d.notifR0&&d.v0<25)
+        sug.push({tipo:'amarillo',txt:'D'+d.dep+' debía notificarse a R0 el '+ddmm(d.notifR0)+' y aún no se notifica ('+pizarraDiasEntre(d.notifR0,pizarraHoy)+' días de atraso) — reprogramar'});
+      if(d.v0>=100&&pizarraHoy<d.levR0)
+        sug.push({tipo:'verde',txt:'Adelantar D'+d.dep+': obs. R0 ya resueltas, va '+pizarraDiasEntre(pizarraHoy,d.levR0)+' días delante del programa'});
+      else if(d.v1>=50&&pizarraHoy<d.revR1)
+        sug.push({tipo:'verde',txt:'Adelantar D'+d.dep+': R1 ya revisada, va '+pizarraDiasEntre(pizarraHoy,d.revR1)+' días delante del programa'});
+    });
+    var orden={rojo:0,amarillo:1,verde:2};
+    sug.sort(function(a,b){return orden[a.tipo]-orden[b.tipo];});
+    return{deps:deps,sug:sug,fin:fin,listos:deps.filter(function(d){return d.r1Listo;}).length,autoCount:porProgramar.length};
+  }
+  function ddmm(f){return f?f.slice(8,10)+'/'+f.slice(5,7):'—';}
+  var PIZARRA_RITMO_COLS=[['finFase','FIN FASE'],['notifR0','NOTIF R0'],['revR0','REV. R0'],['levR0','OBS R0'],['notifR1','NOTIF R1'],['revR1','REV. R1'],['levR1','R1 LISTO']];
+  function ritmoCellColor(c){return c.done?PIZARRA_NEON:c.vencido?'var(--red)':'var(--text2)';}
+  // ── PDF del programa rítmico: carta apaisada, una página por piso + sugerencias ──
+  // (fuentes core de jsPDF no traen ⚠/✓/emoji → se usan "(!)" y colores)
+  function generarPdfRitmo(){
+    if(typeof jspdf==='undefined'){toast&&toast('Error: jsPDF no disponible');return;}
+    var rit=computePizarraRitmo();
+    var doc=new jspdf.jsPDF({orientation:'landscape',unit:'mm',format:'letter'});
+    var PW=279.4,ML=12,MR=PW-12;
+    var colW=(MR-ML-24)/7; // 24mm para DEPTO, resto parejo
+    function header(sub){
+      doc.setFont('helvetica','bold');doc.setFontSize(13);doc.setTextColor(20,20,20);
+      doc.text('PROGRAMA RÍTMICO ITO — PISOS 2 A 5 (A R1)',ML,14);
+      doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(90,90,90);
+      doc.text('Generado el '+pizarraHoy.split('-').reverse().join('/')+' · Ciclo: fin fase > +1 día parte Terminaciones > +4d notif R0 > +2d revisión ITO > +2d obs levantadas = notif R1 > +2d revisión > +2d R1 listo (días hábiles, sin feriados)',ML,19.5);
+      doc.text('Deptos: '+rit.deps.length+' · R1 listos: '+rit.listos+' · Término R1 estimado: '+rit.fin.split('-').reverse().join('/')+' · Fechas en verde = cumplido · rojo = vencido sin cumplir · (!) = con restricción · * = fecha autocalculada',ML,23.5);
+      doc.setFont('helvetica','bold');doc.setFontSize(10);doc.setTextColor(20,20,20);
+      doc.text(sub.toUpperCase(),ML,29.5);
+    }
+    function tableHead(y){
+      doc.setFillColor(235,235,235);doc.rect(ML,y,MR-ML,6,'F');
+      doc.setFont('helvetica','bold');doc.setFontSize(7);doc.setTextColor(60,60,60);
+      doc.text('DEPTO',ML+2,y+4);
+      PIZARRA_RITMO_COLS.forEach(function(c,i){doc.text(c[1],ML+24+i*colW+colW/2,y+4,{align:'center'});});
+      return y+6;
+    }
+    PIZARRA_RITMO_PISOS.forEach(function(fl,pi){
+      var rows=rit.deps.filter(function(d){return d.piso===fl;});
+      if(pi>0)doc.addPage();
+      header(fl+' — '+rows.length+' deptos');
+      var y=tableHead(32);
+      var rowH=Math.min(7.4,(210-y)/rows.length);
+      rows.forEach(function(d,ri){
+        if(ri%2===1){doc.setFillColor(247,247,247);doc.rect(ML,y,MR-ML,rowH,'F');}
+        doc.setFont('helvetica','bold');doc.setFontSize(7.5);
+        doc.setTextColor.apply(doc,d.r1Listo?[0,140,60]:[30,30,30]);
+        doc.text('D'+d.dep+(d.flag?' (!)':'')+(d.auto?' *':''),ML+2,y+rowH/2+1.2);
+        doc.setFont('helvetica','normal');doc.setFontSize(7);
+        d.cols.forEach(function(c,i){
+          if(c.done)doc.setTextColor(0,140,60);
+          else if(c.vencido)doc.setTextColor(220,40,40);
+          else doc.setTextColor(70,70,70);
+          doc.text(ddmm(c.f),ML+24+i*colW+colW/2,y+rowH/2+1.2,{align:'center'});
+        });
+        doc.setDrawColor(220,220,220);doc.setLineWidth(.15);
+        doc.line(ML,y+rowH,MR,y+rowH);
+        y+=rowH;
+      });
+    });
+    // Página final: sugerencias del asistente de ritmo
+    doc.addPage();
+    header('Sugerencias del ritmo — '+(rit.sug.length||'sin')+' avisos');
+    var ys=34;
+    if(!rit.sug.length){
+      doc.setFont('helvetica','italic');doc.setFontSize(9);doc.setTextColor(0,140,60);
+      doc.text('Ritmo al día: sin alertas ni reprogramaciones sugeridas.',ML,ys);
+    }else rit.sug.forEach(function(s){
+      if(ys>205){doc.addPage();header('Sugerencias del ritmo (cont.)');ys=34;}
+      var col=s.tipo==='rojo'?[220,40,40]:s.tipo==='amarillo'?[200,130,10]:[0,140,60];
+      var pre=s.tipo==='rojo'?'[URGENTE] ':s.tipo==='amarillo'?'[ATRASAR] ':'[ADELANTAR] ';
+      doc.setFont('helvetica','bold');doc.setFontSize(8);doc.setTextColor.apply(doc,col);
+      var lines=doc.splitTextToSize(pre+s.txt,MR-ML);
+      doc.text(lines,ML,ys);
+      ys+=lines.length*4+2.5;
+    });
+    exportarPdf(doc,'programa-ritmico-ito-'+pizarraHoy+'.pdf','Programa rítmico ITO',toast);
+  }
+  function renderPizarraRitmoCard(){
+    var rit=computePizarraRitmo();
+    return h('div',{key:'ritmo',className:'card'},
+      h('div',{className:'shdr'},
+        h('div',{className:'shdr-title'},'Programa rítmico ITO — pisos 2 a 5 (a R1)'),
+        h('button',{onClick:generarPdfRitmo,style:{background:'var(--blue)',border:'none',borderRadius:6,padding:'5px 12px',color:'#fff',cursor:'pointer',fontSize:11,fontWeight:700}},'📄 PDF')
+      ),
+      h('div',{style:{fontSize:10,color:'var(--text3)',marginBottom:6}},
+        'Se calcula solo: usa la fecha real del slot Avanzada del plan de capataces (fin de fase) y autoprograma el resto (*) a ritmo de '+
+        '1 depto/día por responsable de Avanzada. Ciclo en días hábiles: +1 parte Terminaciones · +4 notif R0 · +2 revisión ITO · +2 obs levantadas = notif R1 · +2 revisión · +2 R1 listo. '+
+        'Verde = cumplido · rojo = vencido sin cumplir.'),
+      h('div',{style:{display:'flex',gap:14,flexWrap:'wrap',marginBottom:8,fontSize:11,fontWeight:800}},
+        h('span',{style:{color:'var(--text)'}},rit.deps.length+' deptos'),
+        h('span',{style:{color:PIZARRA_NEON}},rit.listos+' R1 listos'),
+        h('span',{style:{color:'var(--blue)'}},'término R1 estimado: '+rit.fin.split('-').reverse().join('/')),
+        h('span',{style:{color:'var(--text3)',fontWeight:400}},rit.autoCount+' con fecha autocalculada (*)')
+      ),
+      // Asistente de ritmo: alertas y reprogramaciones sugeridas (solo lectura)
+      h('div',{style:{marginBottom:10}},
+        h('div',{style:{fontSize:10,fontWeight:800,color:'var(--text)',textTransform:'uppercase',letterSpacing:'.05em',marginBottom:4}},'Sugerencias del ritmo'),
+        rit.sug.length===0
+          ?h('div',{style:{fontSize:11,color:PIZARRA_NEON,fontWeight:700}},'✓ Ritmo al día — sin alertas.')
+          :h('div',{style:{display:'flex',flexDirection:'column',gap:3}},
+            rit.sug.map(function(s,i){
+              var col=s.tipo==='rojo'?'var(--red)':s.tipo==='amarillo'?'var(--amber)':PIZARRA_NEON;
+              var ico=s.tipo==='rojo'?'🔴':s.tipo==='amarillo'?'⚠':'🟢';
+              return h('div',{key:i,style:{fontSize:11,color:col,fontWeight:600}},ico+' '+s.txt);
+            })
+          )
+      ),
+      h('div',{className:'gt-wrap'},
+        h('table',{style:{borderCollapse:'collapse',fontSize:10,width:'100%'}},
+          h('thead',null,h('tr',null,
+            h('th',{style:{textAlign:'left',padding:'3px 6px',color:'var(--text3)',fontSize:9,position:'sticky',left:0,background:'var(--bg2)',zIndex:1}},'DEPTO'),
+            PIZARRA_RITMO_COLS.map(function(c){return h('th',{key:c[0],style:{padding:'3px 6px',color:'var(--text3)',fontSize:9,textAlign:'center',whiteSpace:'nowrap'}},c[1]);})
+          )),
+          h('tbody',null,
+            Array.prototype.concat.apply([],PIZARRA_RITMO_PISOS.map(function(fl){
+              var rows=rit.deps.filter(function(d){return d.piso===fl;});
+              var head=h('tr',{key:'p_'+fl},
+                h('td',{colSpan:1+PIZARRA_RITMO_COLS.length,style:{padding:'4px 6px',background:'var(--bg2)',fontSize:9,fontWeight:800,letterSpacing:'.04em',color:'var(--text2)',textTransform:'uppercase'}},fl)
+              );
+              return[head].concat(rows.map(function(d){
+                return h('tr',{key:d.dep,style:{opacity:d.r1Listo?.55:1}},
+                  h('td',{title:(d.auto?'Fecha autocalculada · ':'')+(d.flag?('⚠ '+d.flag.texto):''),
+                    style:{padding:'2px 6px',fontFamily:'var(--mono)',fontWeight:700,whiteSpace:'nowrap',position:'sticky',left:0,background:'var(--card)',zIndex:1,
+                      color:d.r1Listo?PIZARRA_NEON:'var(--text)'}},(d.flag?'⚠':'')+d.dep+(d.auto?' *':'')),
+                  d.cols.map(function(c){
+                    return h('td',{key:c.k,style:{padding:'2px 6px',fontFamily:'var(--mono)',textAlign:'center',whiteSpace:'nowrap',
+                      color:ritmoCellColor(c),fontWeight:c.done||c.vencido?700:400}},ddmm(c.f));
+                  })
+                );
+              }));
+            }))
+          )
+        )
+      )
+    );
+  }
+
   // ── Panel "Cuellos de botella": rankings en vivo a partir del historial de
   // ciclos que se va cargando desde el editor de cada depto (ver pctEditorPanel
   // más abajo). Vacío hasta que alguien empiece a cargar fechas — no inventa
@@ -4200,6 +4424,7 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
   var pizarraView=h('div',{className:'gap10'},
     renderPizarraBoard('ito'),
     renderPizarraBoard('capataces'),
+    renderPizarraRitmoCard(),
     renderPizarraBottlenecks(),
     renderPizarraItoResumen(),
     renderPizarraOwnershipPanel()
