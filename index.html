@@ -4236,12 +4236,13 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
   // fijo para tener de un vistazo el estado real de todas las unidades.
   // Ejes de la grilla: últimos 2 dígitos del depto (misma posición en la planta
   // repetida piso a piso, ej. 422/322/222/122 comparten eje '22') — mismo criterio
-  // que la Matriz de estado por piso del Dashboard, pero ordenado descendente
-  // (22 → 01) para que cada columna quede alineada verticalmente entre pisos.
+  // y mismo orden ascendente que la Matriz de estado por piso del Dashboard, así
+  // cada columna queda alineada verticalmente entre pisos (el eje más bajo, ej.
+  // '02', primero; '22' al final).
   function pizarraGridAxes(){
     var set={};
     floors.forEach(function(fl){(_D.fl[fl]||[]).forEach(function(dep){set[dep.slice(-2)]=true;});});
-    return Object.keys(set).sort(function(a,b){return parseInt(b,10)-parseInt(a,10);});
+    return Object.keys(set).sort(function(a,b){return parseInt(a,10)-parseInt(b,10);});
   }
   function renderPizarraFullStatusCard(boardKey,cardKey,title){
     var axes=pizarraGridAxes();
