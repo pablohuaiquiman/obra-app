@@ -2941,13 +2941,14 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
   // Morado CLARO para bordes/tachados del ciclo R0: el morado normal se pierde
   // sobre el nuevo fondo morado del estado R0 — este tono se ve en ambos fondos.
   var PIZARRA_MORADO_MARK='#d8b4fe';
+  var PIZARRA_GREEN_DARK='var(--green2)'; // relleno del chip cuando R1 ya está con acta (100%)
   // Paleta de estado exclusiva de la Pizarra (pedida en obra): RF verde
-  // fluorescente, R1 celeste, R0 morado, Fase rojo. El resto del módulo
+  // fluorescente, R1 azul, R0 naranjo, Fase rojo. El resto del módulo
   // (Detalle/Resumen) sigue usando ITO_BUCKET_META sin cambios.
   var PIZARRA_BUCKET_META={
     RF:{label:'RF',color:PIZARRA_NEON},
     R1:{label:'R1',color:'var(--blue)'},
-    R0:{label:'R0',color:'var(--purple)'},
+    R0:{label:'R0',color:'var(--orange)'},
     FASE:{label:'Fase',color:'var(--red)'}
   };
   // Colores de las letras de ciclo: N=Notificado (amarillo-naranjo), R=Revisado
@@ -3011,8 +3012,12 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
     var v0=f4MilestoneVal(dep,F4_MILESTONE_ID.R0,saves);
     var v1=f4MilestoneVal(dep,F4_MILESTONE_ID.R1,saves);
     var vrf=f4MilestoneVal(dep,F4_MILESTONE_ID.RF,saves);
+    // Relleno del chip: por defecto el color del bucket (según %), pero si el
+    // hito YA está formalmente cerrado (no solo el %) manda el hito por sobre
+    // el bucket — R1 con acta = verde oscuro, RF entregada = verde fluor.
+    var fill=vrf>=100?PIZARRA_NEON:v1>=100?PIZARRA_GREEN_DARK:st.color;
     function cycleLetter(v){return v>=75?'T':v>=50?'R':v>=25?'N':null;}
-    var tickColor=st.color===PIZARRA_NEON?'#04220d':PIZARRA_NEON; // ✓ oscuro sobre fondo verde fluor
+    var tickColor=(fill===PIZARRA_NEON)?'#04220d':PIZARRA_NEON; // ✓ oscuro sobre fondo verde fluor
     var sym=null,symColor=null;
     if(vrf>=100){sym='✓';symColor=tickColor;}
     else if(vrf>=25){sym=cycleLetter(vrf);symColor='var(--orange)';} // ciclo RF: letras naranjas
@@ -3031,14 +3036,15 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
       .filter(Boolean);
     var revTxt=revParts.length?(' · '+revParts.join(' · ')):'';
     var flagTxt=flag?(' · ⚠ '+flag.texto):'';
-    var style={fontFamily:'var(--mono)',fontSize:11,fontWeight:700,color:st.color===PIZARRA_NEON?'#1a1a1a':'#fff',
-      background:st.color,border:'1px solid rgba(255,255,255,.25)',borderRadius:6,padding:'3px 6px',cursor:'pointer',whiteSpace:'nowrap'};
+    var style={fontFamily:'var(--mono)',fontSize:11,fontWeight:700,color:fill===PIZARRA_NEON?'#1a1a1a':'#fff',
+      background:fill,border:'1px solid rgba(255,255,255,.25)',borderRadius:6,padding:'3px 6px',cursor:'pointer',whiteSpace:'nowrap'};
     // Bordes acumulativos: morado desde que parte el ciclo R0, anillo verde desde que parte el R1.
     if(v0>=25)style.border='3px solid '+PIZARRA_MORADO_MARK;
     if(v1>=25)style.boxShadow='0 0 0 2px '+PIZARRA_NEON;
-    // Tachado morado ↗ al cerrar R0 (obs. resueltas) — se mantiene de ahí en adelante.
+    // Tachado morado ↗ al cerrar R0 (obs. resueltas) — se mantiene de ahí en adelante,
+    // incluso sobre el verde oscuro/fluor del relleno una vez cerrado R1/RF.
     if(v0>=100){
-      style.background='linear-gradient(to top right,transparent calc(50% - 1.5px),'+PIZARRA_MORADO_MARK+' calc(50% - 1.5px),'+PIZARRA_MORADO_MARK+' calc(50% + 1.5px),transparent calc(50% + 1.5px)),'+st.color;
+      style.background='linear-gradient(to top right,transparent calc(50% - 1.5px),'+PIZARRA_MORADO_MARK+' calc(50% - 1.5px),'+PIZARRA_MORADO_MARK+' calc(50% + 1.5px),transparent calc(50% + 1.5px)),'+fill;
     }
     if(opts&&opts.cont)style.opacity=.62; // día de continuación de una asignación con duración
     return h('span',{
@@ -3732,7 +3738,7 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
     }
     function letra(l,c){return h('span',{style:{fontFamily:'var(--mono)',fontSize:11,fontWeight:900,color:c}},l);}
     return h('div',null,
-      // Colores de estado propios de la Pizarra: RF verde fluor · R1 celeste · R0 morado · Fase rojo.
+      // Colores de estado propios de la Pizarra: RF verde fluor · R1 azul · R0 naranjo · Fase rojo.
       h('div',{className:'flex g8',style:{flexWrap:'wrap',marginBottom:6}},
         ['RF','R1','R0','FASE'].map(function(k){
           var st=PIZARRA_BUCKET_META[k];
@@ -3750,6 +3756,10 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
         item(h('span',{style:{width:12,height:12,borderRadius:3,border:'3px solid '+PIZARRA_MORADO_MARK,display:'inline-block',
           background:'linear-gradient(to top right,transparent calc(50% - 1px),'+PIZARRA_MORADO_MARK+' calc(50% - 1px),'+PIZARRA_MORADO_MARK+' calc(50% + 1px),transparent calc(50% + 1px))'}}),
           'R0 lista'),
+        item(h('span',{style:{width:12,height:12,borderRadius:3,background:PIZARRA_GREEN_DARK,display:'inline-block',border:'1px solid rgba(255,255,255,.25)'}}),
+          'R1 con acta'),
+        item(h('span',{style:{width:12,height:12,borderRadius:3,background:PIZARRA_NEON,display:'inline-block',border:'1px solid rgba(255,255,255,.25)'}}),
+          'RF entregada'),
         item(h('span',{style:{width:12,height:12,borderRadius:3,boxShadow:'0 0 0 2px '+PIZARRA_NEON,display:'inline-block',margin:2,border:'1px solid rgba(255,255,255,.25)'}}),
           'ciclo R1'),
         item(letra('N','#fbbf24'),'Notificado'),
