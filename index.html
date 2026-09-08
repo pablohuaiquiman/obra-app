@@ -2809,10 +2809,27 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
     var a=pizarraAssignOf(boardKey,dep);
     if(!a)return[];
     var out=[];
-    if(a.resp)out.push({resp:a.resp,fecha:a.fecha||pizarraHoy});
-    if(a.resp2)out.push({resp:a.resp2,fecha:a.fecha2||a.fecha||pizarraHoy});
+    // fechaFin/fechaFin2 (opcionales) dan DURACIÓN al slot: el depto cubre desde
+    // fecha hasta fechaFin en el plan semanal. Solo se respeta si es > fecha;
+    // sin fechaFin el slot sigue siendo de un solo día, como siempre.
+    if(a.resp){
+      var s1={resp:a.resp,fecha:a.fecha||pizarraHoy};
+      if(a.fechaFin&&a.fechaFin>s1.fecha)s1.fechaFin=a.fechaFin;
+      out.push(s1);
+    }
+    if(a.resp2){
+      var s2={resp:a.resp2,fecha:a.fecha2||a.fecha||pizarraHoy};
+      if(a.fechaFin2&&a.fechaFin2>s2.fecha)s2.fechaFin=a.fechaFin2;
+      out.push(s2);
+    }
     return out;
   }
+  // Suma n días corridos a una fecha YYYY-MM-DD / días corridos entre dos fechas.
+  function pizarraAddDays(dateStr,n){
+    var d=new Date(dateStr+'T00:00:00');d.setDate(d.getDate()+n);
+    return pizarraFmt(d);
+  }
+  function pizarraDiasEntre(a,b){return Math.round((new Date(b+'T00:00:00')-new Date(a+'T00:00:00'))/86400000);}
   // ¿El depto ya tiene asignado un responsable de este equipo (avanzada /
   // terminaciones) en el tablero de capataces? Alimenta los paneles separados
   // de pendientes por equipo.
@@ -2834,7 +2851,11 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
       if(!clean.length){delete next[dep];}
       else{
         var rec={resp:clean[0].resp,fecha:clean[0].fecha||pizarraHoy};
-        if(clean[1]){rec.resp2=clean[1].resp;rec.fecha2=clean[1].fecha||pizarraHoy;}
+        if(clean[0].fechaFin&&clean[0].fechaFin>rec.fecha)rec.fechaFin=clean[0].fechaFin;
+        if(clean[1]){
+          rec.resp2=clean[1].resp;rec.fecha2=clean[1].fecha||pizarraHoy;
+          if(clean[1].fechaFin&&clean[1].fechaFin>rec.fecha2)rec.fechaFin2=clean[1].fechaFin;
+        }
         next[dep]=rec;
       }
       return next;
@@ -2848,16 +2869,33 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
   // Terminaciones sin pisarse.
   function setPizarraAssign(boardKey,dep,resp,fecha){
     if(!resp){setPizarraAssignSlots(boardKey,dep,[]);return;}
-    if(boardKey!=='capataces'){setPizarraAssignSlots(boardKey,dep,[{resp:resp,fecha:fecha||pizarraHoy}]);return;}
+    fecha=fecha||pizarraHoy;
+    var prevSlots=pizarraAssignsOf(boardKey,dep);
+    // Al arrastrar a otro día se conserva la DURACIÓN que tenía el slot: si el
+    // depto iba del 21 al 24 (4 días) y se suelta en el 28, queda del 28 al 01.
+    function conDuracion(prev){
+      var s={resp:resp,fecha:fecha};
+      if(prev&&prev.fechaFin)s.fechaFin=pizarraAddDays(fecha,pizarraDiasEntre(prev.fecha,prev.fechaFin));
+      return s;
+    }
+    if(boardKey!=='capataces'){setPizarraAssignSlots(boardKey,dep,[conDuracion(prevSlots[0])]);return;}
     var team=pizarraTeamOf(resp);
-    var slots=pizarraAssignsOf(boardKey,dep).filter(function(s){return pizarraTeamOf(s.resp)!==team;});
-    slots.push({resp:resp,fecha:fecha||pizarraHoy});
+    var prevSame=null;
+    prevSlots.forEach(function(s){if(pizarraTeamOf(s.resp)===team)prevSame=s;});
+    var slots=prevSlots.filter(function(s){return pizarraTeamOf(s.resp)!==team;});
+    slots.push(conDuracion(prevSame));
     setPizarraAssignSlots(boardKey,dep,slots);
   }
   function clearPizarraAssign(boardKey,dep){setPizarraAssignSlots(boardKey,dep,[]);}
   // ¿Este registro (con sus 2 posibles slots) incluye a este responsable? / ¿con qué fecha?
   function pizarraRespMatches(a,resp){return!!a&&(a.resp===resp||a.resp2===resp);}
-  function pizarraFechaFor(a,resp){return a.resp2===resp?(a.fecha2||a.fecha):a.fecha;}
+  // Rango [ini,fin] del slot de este responsable — fin=ini cuando no hay duración.
+  function pizarraRangoFor(a,resp){
+    var ini,fin;
+    if(a.resp2===resp){ini=a.fecha2||a.fecha;fin=(a.fechaFin2&&a.fechaFin2>ini)?a.fechaFin2:ini;}
+    else{ini=a.fecha;fin=(a.fechaFin&&a.fechaFin>ini)?a.fechaFin:ini;}
+    return{ini:ini,fin:fin};
+  }
   // ── Restricciones / alertas por depto (itoPizarraFlags: {dep:{texto,fecha}}) ──
   // Marca manual compartida por ambos tableros: deptos que son oficina, se
   // mojaron con la lluvia, etc. Se edita desde el panel de asignación del chip.
@@ -2901,16 +2939,16 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
   function openAssignPanel(boardKey,dep){
     var slots=pizarraAssignsOf(boardKey,dep);
     var flag=pizarraFlagOf(dep);
-    var draft={resp:'',fecha:pizarraHoy,resp2:'',fecha2:pizarraHoy,flag:flag?flag.texto:''};
+    var draft={resp:'',fecha:pizarraHoy,fechaFin:'',resp2:'',fecha2:pizarraHoy,fechaFin2:'',flag:flag?flag.texto:''};
     if(boardKey==='capataces'){
       // En el panel del tablero de capataces el draft se ordena por equipo:
       // resp/fecha = Avanzada, resp2/fecha2 = Terminaciones (independiente del
       // orden en que quedaron guardados los slots).
       slots.forEach(function(s){
-        if(pizarraTeamOf(s.resp)==='terminaciones'){draft.resp2=s.resp;draft.fecha2=s.fecha;}
-        else{draft.resp=s.resp;draft.fecha=s.fecha;}
+        if(pizarraTeamOf(s.resp)==='terminaciones'){draft.resp2=s.resp;draft.fecha2=s.fecha;draft.fechaFin2=s.fechaFin||'';}
+        else{draft.resp=s.resp;draft.fecha=s.fecha;draft.fechaFin=s.fechaFin||'';}
       });
-    }else if(slots[0]){draft.resp=slots[0].resp;draft.fecha=slots[0].fecha;}
+    }else if(slots[0]){draft.resp=slots[0].resp;draft.fecha=slots[0].fecha;draft.fechaFin=slots[0].fechaFin||'';}
     setAssignDraft(draft);
     setAssignBoard(boardKey);
     setAssignDep(dep);
@@ -2920,11 +2958,18 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
   // Encima del color de estado (mismo código que la vista general) se dibujan las
   // marcas de notificación R0/R1 (ver pizarraRevMarks) y el ícono ⚠ si el depto
   // tiene una restricción anotada.
-  function pizarraChip(boardKey,dep){
+  // opts (opcional) viene de las celdas del plan semanal cuando el depto tiene
+  // duración: {cont:true} marca los días de continuación (después del inicio)
+  // para atenuarlos levemente — así se ve dónde parte la barra y hasta dónde llega.
+  function pizarraChip(boardKey,dep,opts){
     var st=ITO_BUCKET_META[bucketOfDep(dep)];
     var ov=(pg.deptos[dep]||{overall:0}).overall;
     var slots=pizarraAssignsOf(boardKey,dep);
-    var asigTxt=slots.map(function(s){return' · '+s.resp+' · '+s.fecha.split('-').reverse().join('/');}).join('');
+    var asigTxt=slots.map(function(s){
+      var f=s.fecha.split('-').reverse().join('/');
+      if(s.fechaFin)f+=' → '+s.fechaFin.split('-').reverse().join('/');
+      return' · '+s.resp+' · '+f;
+    }).join('');
     var marks=pizarraRevMarks(dep);
     var flag=pizarraFlagOf(dep);
     var revParts=[];
@@ -2943,6 +2988,7 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
     if(marks.r0lev)layers.push('linear-gradient(to top right,transparent calc(50% - 1.5px),var(--purple) calc(50% - 1.5px),var(--purple) calc(50% + 1.5px),transparent calc(50% + 1.5px))');
     if(marks.r1lev)layers.push('linear-gradient(to bottom right,transparent calc(50% - 1.5px),'+PIZARRA_NEON+' calc(50% - 1.5px),'+PIZARRA_NEON+' calc(50% + 1.5px),transparent calc(50% + 1.5px))');
     if(layers.length)style.background=layers.join(',')+','+st.color;
+    if(opts&&opts.cont)style.opacity=.62; // día de continuación de una asignación con duración
     return h('span',{
       key:dep,draggable:true,
       onDragStart:function(e){e.dataTransfer.setData('text/plain',dep);e.dataTransfer.effectAllowed='move';},
@@ -3590,14 +3636,21 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
     var data=pizarraDataOf(boardKey);
     var team=pizarraTeamOf(resp);
     // Un depto puede estar en 2 slots (Avanzada + Terminaciones): para este
-    // responsable cuenta solo el slot suyo, con la fecha de ESE slot.
+    // responsable cuenta solo el slot suyo, con el RANGO de ese slot (fecha..
+    // fechaFin) — un depto del 21 al 24 cuenta en la semana si el rango la toca.
     var depsInWeek=Object.keys(data||{}).filter(function(dep){
       var a=data[dep];
-      return pizarraRespMatches(a,resp)&&week.days.some(function(d){return d.date===pizarraFechaFor(a,resp);});
+      if(!pizarraRespMatches(a,resp))return false;
+      var r=pizarraRangoFor(a,resp);
+      return week.days.some(function(d){return r.ini<=d.date&&d.date<=r.fin;});
     });
     if(team==='avanzada'){
+      // Avanzada: un día está cubierto si algún depto suyo lo abarca con su rango.
       var daysCovered=week.days.filter(function(d){
-        return depsInWeek.some(function(dep){return pizarraFechaFor(data[dep],resp)===d.date;});
+        return depsInWeek.some(function(dep){
+          var r=pizarraRangoFor(data[dep],resp);
+          return r.ini<=d.date&&d.date<=r.fin;
+        });
       }).length;
       return{value:daysCovered,goal:5,label:daysCovered+'/5'};
     }
@@ -3953,6 +4006,10 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
           h('div',{style:{display:'flex',alignItems:'center',gap:5}},
             h('span',{style:{width:10,height:10,borderRadius:3,background:'rgba(239,68,68,.20)',border:'1px solid var(--red)',display:'inline-block'}}),
             h('span',{style:{fontSize:10,color:'var(--red)'}},'= feriado')
+          ),
+          h('div',{style:{display:'flex',alignItems:'center',gap:5}},
+            h('span',{style:{width:10,height:10,borderRadius:3,background:'var(--blue)',opacity:.62,display:'inline-block'}}),
+            h('span',{style:{fontSize:10,color:'var(--text3)'}},'= depto con duración: parte nítido y sigue atenuado hasta su fecha de término (se fija al pinchar el depto)')
           )
         ),
         pizarraWeeks.length===0
@@ -4012,9 +4069,13 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
                       pizarraWeeks.map(function(w){
                         var dayTds=w.days.map(function(d,di){
                           var data=pizarraDataOf(boardKey);
+                          // Con duración (fechaFin), el depto aparece en TODOS los días de su
+                          // rango [ini..fin]; los días después del inicio van atenuados (cont).
                           var deps=Object.keys(data||{}).filter(function(dep){
                             var a=data[dep];
-                            return pizarraRespMatches(a,resp)&&pizarraFechaFor(a,resp)===d.date;
+                            if(!pizarraRespMatches(a,resp))return false;
+                            var r=pizarraRangoFor(a,resp);
+                            return r.ini<=d.date&&d.date<=r.fin;
                           }).sort(function(a,b){return parseInt(a,10)-parseInt(b,10);});
                           return h('td',{
                             key:w.key+'_'+d.date,onDragOver:allowDropPizarra,onDrop:pizarraCellDrop(boardKey,resp,d.date),
@@ -4023,7 +4084,10 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
                               background:d.isFeriado?'rgba(239,68,68,.10)':(d.isToday?'rgba(14,165,233,.10)':(w.isCurrent?'rgba(14,165,233,.04)':'transparent')),
                               borderLeft:di===0?'2px solid var(--border)':'1px dashed rgba(255,255,255,.08)'}
                           },
-                            h('div',{style:{display:'flex',flexDirection:'column',gap:2}},deps.map(function(dep){return pizarraChip(boardKey,dep);}))
+                            h('div',{style:{display:'flex',flexDirection:'column',gap:2}},deps.map(function(dep){
+                              var cont=pizarraRangoFor(data[dep],resp).ini<d.date;
+                              return pizarraChip(boardKey,dep,cont?{cont:true}:undefined);
+                            }))
                           );
                         });
                         if(boardKey==='capataces'){
@@ -4131,6 +4195,11 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
             onChange:function(e){setAssignDraft(Object.assign({},assignDraft,{fecha:e.target.value||pizarraHoy}));}
           })
         ):null,
+        assignDraft.resp?h('div',{key:'av_ff',className:'field'},h('label',null,'Término Avanzada (opcional — cubre del inicio a esta fecha)'),
+          h('input',{type:'date',className:'date-input',value:assignDraft.fechaFin,min:assignDraft.fecha,
+            onChange:function(e){setAssignDraft(Object.assign({},assignDraft,{fechaFin:e.target.value}));}
+          })
+        ):null,
         h('div',{key:'te_r',className:'field'},h('label',null,'Responsable Terminaciones'),
           h('select',{className:'sel-input',value:assignDraft.resp2,
             onChange:function(e){setAssignDraft(Object.assign({},assignDraft,{resp2:e.target.value}));}
@@ -4142,6 +4211,11 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
         assignDraft.resp2?h('div',{key:'te_f',className:'field'},h('label',null,'Fecha Terminaciones'),
           h('input',{type:'date',className:'date-input',value:assignDraft.fecha2,
             onChange:function(e){setAssignDraft(Object.assign({},assignDraft,{fecha2:e.target.value||pizarraHoy}));}
+          })
+        ):null,
+        assignDraft.resp2?h('div',{key:'te_ff',className:'field'},h('label',null,'Término Terminaciones (opcional — cubre del inicio a esta fecha)'),
+          h('input',{type:'date',className:'date-input',value:assignDraft.fechaFin2,min:assignDraft.fecha2,
+            onChange:function(e){setAssignDraft(Object.assign({},assignDraft,{fechaFin2:e.target.value}));}
           })
         ):null
       ]:[
@@ -4156,6 +4230,11 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
         h('div',{key:'f',className:'field'},h('label',null,'Fecha de entrega'),
           h('input',{type:'date',className:'date-input',value:assignDraft.fecha,
             onChange:function(e){setAssignDraft(Object.assign({},assignDraft,{fecha:e.target.value||pizarraHoy}));}
+          })
+        ),
+        h('div',{key:'ff',className:'field'},h('label',null,'Fecha término (opcional — cubre del inicio a esta fecha)'),
+          h('input',{type:'date',className:'date-input',value:assignDraft.fechaFin,min:assignDraft.fecha,
+            onChange:function(e){setAssignDraft(Object.assign({},assignDraft,{fechaFin:e.target.value}));}
           })
         )
       ],
@@ -4172,8 +4251,8 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
         h('button',{
           onClick:function(){
             var slots=[];
-            if(assignDraft.resp)slots.push({resp:assignDraft.resp,fecha:assignDraft.fecha||pizarraHoy});
-            if(assignBoard==='capataces'&&assignDraft.resp2)slots.push({resp:assignDraft.resp2,fecha:assignDraft.fecha2||pizarraHoy});
+            if(assignDraft.resp)slots.push({resp:assignDraft.resp,fecha:assignDraft.fecha||pizarraHoy,fechaFin:assignDraft.fechaFin||null});
+            if(assignBoard==='capataces'&&assignDraft.resp2)slots.push({resp:assignDraft.resp2,fecha:assignDraft.fecha2||pizarraHoy,fechaFin:assignDraft.fechaFin2||null});
             setPizarraAssignSlots(assignBoard,assignDep,slots);
             setPizarraFlag(assignDep,assignDraft.flag);
             setAssignDep(null);toast&&toast('✓ Asignación guardada');
