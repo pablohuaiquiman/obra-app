@@ -3050,7 +3050,10 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
     if(v0>=100){
       style.background='linear-gradient(to top right,transparent calc(50% - 1.5px),'+PIZARRA_MORADO_MARK+' calc(50% - 1.5px),'+PIZARRA_MORADO_MARK+' calc(50% + 1.5px),transparent calc(50% + 1.5px)),'+fill;
     }
-    if(opts&&opts.cont)style.opacity=.62; // día de continuación de una asignación con duración
+    if(opts&&opts.cont)style.opacity=.62; // día de continuación de una asignación con duración (solo si no se pudo fusionar en una barra)
+    if(opts&&opts.bar){ // barra continua: el <td> ya viene con colSpan, el chip solo llena su ancho
+      style.display='flex';style.alignItems='center';style.width='100%';style.boxSizing='border-box';
+    }
     return h('span',{
       key:dep,draggable:true,
       onDragStart:function(e){e.dataTransfer.setData('text/plain',dep);e.dataTransfer.effectAllowed='move';},
@@ -4329,8 +4332,12 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
             h('span',{style:{fontSize:10,color:'var(--red)'}},'feriado')
           ),
           h('div',{style:{display:'flex',alignItems:'center',gap:5}},
+            h('span',{style:{width:10,height:10,borderRadius:3,background:'var(--blue)',display:'inline-block'}}),
+            h('span',{style:{fontSize:10,color:'var(--text3)'}},'con fecha de término = barra continua de inicio a fin')
+          ),
+          h('div',{style:{display:'flex',alignItems:'center',gap:5}},
             h('span',{style:{width:10,height:10,borderRadius:3,background:'var(--blue)',opacity:.62,display:'inline-block'}}),
-            h('span',{style:{fontSize:10,color:'var(--text3)'}},'atenuado = sigue hasta su término')
+            h('span',{style:{fontSize:10,color:'var(--text3)'}},'atenuado = comparte día con otro depto, no se pudo fusionar')
           )
         ),
         pizarraWeeks.length===0
@@ -4388,29 +4395,64 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
                     var dataRow=h('tr',{key:resp},
                       h('td',{style:{padding:'4px 8px',fontWeight:700,color:'var(--text)',position:'sticky',left:0,zIndex:1,background:'var(--card)',fontSize:11,whiteSpace:'nowrap',borderBottom:rowBdr}},resp),
                       pizarraWeeks.map(function(w){
-                        var dayTds=w.days.map(function(d,di){
-                          var data=pizarraDataOf(boardKey);
-                          // Con duración (fechaFin), el depto aparece en TODOS los días de su
-                          // rango [ini..fin]; los días después del inicio van atenuados (cont).
-                          var deps=Object.keys(data||{}).filter(function(dep){
+                        var data=pizarraDataOf(boardKey);
+                        function depsOnDay(dateStr){
+                          return Object.keys(data||{}).filter(function(dep){
                             var a=data[dep];
                             if(!pizarraRespMatches(a,resp))return false;
                             var r=pizarraRangoFor(a,resp);
-                            return r.ini<=d.date&&d.date<=r.fin;
+                            return r.ini<=dateStr&&dateStr<=r.fin;
                           }).sort(function(a,b){return parseInt(a,10)-parseInt(b,10);});
-                          return h('td',{
+                        }
+                        // Con duración (fechaFin), el depto ocupa varios días [ini..fin]. Si en
+                        // TODOS esos días (dentro de esta semana) es el ÚNICO depto de este
+                        // responsable, se fusiona en una sola celda (colSpan) con una barra
+                        // continua — así crece visualmente de principio a fin en vez de repetir
+                        // el chip día por día. Si algún día lo comparte con otro depto, esa
+                        // celda no se puede fusionar (haría falta un cupo aparte para el otro) y
+                        // se cae al comportamiento de siempre: chip atenuado (cont) día a día.
+                        var dayTds=[];
+                        var i=0;
+                        while(i<w.days.length){
+                          var d=w.days[i];
+                          var deps=depsOnDay(d.date);
+                          var mergeDep=null;
+                          if(deps.length===1){
+                            var r0=pizarraRangoFor(data[deps[0]],resp);
+                            if(r0.fin>r0.ini)mergeDep=deps[0];
+                          }
+                          if(mergeDep){
+                            var rM=pizarraRangoFor(data[mergeDep],resp);
+                            var span=1,j=i+1;
+                            while(j<w.days.length&&w.days[j].date<=rM.fin){
+                              var depsJ=depsOnDay(w.days[j].date);
+                              if(depsJ.length!==1||depsJ[0]!==mergeDep)break;
+                              span++;j++;
+                            }
+                            dayTds.push(h('td',{
+                              key:w.key+'_'+d.date,colSpan:span,
+                              onDragOver:allowDropPizarra,onDrop:pizarraCellDrop(boardKey,resp,d.date),
+                              style:{padding:3,minWidth:34,verticalAlign:'top',borderBottom:rowBdr,opacity:w.isPast?.6:1,
+                                background:'transparent',
+                                borderLeft:i===0?'2px solid var(--border)':'1px dashed rgba(255,255,255,.08)'}
+                            },pizarraChip(boardKey,mergeDep,{bar:true})));
+                            i+=span;
+                            continue;
+                          }
+                          dayTds.push(h('td',{
                             key:w.key+'_'+d.date,onDragOver:allowDropPizarra,onDrop:pizarraCellDrop(boardKey,resp,d.date),
                             title:d.isFeriado?'FERIADO — '+d.date.split('-').reverse().join('/'):undefined,
                             style:{padding:3,minWidth:34,verticalAlign:'top',borderBottom:rowBdr,opacity:w.isPast?.6:1,
                               background:d.isFeriado?'rgba(239,68,68,.10)':(d.isToday?'rgba(14,165,233,.10)':(w.isCurrent?'rgba(14,165,233,.04)':'transparent')),
-                              borderLeft:di===0?'2px solid var(--border)':'1px dashed rgba(255,255,255,.08)'}
+                              borderLeft:i===0?'2px solid var(--border)':'1px dashed rgba(255,255,255,.08)'}
                           },
                             h('div',{style:{display:'flex',flexDirection:'column',gap:2}},deps.map(function(dep){
                               var cont=pizarraRangoFor(data[dep],resp).ini<d.date;
                               return pizarraChip(boardKey,dep,cont?{cont:true}:undefined);
                             }))
-                          );
-                        });
+                          ));
+                          i++;
+                        }
                         if(boardKey==='capataces'){
                           var cap=pizarraWeekCapacity(boardKey,resp,w);
                           dayTds=dayTds.concat([h('td',{key:w.key+'_cap',title:'Cobertura de la semana: '+cap.label,style:{
