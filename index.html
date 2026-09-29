@@ -2422,6 +2422,9 @@ function PisosView({progress,saves,onSave,auth,toast,userResp,itoData}){
   const[hideDone,shd]=useState(false);
   const[fase,sfase]=useState('all');
   const[filt,sfilt]=useState('all');
+  const[buscaPartida,sBuscaPartida]=useState('');
+  useEffect(function(){sBuscaPartida('');},[dep]);
+  const normTxt=(s)=>(s||'').toString().normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
   const[pasilloSaves,setPasilloSaves]=useState(function(){
     try{return JSON.parse(localStorage.getItem('pasillos_v1')||'{}');}catch(e){return{};}
   });
@@ -2455,7 +2458,8 @@ function PisosView({progress,saves,onSave,auth,toast,userResp,itoData}){
         return{...p,val:saved!=null?saved:excel};
       });
     };
-    const fases2=fase==='all'?['1','2','3','4']:[fase];
+    const buscando=buscaPartida.trim().length>0;
+    const fases2=buscando?['1','2','3','4']:(fase==='all'?['1','2','3','4']:[fase]);
     const calcAvg=(f)=>{
       const ps=getPartidas(f);
       if(!ps.length)return 0;
@@ -2481,7 +2485,18 @@ function PisosView({progress,saves,onSave,auth,toast,userResp,itoData}){
           )
         )
       ),
-      h('div',{className:'ftabs'},
+      h('div',{className:'flex aic g8 mb10',style:{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:8,padding:'7px 10px'}},
+        h('span',{style:{fontSize:14,opacity:.7}},'🔍'),
+        h('input',{type:'text',value:buscaPartida,
+          onChange:(e)=>sBuscaPartida(e.target.value),
+          placeholder:'Buscar partida (ej: receptáculo)...',
+          style:{flex:1,background:'transparent',border:'none',outline:'none',color:'var(--text)',fontSize:13}
+        }),
+        buscaPartida&&h('button',{onClick:()=>sBuscaPartida(''),
+          style:{background:'transparent',border:'none',color:'var(--text3)',fontSize:15,cursor:'pointer',lineHeight:1,padding:'0 2px'}
+        },'✕')
+      ),
+      h('div',{className:'ftabs',style:buscando?{opacity:.4,pointerEvents:'none'}:{}},
         [['all','Todo'],['1','Fase 1'],['2','Fase 2'],['3','Fase 3'],['4','Fase 4']].map(([k,l])=>
           h('button',{key:k,className:`ftab ${fase===k?'on':''}`,
             style:k!=='all'&&fase===k?{background:fc(k),borderColor:fc(k)}:{},
@@ -2489,13 +2504,20 @@ function PisosView({progress,saves,onSave,auth,toast,userResp,itoData}){
           },l)
         )
       ),
+      buscando&&fases2.every(f=>{
+        let parts=getPartidas(f);
+        if(hideDone)parts=parts.filter(p=>p.val<100);
+        parts=parts.filter(p=>normTxt(p.name).includes(normTxt(buscaPartida))||('#'+p.id)===buscaPartida.trim());
+        return parts.length===0;
+      })&&h('div',{style:{textAlign:'center',color:'var(--text3)',padding:'18px 0',fontSize:13}},'Sin resultados para "'+buscaPartida+'"'),
       fases2.map(f=>{
         let parts=getPartidas(f);
         if(hideDone)parts=parts.filter(p=>p.val<100);
-        if(!parts.length)return h('div',{key:f,style:{textAlign:'center',color:'var(--green)',padding:'18px 0',fontSize:13}},'✅ Todas las partidas al 100%');
+        if(buscando)parts=parts.filter(p=>normTxt(p.name).includes(normTxt(buscaPartida))||('#'+p.id)===buscaPartida.trim());
+        if(!parts.length)return buscando?null:h('div',{key:f,style:{textAlign:'center',color:'var(--green)',padding:'18px 0',fontSize:13}},'✅ Todas las partidas al 100%');
         return h('div',{key:f},
           h('div',{style:{fontSize:10,fontWeight:700,color:fc(f),letterSpacing:'.1em',textTransform:'uppercase',marginBottom:7,marginTop:f!=='1'||fase!=='all'?10:0,paddingBottom:3,borderBottom:`1px solid ${fc(f)}33`}},
-            'Fase '+f+' · '+parts.length+(hideDone?' visibles':' partidas')
+            'Fase '+f+' · '+parts.length+(buscando?' resultado'+(parts.length===1?'':'s'):hideDone?' visibles':' partidas')
           ),
           parts.map(p=>{
             const v=p.val;
