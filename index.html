@@ -2415,7 +2415,7 @@ var PASILLO_PISOS=['2'];
 var PASILLO_PISO_LABELS={'2':'Piso 2'};
 
 // ── PISOS VIEW ─────────────────────────────────────────────
-function PisosView({progress,saves,onSave,auth,toast,userResp}){
+function PisosView({progress,saves,onSave,auth,toast,userResp,itoData}){
   var pg=progress||calculateAllProgress(saves);
   const[floor,sf]=useState(null);
   const[dep,sd]=useState(null);
@@ -2426,6 +2426,7 @@ function PisosView({progress,saves,onSave,auth,toast,userResp}){
     try{return JSON.parse(localStorage.getItem('pasillos_v1')||'{}');}catch(e){return{};}
   });
   const[selPasillo,setSelPasillo]=useState(null);
+  const[expandedBucket,setExpandedBucket]=useState(null); // 'R1' | 'R0' | null — desglose por piso bajo el mini-stat
   const floors=Object.keys(_D.fl);
   // Escala de color de avance propia de esta vista: 0%=gris sin relleno, 1-49%=amarillo, 50-99%=naranjo, 100%=verde
   // Se redondea igual que el texto mostrado (Math.round) para que el color nunca contradiga el % en pantalla
@@ -2595,35 +2596,66 @@ function PisosView({progress,saves,onSave,auth,toast,userResp}){
     return total?Math.round(done/total*100):0;
   }
   var canEditP=auth&&(auth.role==='Admin'||auth.role==='Jefe Obra'||auth.role==='Supervisor');
-  var comp=0,inpr=0,pend=0;
-  Object.keys(_D.ds).forEach(function(dep){
-    var ov2=(pg.deptos[dep]||{overall:0}).overall;
-    if(ov2>=99)comp++;else if(ov2>0)inpr++;else pend++;
+  // Conteo por estado (mismo bucket RF/R1/R0/Fase que colorea los cuadros de
+  // depto) desglosado por piso — así el resumen de arriba cuadra con lo que
+  // se ve abajo (antes contaba por %, ej. "0 completados" con cuadros verdes
+  // visibles). bucketByFloor alimenta el desglose de las tarjetas R1/R0.
+  // FASE se separa en dos conteos — mismo criterio que pizarraBucketStyle usa
+  // para pintar el cuadro: rojo=de verdad sin tocar (0%), rosado=ya arrancó
+  // pero aún no llega a R0 (1-49%) — antes quedaban sumados en un solo número.
+  var bucketTotals={RF:0,R1:0,R0:0,FASE:0,FASE_PROGRESS:0};
+  var bucketByFloor={};
+  floors.forEach(function(fl){
+    var c={RF:0,R1:0,R0:0,FASE:0,FASE_PROGRESS:0};
+    (_D.fl[fl]||[]).forEach(function(dep){
+      var b=bucketOfDepto(dep,saves,pg);
+      if(b==='FASE'&&(pg.deptos[dep]||{overall:0}).overall>0)b='FASE_PROGRESS';
+      c[b]++;
+    });
+    bucketByFloor[fl]=c;
+    Object.keys(bucketTotals).forEach(function(k){bucketTotals[k]+=c[k];});
   });
+  function bucketCard(key,label){
+    var st=PIZARRA_BUCKET_META[key];
+    var expanded=expandedBucket===key;
+    return h('div',{key:key,
+      onClick:function(){setExpandedBucket(expanded?null:key);},
+      style:{background:st.bg,border:'1px solid '+st.bdr,borderRadius:8,padding:'7px 6px',
+        textAlign:'center',cursor:'pointer'}},
+      h('div',{style:{fontSize:19,fontWeight:800,color:st.color,fontFamily:'var(--mono)',lineHeight:1}},bucketTotals[key]),
+      h('div',{style:{fontSize:9,color:st.color,marginTop:3,fontWeight:700,letterSpacing:'.06em'}},label),
+      h('div',{style:{fontSize:8,color:st.color,opacity:.7,marginTop:2}},expanded?'▲ ocultar':'▼ por piso')
+    );
+  }
   return h('div',{className:'page'},
     // Header con stats globales
     h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}},
       h('div',{className:'shdr-title'},'Seleccionar Piso'),
       h(Switch,{on:hideDone,onChange:shd,label:'Ocultar 100%'})
     ),
-    // Mini stats
-    h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6,marginBottom:12}},
-      h('div',{style:{background:'rgba(34,197,94,.1)',border:'1px solid rgba(34,197,94,.28)',
-        borderRadius:8,padding:'7px 6px',textAlign:'center'}},
-        h('div',{style:{fontSize:19,fontWeight:800,color:'var(--green)',fontFamily:'var(--mono)',lineHeight:1}},comp),
-        h('div',{style:{fontSize:9,color:'var(--green)',marginTop:3,fontWeight:700,letterSpacing:'.06em'}},'COMPLETADOS')
-      ),
-      h('div',{style:{background:'rgba(245,158,11,.1)',border:'1px solid rgba(245,158,11,.28)',
-        borderRadius:8,padding:'7px 6px',textAlign:'center'}},
-        h('div',{style:{fontSize:19,fontWeight:800,color:'var(--amber)',fontFamily:'var(--mono)',lineHeight:1}},inpr),
-        h('div',{style:{fontSize:9,color:'var(--amber)',marginTop:3,fontWeight:700,letterSpacing:'.06em'}},'EN PROCESO')
-      ),
-      h('div',{style:{background:'rgba(100,116,139,.07)',border:'1px solid rgba(100,116,139,.2)',
-        borderRadius:8,padding:'7px 6px',textAlign:'center'}},
-        h('div',{style:{fontSize:19,fontWeight:800,color:'var(--text3)',fontFamily:'var(--mono)',lineHeight:1}},pend),
-        h('div',{style:{fontSize:9,color:'var(--text3)',marginTop:3,fontWeight:700,letterSpacing:'.06em'}},'SIN INICIAR')
-      )
+    // Mini stats — mismo esquema de color que los cuadros de depto (RF/R1/R0/Fase/rosado)
+    h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6,marginBottom:expandedBucket?4:12}},
+      bucketCard('RF','COMPLETADOS'),
+      bucketCard('R1','R1'),
+      bucketCard('R0','R0'),
+      bucketCard('FASE_PROGRESS','FASE'),
+      bucketCard('FASE','SIN INICIAR')
     ),
+    // Desglose por piso de la tarjeta seleccionada
+    expandedBucket?h('div',{style:{background:'var(--card)',border:'1px solid '+PIZARRA_BUCKET_META[expandedBucket].bdr,
+      borderRadius:8,padding:'8px 10px',marginBottom:12,fontFamily:'var(--mono)',fontSize:12}},
+      floors.map(function(fl){
+        return h('div',{key:fl,style:{display:'flex',justifyContent:'space-between',padding:'2px 0'}},
+          h('span',{style:{color:'var(--text3)',textTransform:'uppercase',fontSize:11,letterSpacing:'.05em'}},fl),
+          h('span',{style:{color:PIZARRA_BUCKET_META[expandedBucket].color,fontWeight:700}},bucketByFloor[fl][expandedBucket])
+        );
+      }),
+      h('div',{style:{display:'flex',justifyContent:'space-between',padding:'4px 0 0',marginTop:4,
+        borderTop:'1px solid var(--border)',fontWeight:800}},
+        h('span',{style:{color:'var(--text2)',fontSize:11,letterSpacing:'.05em'}},'TOTAL'),
+        h('span',{style:{color:PIZARRA_BUCKET_META[expandedBucket].color}},bucketTotals[expandedBucket])
+      )
+    ):null,
     // Grid por piso
     floors.map(function(fl){
       var deps=_D.fl[fl]||[];
@@ -2926,13 +2958,40 @@ var PIZARRA_BUCKET_META={
   RF:{label:'RF',color:PIZARRA_NEON,bg:'rgba(57,255,20,.15)',bdr:'rgba(57,255,20,.45)'},
   R1:{label:'R1',color:'var(--blue)',bg:'rgba(14,165,233,.12)',bdr:'rgba(14,165,233,.45)'},
   R0:{label:'R0',color:'var(--orange)',bg:'rgba(249,115,22,.12)',bdr:'rgba(249,115,22,.40)'},
-  FASE:{label:'Fase',color:'var(--red)',bg:'rgba(239,68,68,.10)',bdr:'rgba(239,68,68,.35)'}
+  FASE:{label:'Fase',color:'var(--red)',bg:'rgba(239,68,68,.10)',bdr:'rgba(239,68,68,.35)'},
+  // Sub-estado de FASE (0-49%) con algo de avance (1-49%) — mismo bucket que
+  // "Fase" para todo lo demás (Dashboard, Estado de Entrega, etc.) pero en la
+  // vista Gral se distingue de "sin iniciar" (0%) pintándolo rosado (el amarillo
+  // se veía muy parecido al naranjo de R0) en vez de rojo, para que el rojo
+  // quede reservado a deptos realmente sin tocar.
+  FASE_PROGRESS:{label:'Fase',color:'#ec4899',bg:'rgba(236,72,153,.14)',bdr:'rgba(236,72,153,.45)'},
+  // "Con acta": el % (bucketOfDepto) todavía diría R1/R0, pero el hito de
+  // Entrega R1 ya está al 100% (o el flag manual actaOk lo confirma) — se
+  // pinta verde oscuro para no confundirlo con un R1 recién entrando. RF al
+  // 100% sigue mandando (verde fluor, bucket RF) por encima de esto.
+  R1_ACTA:{label:'R1 ✓',color:PIZARRA_GREEN_DARK,bg:'rgba(22,163,74,.18)',bdr:'rgba(22,163,74,.55)'}
 };
 var PIZARRA_LETTER_COLORS={N:'#fbbf24',R:PIZARRA_NEON,T:'var(--orange)'};
+// Flag manual "con acta" (marcado a mano desde la Pizarra, ver setActaOk) sin
+// depender del componente ActasItoView — para poder pintar el mismo verde
+// oscuro en la vista Gral.
+function isActaOkG(dep,stage,itoData){
+  var it=(itoData&&itoData[dep])||null;
+  return!!(it&&it.actaOk&&it.actaOk[stage]);
+}
 // Chip de depto pintado por estado (bucket RF/R1/R0/Fase) en vez de por %
 // — mismo criterio que Control de Avance (pizarraChip), para la vista Gral.
-function pizarraBucketStyle(dep,saves,pg){
-  return PIZARRA_BUCKET_META[bucketOfDepto(dep,saves,pg)];
+function pizarraBucketStyle(dep,saves,pg,itoData){
+  var vrf=f4MilestoneVal(dep,F4_MILESTONE_ID.RF,saves);
+  if(vrf>=100)return PIZARRA_BUCKET_META.RF;
+  var v1=f4MilestoneVal(dep,F4_MILESTONE_ID.R1,saves);
+  if(v1>=100||isActaOkG(dep,'R1',itoData))return PIZARRA_BUCKET_META.R1_ACTA;
+  var bucket=bucketOfDepto(dep,saves,pg);
+  if(bucket==='FASE'){
+    var ov=(pg.deptos[dep]||{overall:0}).overall;
+    if(ov>0)return PIZARRA_BUCKET_META.FASE_PROGRESS;
+  }
+  return PIZARRA_BUCKET_META[bucket];
 }
 function itoBucketColor(dep,saves,pg){return ITO_BUCKET_META[bucketOfDepto(dep,saves,pg)].color;}
 function itoBucketLabel(dep,saves,pg){return ITO_BUCKET_META[bucketOfDepto(dep,saves,pg)].label;}
@@ -18900,7 +18959,7 @@ function App({initialData}){
   else if(effectiveTab==='muebles')content=h(MueblesView,{saves,onSave,muebTandas,onMuebTandasSave,auth,toast:showToast});
   else if(effectiveTab==='pintura')content=h(PinturaView,{saves,onSave,auth,toast:showToast});
   else if(effectiveTab==='pisovinilico')content=h(PisoVinilicoView,{saves,onSave,auth,toast:showToast});
-  else if(effectiveTab==='pisos')content=h(PisosView,{progress,saves,onSave,auth,toast:showToast,userResp});
+  else if(effectiveTab==='pisos')content=h(PisosView,{progress,saves,onSave,auth,toast:showToast,userResp,itoData});
   else if(effectiveTab==='gantt')content=h(GanttView,{ganttData,onGanttSave,auth,progress,saves,toast:showToast});
   else if(effectiveTab==='programa')content=h(ProgramaView,{ganttData,onGanttSave,saves,onSave,onWeekSave,weekData,auth,toast:showToast,userResp});
   else if(effectiveTab==='rendimiento')content=h(RendimientoView,{progress,saves,rendData,onRendSave,auth,toast:showToast});
