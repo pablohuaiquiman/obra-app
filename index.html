@@ -2690,7 +2690,7 @@ function PisosView({progress,saves,onSave,auth,toast,userResp,itoData}){
           visibleDeps.map(function(dep){
             var pd2=pg.deptos[dep]||{overall:0};
             var ov2=pd2.overall;
-            var st=pizarraBucketStyle(dep,saves,pg);
+            var st=pizarraBucketStyle(dep,saves,pg,itoData);
             return h('button',{key:dep,
               onClick:function(){sd(dep);sf(fl);},
               title:'D'+dep+' — '+st.label+' ('+Math.round(ov2)+'%)',
