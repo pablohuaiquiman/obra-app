@@ -2658,14 +2658,12 @@ function PisosView({progress,saves,onSave,auth,toast,userResp}){
           visibleDeps.map(function(dep){
             var pd2=pg.deptos[dep]||{overall:0};
             var ov2=pd2.overall;
-            var bg=avBg(ov2);
-            var bdr=avBdrCol(ov2);
-            var col=avColor(ov2);
+            var st=pizarraBucketStyle(dep,saves,pg);
             return h('button',{key:dep,
               onClick:function(){sd(dep);sf(fl);},
-              title:'D'+dep+' — '+Math.round(ov2)+'%',
-              style:{padding:'4px 7px',borderRadius:6,border:'1px solid '+bdr,
-                background:bg,color:col,fontSize:12,fontWeight:700,
+              title:'D'+dep+' — '+st.label+' ('+Math.round(ov2)+'%)',
+              style:{padding:'4px 7px',borderRadius:6,border:'1px solid '+st.bdr,
+                background:st.bg,color:st.color,fontSize:12,fontWeight:700,
                 fontFamily:'var(--mono)',cursor:'pointer',
                 minWidth:42,textAlign:'center',transition:'all .12s',lineHeight:1.4}
             },dep);
@@ -2918,6 +2916,24 @@ var ITO_BUCKET_META={
   R0:{label:'R0',pill:'pill-amber',color:'var(--amber)'},
   FASE:{label:'Fase',pill:'pill-red',color:'var(--red)'}
 };
+// Paleta de estado de la Pizarra ITO (RF verde fluor / R1 azul / R0 naranjo /
+// Fase rojo) — global para que la vista Gral (Pisos) pinte los deptos igual
+// que Control de Avance en vez del esquema por % (avColor/avBg/avBdrCol).
+var PIZARRA_NEON='#39ff14';
+var PIZARRA_MORADO_MARK='#d8b4fe';
+var PIZARRA_GREEN_DARK='var(--green2)';
+var PIZARRA_BUCKET_META={
+  RF:{label:'RF',color:PIZARRA_NEON,bg:'rgba(57,255,20,.15)',bdr:'rgba(57,255,20,.45)'},
+  R1:{label:'R1',color:'var(--blue)',bg:'rgba(14,165,233,.12)',bdr:'rgba(14,165,233,.45)'},
+  R0:{label:'R0',color:'var(--orange)',bg:'rgba(249,115,22,.12)',bdr:'rgba(249,115,22,.40)'},
+  FASE:{label:'Fase',color:'var(--red)',bg:'rgba(239,68,68,.10)',bdr:'rgba(239,68,68,.35)'}
+};
+var PIZARRA_LETTER_COLORS={N:'#fbbf24',R:PIZARRA_NEON,T:'var(--orange)'};
+// Chip de depto pintado por estado (bucket RF/R1/R0/Fase) en vez de por %
+// — mismo criterio que Control de Avance (pizarraChip), para la vista Gral.
+function pizarraBucketStyle(dep,saves,pg){
+  return PIZARRA_BUCKET_META[bucketOfDepto(dep,saves,pg)];
+}
 function itoBucketColor(dep,saves,pg){return ITO_BUCKET_META[bucketOfDepto(dep,saves,pg)].color;}
 function itoBucketLabel(dep,saves,pg){return ITO_BUCKET_META[bucketOfDepto(dep,saves,pg)].label;}
 function itoBucketPill(dep,saves,pg){return ITO_BUCKET_META[bucketOfDepto(dep,saves,pg)].pill;}
@@ -3153,6 +3169,11 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
         }
         next[dep]=rec;
       }
+      // DEBUG TEMPORAL — quitar cuando se resuelva el bug de reversión de la Pizarra.
+      if(window._pizarraDebug&&boardKey==='capataces'){
+        console.log('[PIZARRA-DEBUG] setPizarraAssignSlots: acción del usuario sobre D'+dep+'.',
+          {slotsNuevos:clean,cur_antes:cur,next_despues:next,ts:Date.now()});
+      }
       return next;
     };
     onItoPatch(patch);
@@ -3214,23 +3235,9 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
   // 100=cierre (R0: tachado morado / R1: ✓ con acta / RF: fondo verde fluor + ✓).
   // pizarraRevMarks (abajo) alimenta SOLO el recuadro de resumen y los mapas de
   // entrega, con su propio desglose — no se toca para no alterar esas vistas.
-  var PIZARRA_NEON='#39ff14'; // verde fluorescente (marcas R1 y estado RF)
-  // Morado CLARO para bordes/tachados del ciclo R0: el morado normal se pierde
-  // sobre el nuevo fondo morado del estado R0 — este tono se ve en ambos fondos.
-  var PIZARRA_MORADO_MARK='#d8b4fe';
-  var PIZARRA_GREEN_DARK='var(--green2)'; // relleno del chip cuando R1 ya está con acta (100%)
-  // Paleta de estado exclusiva de la Pizarra (pedida en obra): RF verde
-  // fluorescente, R1 azul, R0 naranjo, Fase rojo. El resto del módulo
-  // (Detalle/Resumen) sigue usando ITO_BUCKET_META sin cambios.
-  var PIZARRA_BUCKET_META={
-    RF:{label:'RF',color:PIZARRA_NEON},
-    R1:{label:'R1',color:'var(--blue)'},
-    R0:{label:'R0',color:'var(--orange)'},
-    FASE:{label:'Fase',color:'var(--red)'}
-  };
-  // Colores de las letras de ciclo: N=Notificado (amarillo-naranjo), R=Revisado
-  // (verde fluor), T=Trabajando (naranja). El ✓ (listo/con acta) va en verde fluor.
-  var PIZARRA_LETTER_COLORS={N:'#fbbf24',R:PIZARRA_NEON,T:'var(--orange)'};
+  // (PIZARRA_NEON/PIZARRA_MORADO_MARK/PIZARRA_GREEN_DARK/PIZARRA_BUCKET_META/
+  // PIZARRA_LETTER_COLORS ahora son globales — ver junto a ITO_BUCKET_META —
+  // para que la vista Gral (Pisos) reuse la misma paleta de estado.)
   function pizarraRevMarks(dep){
     var r0=f4MilestoneVal(dep,F4_MILESTONE_ID.R0,saves);
     var r1=f4MilestoneVal(dep,F4_MILESTONE_ID.R1,saves);
@@ -18709,6 +18716,14 @@ function App({initialData}){
         // pise una edición que el usuario acaba de hacer (ej: muebTandas).
         var dirty=window._metaDirty||{};
         var next=Object.assign({},cur,remote);
+        // DEBUG TEMPORAL — quitar cuando se resuelva el bug de reversión de la Pizarra.
+        if(window._pizarraDebug){
+          var wasDirty=!!dirty.itoPizarra;
+          var changed=cur.itoPizarra!==remote.itoPizarra;
+          console.log('[PIZARRA-DEBUG] onMetaUpdate: llegó snapshot remoto de itoPizarra.',
+            {dirty:wasDirty,seRestauraLocal:wasDirty,cambioVsLocal:changed,
+             cur_itoPizarra:cur.itoPizarra,remote_itoPizarra:remote.itoPizarra});
+        }
         Object.keys(dirty).forEach(function(k){if(dirty[k])next[k]=cur[k];});
         next.auth=cur.auth;next.tab=cur.tab;next.saves=cur.saves;
         return next;
@@ -18791,6 +18806,11 @@ function App({initialData}){
         window._metaDirty[k]=true;
         setTimeout(function(){if(window._metaDirty)delete window._metaDirty[k];},30000);
       });
+      // DEBUG TEMPORAL — quitar cuando se resuelva el bug de reversión de la Pizarra.
+      if(window._pizarraDebug&&resolved.itoPizarra!==undefined){
+        console.log('[PIZARRA-DEBUG] save(): itoPizarra escrito localmente + _metaDirty armado.',
+          {nuevo_itoPizarra:resolved.itoPizarra,ts:Date.now()});
+      }
       if(window.fbSave){
         var granular=Object.assign({},resolved);
         if(changedSaves)granular.saves=changedSaves;
@@ -19222,14 +19242,25 @@ function _fbDoSave(){
     });
   }
   if(metaP){
+    // DEBUG TEMPORAL — quitar cuando se resuelva el bug de reversión de la Pizarra.
+    if(window._pizarraDebug&&metaP.itoPizarra!==undefined){
+      console.log('[PIZARRA-DEBUG] _fbDoSave(): enviando itoPizarra a Firestore (OBRA_REF.set).',
+        {itoPizarra:metaP.itoPizarra,ts:Date.now()});
+    }
     OBRA_REF.set(metaP,{merge:true}).then(function(){
       _fbMetaErr=false;
       // Guardado confirmado de verdad: recién ahora se limpia el flag "sucio" de
       // estas keys, así un onSnapshot que llegue después ya no puede revertirlas.
       if(window._metaDirty)Object.keys(metaP).forEach(function(k){delete window._metaDirty[k];});
+      if(window._pizarraDebug&&metaP.itoPizarra!==undefined){
+        console.log('[PIZARRA-DEBUG] _fbDoSave(): Firestore CONFIRMÓ el guardado de itoPizarra — _metaDirty limpiado.',{ts:Date.now()});
+      }
       _fbMarkSynced();
     }).catch(function(e){
       _fbMetaErr=true;
+      if(window._pizarraDebug&&metaP.itoPizarra!==undefined){
+        console.log('[PIZARRA-DEBUG] _fbDoSave(): FALLÓ el guardado de itoPizarra — reintentando y re-armando _metaDirty.',{error:e,ts:Date.now()});
+      }
       _fbPendMeta=Object.assign({},metaP,_fbPendMeta||{});
       // Re-armar el flag "sucio" de estas keys: el plazo de 30s de save() es solo
       // un resguardo por si el guardado nunca llega a INTENTARSE (ej. Firebase aún
@@ -19671,6 +19702,12 @@ if(needsSeed||versionChanged){
   // OBRA_REF: cambios en ganttData, weekData, rendData, etc.
   OBRA_REF.onSnapshot(function(snap){
     if(!snap.exists||!window._fbReady)return;
+    // DEBUG TEMPORAL — quitar cuando se resuelva el bug de reversión de la Pizarra.
+    if(window._pizarraDebug){
+      console.log('[PIZARRA-DEBUG] OBRA_REF.onSnapshot: llegó un snapshot de Firestore.',
+        {hasPendingWrites:snap.metadata.hasPendingWrites,fromCache:snap.metadata.fromCache,
+         itoPizarra:(snap.data()||{}).itoPizarra,ts:Date.now()});
+    }
     window.dispatchEvent(new CustomEvent('fb-meta-update',{detail:snap.data()||{}}));
   });
 
