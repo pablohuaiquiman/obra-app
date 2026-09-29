@@ -2636,9 +2636,9 @@ function PisosView({progress,saves,onSave,auth,toast,userResp,itoData}){
     // Mini stats — mismo esquema de color que los cuadros de depto (RF/R1/R0/Fase/rosado)
     h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6,marginBottom:expandedBucket?4:12}},
       bucketCard('RF','COMPLETADOS'),
-      bucketCard('R1','R1'),
-      bucketCard('R0','R0'),
-      bucketCard('FASE_PROGRESS','FASE'),
+      bucketCard('R1','LISTADO R1'),
+      bucketCard('R0','EN PREPARACIÓN PARA R1'),
+      bucketCard('FASE_PROGRESS','AVANZADA'),
       bucketCard('FASE','SIN INICIAR')
     ),
     // Desglose por piso de la tarjeta seleccionada
@@ -2957,7 +2957,7 @@ var PIZARRA_GREEN_DARK='var(--green2)';
 var PIZARRA_BUCKET_META={
   RF:{label:'RF',color:PIZARRA_NEON,bg:'rgba(57,255,20,.15)',bdr:'rgba(57,255,20,.45)'},
   R1:{label:'R1',color:'var(--blue)',bg:'rgba(14,165,233,.12)',bdr:'rgba(14,165,233,.45)'},
-  R0:{label:'R0',color:'var(--orange)',bg:'rgba(249,115,22,.12)',bdr:'rgba(249,115,22,.40)'},
+  R0:{label:'En preparación para R1',color:'var(--orange)',bg:'rgba(249,115,22,.12)',bdr:'rgba(249,115,22,.40)'},
   FASE:{label:'Fase',color:'var(--red)',bg:'rgba(239,68,68,.10)',bdr:'rgba(239,68,68,.35)'},
   // Sub-estado de FASE (0-49%) con algo de avance (1-49%) — mismo bucket que
   // "Fase" para todo lo demás (Dashboard, Estado de Entrega, etc.) pero en la
