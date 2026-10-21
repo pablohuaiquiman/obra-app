@@ -3018,7 +3018,7 @@ function pizarraBucketStyle(dep,saves,pg,itoData){
 function itoBucketColor(dep,saves,pg){return ITO_BUCKET_META[bucketOfDepto(dep,saves,pg)].color;}
 function itoBucketLabel(dep,saves,pg){return ITO_BUCKET_META[bucketOfDepto(dep,saves,pg)].label;}
 function itoBucketPill(dep,saves,pg){return ITO_BUCKET_META[bucketOfDepto(dep,saves,pg)].pill;}
-function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,itoPizarraIto,itoPizarraFlags,onItoPatch,auth,toast}){
+function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,itoPizarraIto,itoPizarraFlags,itoProgVisitas,itoProgNotif,onItoPatch,auth,toast}){
   var pg=progress||calculateAllProgress(saves);
   var isAdmin=auth&&auth.role==='Admin';
   var[view,setView]=useState('pizarra'); // 'detalle' | 'resumen' | 'pizarra' — la Pizarra es la vista principal al entrar
@@ -3028,7 +3028,8 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
   var[uploading,setUploading]=useState({});
   var[notifDates,setNotifDates]=useState({}); // fecha editable por depto para el próximo "Notificar" (por si se registra atrasado)
   var[actaDates,setActaDates]=useState({}); // fecha editable por depto para la próxima acta generada (por si no es hoy)
-  var[assignBoard,setAssignBoard]=useState(null); // 'capataces' | 'ito' — a qué tablero de la Pizarra pertenece assignDep
+  var[assignBoard,setAssignBoard]=useState(null); // 'capataces' | 'ito' | 'prog' — a qué tablero de la Pizarra pertenece assignDep ('prog' = Programa de visitas + Notificación a ITO juntos)
+  var[projFecha,setProjFecha]=useState(''); // fecha de corte de la Matriz de estado por piso ('' = estado actual, sin proyectar)
   var[assignDep,setAssignDep]=useState(null); // depto abierto en el panel de asignación de la Pizarra
   var[assignDraft,setAssignDraft]=useState({resp:'',fecha:''});
   var[pctEditor,setPctEditor]=useState(null); // {dep,stage:'R0'|'R1'|'RF'} — editor de % abierto desde el resumen (solo Admin)
@@ -3149,6 +3150,15 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
     'Vale Elgueta':'terminaciones','Marcelo Savando':'terminaciones','Angelica Farias':'terminaciones'
   };
   function pizarraTeamOf(resp){return PIZARRA_TEAM_OF[resp]||null;}
+  // Supervisores de Terminaciones que llevan los programas ITO (visitas R1→Acta
+  // y notificación R0→R1), con su color de ficha.
+  var PIZARRA_SUPERVISORES=['Vale Elgueta','Angelica Farias','Marcelo Savando'];
+  var PIZARRA_SUP_META={
+    'Vale Elgueta':{short:'Vale',color:'#3b82f6',bg:'rgba(59,130,246,.16)'},
+    'Angelica Farias':{short:'Angélica',color:'#d97706',bg:'rgba(217,119,6,.16)'},
+    'Marcelo Savando':{short:'Marcelo',color:'#8b5cf6',bg:'rgba(139,92,246,.16)'}
+  };
+  var PIZARRA_PROG_KEYS=['visitas','notif'];
   // Dos tableros independientes, cada uno con su propio campo de persistencia
   // (mismo mecanismo onItoPatch que itoData) y su propia lista de responsables.
   // Sin datos de arranque hardcodeados: lo único que se muestra es lo que hay
@@ -3170,10 +3180,28 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
       pisoTitle:'Deptos por piso — Notificación ITO',
       boardTitle:'Plan semanal — Notificación ITO',
       hint:'Programa qué día Sebastián, Fabián o Humberto deben notificar al ITO cada depto (Fase→R0, R0→R1, R1 sin obs. / espera de RF).'
+    },
+    // Los dos programas que reemplazan al Plan semanal — Notificación ITO: agenda
+    // por supervisor de Terminaciones, cada una con su propio campo en la nube
+    // (mismo formato {dep:{resp,fecha}}), así un depto puede tener su
+    // notificación R0→R1 y su visita R1→Acta programadas a la vez.
+    visitas:{
+      field:'itoProgVisitas',
+      data:itoProgVisitas,
+      resp:PIZARRA_SUPERVISORES,
+      boardTitle:'Programa de visitas — R1 a Acta',
+      hint:'Cuándo le toca a cada depto su revisión en el camino de R1 hacia el acta de entrega. La ficha pasa a verde con ✓ en cuanto el depto queda con acta (Entrega R1 al 100%, casilla "con Acta" o RF entregada).'
+    },
+    notif:{
+      field:'itoProgNotif',
+      data:itoProgNotif,
+      resp:PIZARRA_SUPERVISORES,
+      boardTitle:'Notificación a ITO — de R0 a listado R1',
+      hint:'Cuándo se notifica al ITO que un depto pasó de R0 a tener listado de observaciones R1. La ficha pasa a verde con ✓ en cuanto la Entrega R0 llega al 100% o la Entrega R1 parte (≥25%).'
     }
   };
   function pizarraDataOf(boardKey){
-    return PIZARRA_BOARDS[boardKey].data||{};
+    return(PIZARRA_BOARDS[boardKey]&&PIZARRA_BOARDS[boardKey].data)||{};
   }
   function pizarraAssignOf(boardKey,dep){var d=pizarraDataOf(boardKey);return(d&&d[dep])||null;}
   // Lista normalizada de slots de un depto: [{resp,fecha}] (0, 1 o 2 entradas).
@@ -3346,6 +3374,11 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
         if(pizarraTeamOf(s.resp)==='terminaciones'){draft.resp2=s.resp;draft.fecha2=s.fecha;draft.fechaFin2=s.fechaFin||'';}
         else{draft.resp=s.resp;draft.fecha=s.fecha;draft.fechaFin=s.fechaFin||'';}
       });
+    }else if(boardKey==='prog'){
+      // Programas ITO: resp/fecha = Visita R1→Acta, resp2/fecha2 = Notificación R0→R1.
+      var vis=pizarraAssignOf('visitas',dep),nt=pizarraAssignOf('notif',dep);
+      if(vis&&vis.resp){draft.resp=vis.resp;draft.fecha=vis.fecha;}
+      if(nt&&nt.resp){draft.resp2=nt.resp;draft.fecha2=nt.fecha;}
     }else if(slots[0]){draft.resp=slots[0].resp;draft.fecha=slots[0].fecha;draft.fechaFin=slots[0].fechaFin||'';}
     setAssignDraft(draft);
     setAssignBoard(boardKey);
@@ -3367,6 +3400,11 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
       var f=s.fecha.split('-').reverse().join('/');
       if(s.fechaFin)f+=' → '+s.fechaFin.split('-').reverse().join('/');
       return' · '+s.resp+' · '+f;
+    }).join('');
+    if(boardKey==='prog')asigTxt=PIZARRA_PROG_KEYS.map(function(k){
+      var a=pizarraAssignOf(k,dep);
+      if(!a||!a.resp)return'';
+      return' · '+(k==='visitas'?'Visita R1→Acta':'Notif. R0→R1')+': '+(PIZARRA_SUP_META[a.resp]||{short:a.resp}).short+' '+a.fecha.split('-').reverse().join('/');
     }).join('');
     var flag=pizarraFlagOf(dep);
     // ── Ciclos R0 → R1 → RF (partidas-hito de F4, leídas al 25/50/75/100%):
@@ -4654,6 +4692,273 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
     );
   }
 
+  // ── Programas ITO: ¿ya se cumplió la etapa del depto? ──
+  // Con acta (verde en la matriz): RF entregada, Entrega R1 al 100%, casilla
+  // manual "con Acta" o 100% de partidas (bucket RF).
+  function pizarraConActa(dep){
+    return f4MilestoneVal(dep,F4_MILESTONE_ID.RF,saves)>=100||f4MilestoneVal(dep,F4_MILESTONE_ID.R1,saves)>=100||
+      isActaOk(dep,'R1')||bucketOfDep(dep)==='RF';
+  }
+  // Notificado R0 → listado R1: obs. R0 levantadas (100%) o ciclo R1 ya partido (≥25%).
+  function pizarraNotifR1Hecha(dep){
+    return pizarraConActa(dep)||f4MilestoneVal(dep,F4_MILESTONE_ID.R0,saves)>=100||f4MilestoneVal(dep,F4_MILESTONE_ID.R1,saves)>=25;
+  }
+  function pizarraProgHecho(boardKey,dep){return boardKey==='visitas'?pizarraConActa(dep):pizarraNotifR1Hecha(dep);}
+  // Ficha de un programa ITO: color del supervisor mientras está pendiente,
+  // verde con ✓ al cumplirse, borde rojo punteado si la fecha ya pasó sin cumplirse.
+  function pizarraProgChip(boardKey,dep){
+    var a=pizarraAssignOf(boardKey,dep);
+    var sup=PIZARRA_SUP_META[a&&a.resp]||{color:'var(--text2)',bg:'var(--bg2)'};
+    var hecho=pizarraProgHecho(boardKey,dep);
+    var atrasado=!hecho&&!!a&&a.fecha<pizarraHoy;
+    var flag=pizarraFlagOf(dep);
+    return h('span',{key:dep,draggable:true,
+      onDragStart:function(e){e.dataTransfer.setData('text/plain',dep);e.dataTransfer.effectAllowed='move';},
+      onClick:function(){openAssignPanel('prog',dep);},
+      title:'D'+dep+' · '+(hecho?(boardKey==='visitas'?'con acta ✓':'notificado ✓'):
+        atrasado?'ATRASADO — la fecha pasó sin cumplirse, arrástralo a un nuevo día':'programado')+(flag?' · ⚠ '+flag.texto:''),
+      style:{display:'block',textAlign:'center',fontFamily:'var(--mono)',fontSize:11,fontWeight:700,borderRadius:6,padding:'3px 6px',
+        cursor:'pointer',whiteSpace:'nowrap',color:hecho?'#fff':sup.color,background:hecho?'var(--green2)':sup.bg,
+        border:atrasado?'1px dashed var(--red)':('1px solid '+(hecho?'var(--green2)':'transparent'))}
+    },(hecho?'✓ ':'')+(flag?'⚠':'')+dep);
+  }
+  // Tablero de un programa ITO: una fila por supervisor × semanas L-V. Se suelta
+  // una ficha (desde Deptos por piso, Control de avance o el otro programa) en el
+  // día exacto; arrastrarla dentro del mismo programa la cambia de día/supervisor.
+  function renderPizarraPrograma(boardKey){
+    var cfg=PIZARRA_BOARDS[boardKey];
+    var data=pizarraDataOf(boardKey);
+    function depsOn(resp,date){
+      return Object.keys(data).filter(function(dep){var a=data[dep];return a&&a.resp===resp&&a.fecha===date;})
+        .sort(function(a,b){return parseInt(a,10)-parseInt(b,10);});
+    }
+    var tot=0,hechos=0,atrasados=0;
+    Object.keys(data).forEach(function(dep){
+      var a=data[dep];if(!a||!a.resp)return;
+      tot++;
+      if(pizarraProgHecho(boardKey,dep))hechos++;else if(a.fecha<pizarraHoy)atrasados++;
+    });
+    function sw(bg,bdr,txt){
+      return h('div',{style:{display:'flex',alignItems:'center',gap:5}},
+        h('span',{style:{width:10,height:10,borderRadius:3,background:bg,border:bdr,display:'inline-block'}}),
+        h('span',{style:{fontSize:10,color:'var(--text3)'}},txt));
+    }
+    return h('div',{key:boardKey+'_prog',className:'card'},
+      h('div',{className:'shdr'},
+        h('div',{className:'shdr-title'},cfg.boardTitle),
+        h('span',{style:{fontSize:11,fontWeight:800,fontFamily:'var(--mono)',whiteSpace:'nowrap',color:'var(--text3)'}},
+          hechos+'/'+tot+' ✓'+(atrasados?' · ':''),atrasados?h('span',{style:{color:'var(--red)'}},atrasados+' atrasado'+(atrasados>1?'s':'')):null)
+      ),
+      h('div',{style:{fontSize:10,color:'var(--text3)',marginBottom:8}},cfg.hint),
+      h('div',{style:{display:'flex',alignItems:'center',gap:14,marginBottom:8,flexWrap:'wrap'}},
+        sw('var(--green2)','1px solid var(--green2)','✓ cumplido'),
+        sw('var(--bg2)','1px dashed var(--red)','atrasado (fecha pasada sin cumplir)'),
+        sw('rgba(245,158,11,.28)','1px solid var(--amber)','hoy')
+      ),
+      pizarraWeeks.length===0
+        ?h('div',{style:{fontSize:11,color:'var(--text3)',fontStyle:'italic'}},'No quedan semanas hasta fin de diciembre.')
+        :h('div',{className:'gt-wrap'},
+          h('table',{style:{borderCollapse:'collapse',fontSize:11}},
+            h('thead',null,
+              h('tr',null,
+                h('th',{rowSpan:2,style:{padding:'4px 8px',position:'sticky',left:0,background:'var(--bg2)',zIndex:2,color:'var(--text3)',fontSize:10,textAlign:'left',verticalAlign:'bottom'}},'SUPERVISOR'),
+                pizarraWeeks.map(function(w){
+                  return h('th',{key:w.key,colSpan:5,'data-pizarra-current-week':w.isCurrent?'1':undefined,
+                    style:{padding:'4px 8px',opacity:w.isPast?.55:1,color:w.isCurrent?'var(--blue)':'var(--text3)',fontSize:10,textAlign:'center',whiteSpace:'nowrap',
+                      borderLeft:'2px solid var(--border)',background:w.isCurrent?'rgba(14,165,233,.14)':'transparent'}},w.label);
+                })
+              ),
+              h('tr',null,
+                pizarraWeeks.map(function(w){
+                  return w.days.map(function(d,di){
+                    return h('th',{key:w.key+'_'+d.date,title:d.date.split('-').reverse().join('/')+(d.isFeriado?' · FERIADO':''),style:{
+                      padding:'2px 4px',opacity:d.isPast?.55:1,minWidth:44,
+                      color:d.isFeriado?'var(--red)':(d.isToday?'var(--amber)':'var(--text3)'),fontSize:9,fontFamily:'var(--mono)',
+                      fontWeight:(d.isToday||d.isFeriado)?800:400,textAlign:'center',
+                      background:d.isFeriado?'rgba(239,68,68,.20)':(d.isToday?'rgba(245,158,11,.28)':(w.isCurrent?'rgba(14,165,233,.08)':'transparent')),
+                      borderLeft:di===0?'2px solid var(--border)':'1px solid rgba(255,255,255,.06)'}},
+                      h('div',{style:{fontSize:9,fontWeight:700,lineHeight:'11px'}},String(parseInt(d.date.slice(8,10),10))),
+                      h('div',{style:{lineHeight:'11px'}},d.isToday?'HOY':d.initial)
+                    );
+                  });
+                })
+              )
+            ),
+            h('tbody',null,
+              cfg.resp.map(function(resp,ri){
+                var sup=PIZARRA_SUP_META[resp];
+                var rowBdr=ri<cfg.resp.length-1?'2px solid var(--border)':'none';
+                var nDeps=Object.keys(data).filter(function(dep){return data[dep]&&data[dep].resp===resp;}).length;
+                var nSem=pizarraWeeks.filter(function(w){return w.days.some(function(d){return depsOn(resp,d.date).length;});}).length;
+                return h('tr',{key:resp},
+                  h('td',{style:{padding:'6px 8px',position:'sticky',left:0,zIndex:1,background:'var(--card)',whiteSpace:'nowrap',borderBottom:rowBdr}},
+                    h('div',{style:{display:'flex',alignItems:'center',gap:7}},
+                      h('span',{style:{width:24,height:24,borderRadius:'50%',background:sup.color,color:'#fff',fontSize:12,fontWeight:800,
+                        display:'inline-flex',alignItems:'center',justifyContent:'center'}},sup.short.charAt(0)),
+                      h('div',null,
+                        h('div',{style:{fontSize:13,fontWeight:800,color:sup.color,lineHeight:'15px'}},sup.short),
+                        h('div',{style:{fontSize:9,color:'var(--text3)',fontFamily:'var(--mono)'}},nDeps+' deptos · '+nSem+' sem.')
+                      )
+                    )
+                  ),
+                  pizarraWeeks.map(function(w){
+                    return w.days.map(function(d,di){
+                      var deps=depsOn(resp,d.date);
+                      return h('td',{key:w.key+'_'+d.date,onDragOver:allowDropPizarra,onDrop:pizarraCellDrop(boardKey,resp,d.date),
+                        title:d.isFeriado?'FERIADO — '+d.date.split('-').reverse().join('/'):undefined,
+                        style:{padding:3,minWidth:44,verticalAlign:'top',borderBottom:rowBdr,opacity:w.isPast?.6:1,
+                          background:d.isFeriado?'rgba(239,68,68,.10)':(d.isToday?'rgba(245,158,11,.14)':(w.isCurrent?'rgba(14,165,233,.04)':'transparent')),
+                          borderLeft:di===0?'2px solid var(--border)':'1px dashed rgba(255,255,255,.08)'}},
+                        h('div',{style:{display:'flex',flexDirection:'column',gap:3,minHeight:22}},deps.map(function(dep){return pizarraProgChip(boardKey,dep);}))
+                      );
+                    });
+                  })
+                );
+              })
+            )
+          )
+        )
+    );
+  }
+
+  // ── Matriz de estado por piso (actual o PROYECTADA a una fecha) ──
+  // Mismo formato que la matriz que pide jefatura: RF verde (con acta) · R1-p
+  // cian (R1 con visita programada) · R1 azul · R0 amarillo · Bloqueo morado
+  // (depto con restricción ⚠) · Fase rojo. La proyección supone que todo lo
+  // programado entre hoy y la fecha elegida se cumple: visita → verde,
+  // notificación → R1. Lo atrasado (fecha ya pasada sin cumplir) NO se proyecta.
+  var PROY_ORDEN=['R0','R1P','R1','RF','BLOQ','FASE'];
+  var PROY_META={
+    RF:{label:'RF · con acta',short:'RF',bg:'#16a34a',fg:'#fff'},
+    R1P:{label:'R1 · visita programada',short:'R1-p',bg:'#22d3ee',fg:'#083344'},
+    R1:{label:'R1',short:'R1',bg:'#2563eb',fg:'#fff'},
+    R0:{label:'R0',short:'R0',bg:'#f59e0b',fg:'#1a1a1a'},
+    BLOQ:{label:'Bloqueo ⚠',short:'Bloq',bg:'#c084fc',fg:'#2e1065'},
+    FASE:{label:'Fase',short:'Fase',bg:'#ef4444',fg:'#fff'}
+  };
+  function pizarraEstadoProy(dep,fecha){
+    if(pizarraConActa(dep))return'RF';
+    var vis=pizarraAssignOf('visitas',dep),nt=pizarraAssignOf('notif',dep);
+    function cae(a){return!!(fecha&&a&&a.resp&&a.fecha>=pizarraHoy&&a.fecha<=fecha);}
+    if(cae(vis))return'RF';
+    if(pizarraFlagOf(dep))return'BLOQ';
+    if(vis&&vis.resp)return'R1P';
+    var b=bucketOfDep(dep);
+    if(b==='R1'||pizarraNotifR1Hecha(dep)||cae(nt))return'R1';
+    return b==='R0'?'R0':'FASE';
+  }
+  function pizarraFinDeMes(offset){
+    var d=new Date();
+    return pizarraFmt(new Date(d.getFullYear(),d.getMonth()+1+offset,0));
+  }
+  function renderPizarraProyeccion(){
+    var fecha=projFecha&&projFecha>pizarraHoy?projFecha:'';
+    var axes=pizarraGridAxes();
+    var pisos=floors.filter(function(fl){return(_D.fl[fl]||[]).length;}).sort(function(a,b){
+      return Math.min.apply(null,_D.fl[a].map(Number))-Math.min.apply(null,_D.fl[b].map(Number));
+    });
+    var tot={},totAct={};
+    PROY_ORDEN.forEach(function(k){tot[k]=0;totAct[k]=0;});
+    var atrasados=[];
+    allDeps.forEach(function(dep){
+      PIZARRA_PROG_KEYS.forEach(function(k){
+        var a=pizarraAssignOf(k,dep);
+        if(a&&a.resp&&a.fecha<pizarraHoy&&!pizarraProgHecho(k,dep)&&atrasados.indexOf(dep)<0)atrasados.push(dep);
+      });
+    });
+    var fmt=function(f){return f.split('-').reverse().join('/');};
+    var mesesLargos=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+    function btn(label,val){
+      var on=(val||'')===fecha;
+      return h('button',{key:label,className:'ftab '+(on?'on':''),onClick:function(){setProjFecha(val);}},label);
+    }
+    var thS={padding:'4px 6px',color:'var(--text3)',fontSize:10,textAlign:'center',fontFamily:'var(--mono)'};
+    return h('div',{key:'ito_proyeccion',className:'card'},
+      h('div',{className:'shdr'},
+        h('div',{className:'shdr-title'},'Matriz de estado por piso — '+(fecha?'Proyección al '+fmt(fecha):'Estado actual '+fmt(pizarraHoy)))
+      ),
+      h('div',{style:{fontSize:10,color:'var(--text3)',marginBottom:8}},
+        'Elige una fecha para ver cómo quedaría el tablero si se cumple todo lo programado en "Programa de visitas" (→ verde con acta) y "Notificación a ITO" (→ R1) entre hoy y esa fecha. Las celdas con borde blanco cambian respecto a hoy.'),
+      h('div',{style:{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap',marginBottom:10}},
+        h('div',{className:'ftabs',style:{margin:0}},
+          btn('Actual',''),
+          btn('Fin de '+mesesLargos[new Date().getMonth()],pizarraFinDeMes(0)),
+          btn('Fin de '+mesesLargos[(new Date().getMonth()+1)%12],pizarraFinDeMes(1)),
+          btn('Fin de '+mesesLargos[(new Date().getMonth()+2)%12],pizarraFinDeMes(2))
+        ),
+        h('input',{type:'date',className:'date-input',value:fecha,min:pizarraHoy,style:{width:140},
+          onChange:function(e){setProjFecha(e.target.value||'');}})
+      ),
+      h('div',{className:'flex g8',style:{flexWrap:'wrap',marginBottom:8}},
+        PROY_ORDEN.map(function(k){
+          return h('div',{key:k,style:{display:'flex',alignItems:'center',gap:5}},
+            h('span',{style:{width:12,height:12,borderRadius:3,background:PROY_META[k].bg,display:'inline-block'}}),
+            h('span',{style:{fontSize:10,color:'var(--text3)'}},PROY_META[k].label));
+        })
+      ),
+      h('div',{className:'gt-wrap'},
+        h('table',{style:{borderCollapse:'collapse',fontSize:11}},
+          h('thead',null,h('tr',null,
+            h('th',{style:Object.assign({},thS,{textAlign:'left',position:'sticky',left:0,background:'var(--bg2)',zIndex:2})},'PISO'),
+            axes.map(function(ax){return h('th',{key:ax,style:thS},ax);}),
+            PROY_ORDEN.concat(['TOT']).map(function(k,i){
+              return h('th',{key:'c_'+k,style:Object.assign({},thS,{fontWeight:800,borderLeft:i===0?'2px solid var(--border)':'none',
+                color:k==='TOT'?'var(--text)':PROY_META[k].fg,background:k==='TOT'?'transparent':PROY_META[k].bg})},k==='TOT'?'Total':PROY_META[k].short);
+            })
+          )),
+          h('tbody',null,
+            pisos.map(function(fl){
+              var deps=_D.fl[fl];
+              var cnt={};PROY_ORDEN.forEach(function(k){cnt[k]=0;});
+              var cells=axes.map(function(ax){
+                var dep=deps.filter(function(d){return d.slice(-2)===ax;})[0];
+                if(!dep)return h('td',{key:ax,style:{padding:2}});
+                var est=pizarraEstadoProy(dep,fecha),act=pizarraEstadoProy(dep,'');
+                cnt[est]++;tot[est]++;totAct[act]++;
+                var m=PROY_META[est],cambia=est!==act,atr=atrasados.indexOf(dep)>=0;
+                return h('td',{key:ax,style:{padding:2}},
+                  h('div',{onClick:function(){openAssignPanel('prog',dep);},
+                    title:'D'+dep+' · '+m.label+(cambia?' (hoy: '+PROY_META[act].label+')':'')+(atr?' · tiene programación ATRASADA':''),
+                    style:{fontFamily:'var(--mono)',fontSize:11,fontWeight:700,textAlign:'center',padding:'4px 6px',borderRadius:4,cursor:'pointer',
+                      background:m.bg,color:m.fg,boxShadow:cambia?'inset 0 0 0 2px #fff':'none',outline:atr?'2px dashed var(--red)':'none',outlineOffset:-1}},dep)
+                );
+              });
+              var pisoLabel=fl.charAt(0).toUpperCase()+fl.slice(1);
+              return h('tr',{key:fl},
+                h('td',{style:{padding:'4px 8px',fontWeight:800,color:'var(--text)',position:'sticky',left:0,background:'var(--card)',fontSize:11,whiteSpace:'nowrap'}},pisoLabel),
+                cells,
+                PROY_ORDEN.map(function(k,i){
+                  return h('td',{key:'n_'+k,style:{padding:'4px 8px',textAlign:'center',fontFamily:'var(--mono)',fontWeight:800,
+                    borderLeft:i===0?'2px solid var(--border)':'none',color:cnt[k]?'var(--text)':'var(--text3)'}},cnt[k]);
+                }),
+                h('td',{style:{padding:'4px 8px',textAlign:'center',fontFamily:'var(--mono)',fontWeight:800,color:'var(--text2)'}},deps.length)
+              );
+            }),
+            h('tr',null,
+              h('td',{colSpan:1+axes.length,style:{padding:'8px',textAlign:'right',fontSize:11,fontWeight:800,color:'var(--text)'}},'TOTAL X STATUS'),
+              PROY_ORDEN.map(function(k,i){
+                var dlt=tot[k]-totAct[k];
+                return h('td',{key:'t_'+k,style:{padding:'6px 8px',textAlign:'center',fontFamily:'var(--mono)',fontWeight:900,fontSize:13,
+                  borderLeft:i===0?'2px solid var(--border)':'none',background:PROY_META[k].bg,color:PROY_META[k].fg}},
+                  tot[k],fecha&&dlt?h('div',{style:{fontSize:9,fontWeight:700}},(dlt>0?'+':'')+dlt):null);
+              }),
+              h('td',{style:{padding:'6px 8px',textAlign:'center',fontFamily:'var(--mono)',fontWeight:900,fontSize:13}},allDeps.length)
+            )
+          )
+        )
+      ),
+      h('div',{style:{display:'flex',justifyContent:'flex-end',alignItems:'center',gap:10,marginTop:10}},
+        h('span',{style:{fontSize:12,fontWeight:800,color:'var(--text)'}},'TOTAL DEPTOS PARA ENTREGA'),
+        h('span',{style:{fontFamily:'var(--mono)',fontSize:18,fontWeight:900,color:'var(--text)',border:'2px solid var(--border)',borderRadius:6,padding:'2px 14px'}},
+          allDeps.length-tot.FASE),
+        fecha&&totAct.FASE!==tot.FASE?h('span',{style:{fontFamily:'var(--mono)',fontSize:11,color:'var(--green)'}},'+'+(totAct.FASE-tot.FASE)+' vs hoy'):null
+      ),
+      atrasados.length?h('div',{style:{fontSize:10,color:'var(--red)',marginTop:8}},
+        '⚠ '+atrasados.length+' depto(s) con programación atrasada que no se proyecta (reprográmalos en los tableros de arriba): '+
+        atrasados.sort(function(a,b){return parseInt(a,10)-parseInt(b,10);}).join(', ')):null
+    );
+  }
+
   // Construye las tarjetas de un tablero de la Pizarra: paneles de deptos
   // pendientes (en capataces, uno por equipo) + tablero semanal. La semana/día
   // "de hoy" queda resaltado (isCurrent/isToday ya vienen calculados en
@@ -4668,15 +4973,20 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
         function(dep){return!pizarraTeamHasSlot(dep,'terminaciones');},
         'Todos los deptos ya tienen responsable de Terminaciones.',false)
     ]:[
-      renderPizarraSourceCard(boardKey,boardKey+'_piso',cfg.pisoTitle,
-        function(dep){return!pizarraAssignOf(boardKey,dep);},
-        'Todos los deptos ya están asignados.',true)
+      // Deptos aún disponibles para los programas ITO: sin acta y sin programar
+      // ni en visitas ni en notificación (al soltarlo en uno de los dos sale de aquí).
+      renderPizarraSourceCard('prog',boardKey+'_piso',cfg.pisoTitle,
+        function(dep){return!pizarraConActa(dep)&&!pizarraAssignOf('visitas',dep)&&!pizarraAssignOf('notif',dep);},
+        'Todos los deptos ya están programados o con acta.',true)
     ];
-    // Orden pedido para el bloque ITO: 1) Control de avance (todos los deptos,
-    // renombrado), 2) Deptos por piso — Notificación ITO, 3) Plan semanal —
-    // Notificación ITO. El orden entre bloques se arma en pizarraView.
+    // Orden del bloque ITO: 1) Control de avance (todos los deptos), 2) Deptos
+    // por piso — Notificación ITO, 3) Programa de visitas — R1 a Acta,
+    // 4) Notificación a ITO — de R0 a listado R1, 5) Matriz de estado por piso
+    // (actual / proyectada). Reemplaza al antiguo Plan semanal — Notificación ITO
+    // (Sebastián/Fabián/Humberto); sus datos (itoPizarraIto) quedan intactos en la nube.
     if(boardKey==='ito'){
-      srcCards.unshift(renderPizarraFullStatusCard(boardKey,'ito_control_avance','Control de avance — todos los deptos'));
+      srcCards.unshift(renderPizarraFullStatusCard('prog','ito_control_avance','Control de avance — todos los deptos'));
+      return srcCards.concat([renderPizarraPrograma('visitas'),renderPizarraPrograma('notif'),renderPizarraProyeccion()]);
     }
     return srcCards.concat([
       h('div',{key:boardKey+'_board',className:'card'},
@@ -4904,7 +5214,7 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
     onClick:function(e){if(e.target===e.currentTarget)setAssignDep(null);}
   },
     h('div',{className:'card',style:{maxWidth:360,width:'100%',maxHeight:'90vh',overflowY:'auto'}},
-      h('div',{className:'shdr'},h('div',{className:'shdr-title'},'Asignar D'+assignDep+' — '+(PIZARRA_BOARDS[assignBoard]?PIZARRA_BOARDS[assignBoard].boardTitle:''))),
+      h('div',{className:'shdr'},h('div',{className:'shdr-title'},'Asignar D'+assignDep+' — '+(assignBoard==='prog'?'Programas ITO':PIZARRA_BOARDS[assignBoard]?PIZARRA_BOARDS[assignBoard].boardTitle:''))),
       h('div',{style:{fontSize:11,color:'var(--text3)',marginBottom:10}},
         Math.round((pg.deptos[assignDep]||{overall:0}).overall)+'% · '+ITO_BUCKET_META[bucketOfDep(assignDep)].label
       ),
@@ -4947,6 +5257,27 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
             onChange:function(e){setAssignDraft(Object.assign({},assignDraft,{fechaFin2:e.target.value}));}
           })
         ):null
+      ]:assignBoard==='prog'?[
+        // Programas ITO: las dos agendas por separado — dejar "Sin programar"
+        // en una la quita de ese programa sin tocar la otra.
+        [['vis','Programa de visitas — R1 a Acta','resp','fecha'],['nt','Notificación a ITO — de R0 a listado R1','resp2','fecha2']].map(function(p){
+          return h('div',{key:p[0],style:{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 10px',marginBottom:10}},
+            h('div',{style:{fontSize:11,fontWeight:800,color:'var(--text)',marginBottom:6}},p[1]),
+            h('div',{className:'field'},h('label',null,'Supervisor'),
+              h('select',{className:'sel-input',value:assignDraft[p[2]],
+                onChange:function(e){var d=Object.assign({},assignDraft);d[p[2]]=e.target.value;setAssignDraft(d);}
+              },
+                h('option',{value:''},'Sin programar'),
+                PIZARRA_SUPERVISORES.map(function(r){return h('option',{key:r,value:r},PIZARRA_SUP_META[r].short);})
+              )
+            ),
+            assignDraft[p[2]]?h('div',{className:'field',style:{marginBottom:0}},h('label',null,'Fecha'),
+              h('input',{type:'date',className:'date-input',value:assignDraft[p[3]],
+                onChange:function(e){var d=Object.assign({},assignDraft);d[p[3]]=e.target.value||pizarraHoy;setAssignDraft(d);}
+              })
+            ):null
+          );
+        })
       ]:[
         h('div',{key:'r',className:'field'},h('label',null,'Responsable'),
           h('select',{className:'sel-input',value:assignDraft.resp,
@@ -4979,6 +5310,13 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
       h('div',{style:{display:'flex',gap:8,flexWrap:'wrap'}},
         h('button',{
           onClick:function(){
+            if(assignBoard==='prog'){
+              setPizarraAssignSlots('visitas',assignDep,assignDraft.resp?[{resp:assignDraft.resp,fecha:assignDraft.fecha||pizarraHoy}]:[]);
+              setPizarraAssignSlots('notif',assignDep,assignDraft.resp2?[{resp:assignDraft.resp2,fecha:assignDraft.fecha2||pizarraHoy}]:[]);
+              setPizarraFlag(assignDep,assignDraft.flag);
+              setAssignDep(null);toast&&toast('✓ Programación guardada');
+              return;
+            }
             var slots=[];
             if(assignDraft.resp)slots.push({resp:assignDraft.resp,fecha:assignDraft.fecha||pizarraHoy,fechaFin:assignDraft.fechaFin||null});
             if(assignBoard==='capataces'&&assignDraft.resp2)slots.push({resp:assignDraft.resp2,fecha:assignDraft.fecha2||pizarraHoy,fechaFin:assignDraft.fechaFin2||null});
@@ -17175,7 +17513,7 @@ const MUEB_INSTALL_LABELS={
   35:'Base vanitorio',36:'Puertas vanitorio',37:'Cubierta vanitorio'
 };
 
-function MueblesView({saves,onSave,muebTandas,onMuebTandasSave,auth,toast}){
+function MueblesView({saves,onSave,onSaveMany,muebTandas,onMuebTandasSave,auth,toast}){
   var canEdit=!auth||auth.role==='Admin'||auth.role==='Jefe Obra'||auth.role==='Supervisor';
   const[selPiso,setSelPiso]=useState(MUEB_PISOS[0]);
   const[selDepto,setSelDepto]=useState(null);
@@ -17227,6 +17565,44 @@ function MueblesView({saves,onSave,muebTandas,onMuebTandasSave,auth,toast}){
     setNuevaTanda({fecha:new Date().toISOString().slice(0,10),color:'#ec4899',estado:'en_film'});
     setShowNuevaTanda(false);
     toast&&toast('✓ Tanda de despacho creada');
+  }
+  // ── Despacho rápido: marca TODOS los muebles de uno o varios deptos como despachados ──
+  // Usa la tanda más reciente; si no hay ninguna, crea una automática con fecha de hoy.
+  // Solo completa los ítems sin tanda (no pisa asignaciones ya hechas).
+  function tandaParaDespachoRapido(){
+    if(tandas.length>0)return tandas[tandas.length-1].id;
+    var t={id:'t'+Date.now(),fecha:new Date().toISOString().slice(0,10),color:'#22c55e',estado:'armado',guiaUrl:null,guiaNombre:null};
+    onMuebTandasSave(tandas.concat([t]));
+    return t.id;
+  }
+  function despacharTodo(deps){
+    var tid=tandaParaDespachoRapido();
+    function marcar(sv){
+      var mu=sv.muebles||{};
+      var ni=Object.assign({},mu.items||{});
+      MUEB_CATALOGO.forEach(function(m){
+        var cur=ni[m.id]||{qty:1,tandaId:null};
+        if(!cur.tandaId)ni[m.id]=Object.assign({qty:1},cur,{tandaId:tid});
+      });
+      return Object.assign({},sv,{muebles:Object.assign({},mu,{items:ni})});
+    }
+    if(onSaveMany){
+      onSaveMany(function(cur){
+        var out={};
+        deps.forEach(function(dep){out[dep]=marcar(cur[dep]||{});});
+        return out;
+      });
+    }else{
+      deps.forEach(function(dep){onSave(dep,marcar(getSv(dep)));});
+    }
+    toast&&toast('✓ Despachado todo — '+(deps.length===1?'D'+deps[0]:deps.length+' deptos'));
+  }
+  function quitarDespacho(dep){
+    var items=getItems(dep);
+    var ni={};
+    Object.keys(items).forEach(function(k){ni[k]=Object.assign({},items[k],{tandaId:null});});
+    saveMuebState(dep,{items:ni});
+    toast&&toast('D'+dep+' — despacho desmarcado');
   }
   function subirGuia(tandaId,file){
     if(!window.fbUploadFile){toast&&toast('Firebase Storage no disponible');return;}
@@ -17398,7 +17774,18 @@ function MueblesView({saves,onSave,muebTandas,onMuebTandasSave,auth,toast}){
   }
 
   function renderDespacho(dep){
+    var pct=despachoPct(dep);
     return h('div',null,
+      canEdit&&h('div',{style:{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:10}},
+        h('button',{onClick:function(){despacharTodo([dep]);},disabled:pct>=100,
+          style:{flex:1,minWidth:180,padding:'12px 14px',borderRadius:9,border:'1px solid var(--green)',
+            background:pct>=100?'rgba(34,197,94,.25)':'rgba(34,197,94,.14)',color:'var(--green)',
+            fontSize:13,fontWeight:800,cursor:pct>=100?'default':'pointer'}},
+          pct>=100?'✓ D'+dep+' despachado completo':'✓ Despachado todo'),
+        pct>0&&h('button',{onClick:function(){if(confirm('¿Desmarcar el despacho de todos los muebles de D'+dep+'?'))quitarDespacho(dep);},
+          style:{padding:'8px 10px',borderRadius:8,border:'1px solid var(--border)',background:'var(--bg2)',
+            color:'var(--text3)',fontSize:10,fontWeight:700,cursor:'pointer'}},'↺ Desmarcar')
+      ),
       renderTandasPanel(),
       h('div',{style:{fontSize:11,color:'var(--accent)',fontWeight:700,letterSpacing:.5,marginBottom:5,
         paddingBottom:3,borderBottom:'1px solid var(--border)'}},'MURALES'),
@@ -17512,6 +17899,17 @@ function MueblesView({saves,onSave,muebTandas,onMuebTandasSave,auth,toast}){
       h('span',{style:{background:'rgba(245,158,11,.12)',color:'var(--amber)',padding:'3px 9px',borderRadius:10,fontSize:10,fontWeight:700}},pisoEnProc+' en proceso'),
       h('span',{style:{background:'rgba(100,116,139,.1)',color:'var(--text3)',padding:'3px 9px',borderRadius:10,fontSize:10,fontWeight:700}},pisoPend+' pendientes')
     ),
+    selBloque==='despacho'&&canEdit&&(function(){
+      var pend=pisoDeptos.filter(function(d){return despachoPct(d)<100;});
+      return h('button',{disabled:pend.length===0,
+        onClick:function(){
+          if(confirm('¿Marcar como DESPACHADOS todos los muebles de '+pend.length+' depto(s) del Piso '+selPiso+'?'))despacharTodo(pend);
+        },
+        style:{display:'block',width:'100%',margin:'6px 0',padding:'10px 12px',borderRadius:9,
+          border:'1px solid var(--green)',background:pend.length?'rgba(34,197,94,.12)':'rgba(34,197,94,.25)',
+          color:'var(--green)',fontSize:12,fontWeight:800,cursor:pend.length?'pointer':'default'}},
+        pend.length?'🚚 Despachar todo el Piso '+selPiso+' ('+pend.length+' deptos pendientes)':'✓ Piso '+selPiso+' despachado completo');
+    })(),
     selPartida&&h('div',{style:{fontSize:9,color:'var(--accent)',marginBottom:4}},
       '👁 Mostrando avance de "'+(MUEB_INSTALL_LABELS[selPartida]||selPartida)+'" por departamento'),
     h('div',{style:{display:'flex',flexWrap:'wrap',gap:5,paddingTop:4}},
@@ -18916,6 +19314,8 @@ function App({initialData}){
     return ns;
   });
   const onSave=(dep,sv)=>save({saves:{...saves,[dep]:sv}});
+  // Guarda varios deptos de una vez (fn recibe saves actual y devuelve {dep:sv,...})
+  const onSaveMany=(fn)=>save({saves:function(cur){return {...(cur||{}),...fn(cur||{})};}});
   const onGanttSave=(gd)=>save({ganttData:gd});
   const onWeekSave=(wk,wd)=>save({weekData:{...weekData,[wk]:wd}});
   const reportData=state.reportData||{};
@@ -18939,6 +19339,8 @@ function App({initialData}){
   const itoPizarra=state.itoPizarra||{};
   const itoPizarraIto=state.itoPizarraIto||{};
   const itoPizarraFlags=state.itoPizarraFlags||{};
+  const itoProgVisitas=state.itoProgVisitas||{};
+  const itoProgNotif=state.itoProgNotif||{};
   const onItoPatch=(patch)=>save(patch);
   const onMatSave=(md)=>save({matData:md});
   const muebTandas=state.muebTandas||[];
@@ -18978,7 +19380,7 @@ function App({initialData}){
   else if(effectiveTab==='partidas')content=h(PartidasView,{progress,saves,onSave,auth,toast:showToast,userResp});
   else if(effectiveTab==='control')content=h(ControlView,{saves,onSave,ganttData,onGanttSave,auth,toast:showToast});
   else if(effectiveTab==='masividad')content=h(MasividadView,{auth,toast:showToast});
-  else if(effectiveTab==='muebles')content=h(MueblesView,{saves,onSave,muebTandas,onMuebTandasSave,auth,toast:showToast});
+  else if(effectiveTab==='muebles')content=h(MueblesView,{saves,onSave,onSaveMany,muebTandas,onMuebTandasSave,auth,toast:showToast});
   else if(effectiveTab==='pintura')content=h(PinturaView,{saves,onSave,auth,toast:showToast});
   else if(effectiveTab==='pisovinilico')content=h(PisoVinilicoView,{saves,onSave,auth,toast:showToast});
   else if(effectiveTab==='pisos')content=h(PisosView,{progress,saves,onSave,auth,toast:showToast,userResp,itoData});
@@ -18993,7 +19395,7 @@ function App({initialData}){
   else if(effectiveTab==='sobretiempo')content=h(SobretiempoView,{asistData,stData,onStSave,auth,toast:showToast});
   else if(effectiveTab==='informe')content=h(InformeSemanalView,{ganttData,saves,onSave,onGanttSave,reportData,onReportSave,auth,progress});
   else if(effectiveTab==='planmaestro')content=h(PlanMaestroView,{});
-  else if(effectiveTab==='actasito')content=h(ActasItoView,{progress,saves,onSave,itoData,itoActaCounter,itoPizarra,itoPizarraIto,itoPizarraFlags,onItoPatch,auth,toast:showToast});
+  else if(effectiveTab==='actasito')content=h(ActasItoView,{progress,saves,onSave,itoData,itoActaCounter,itoPizarra,itoPizarraIto,itoPizarraFlags,itoProgVisitas,itoProgNotif,onItoPatch,auth,toast:showToast});
   else if(effectiveTab==='accesorios')content=h(AccesoriosView,{progress,saves,auth,toast:showToast});
   else content=h(Dashboard,{progress,ganttData,saves,toast:showToast,execWeeks,execActiveWeek,onExecActiveWeekChange,onExecWeekSave});
   return h('div',{className:'app'},
