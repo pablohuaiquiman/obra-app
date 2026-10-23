@@ -3018,7 +3018,7 @@ function pizarraBucketStyle(dep,saves,pg,itoData){
 function itoBucketColor(dep,saves,pg){return ITO_BUCKET_META[bucketOfDepto(dep,saves,pg)].color;}
 function itoBucketLabel(dep,saves,pg){return ITO_BUCKET_META[bucketOfDepto(dep,saves,pg)].label;}
 function itoBucketPill(dep,saves,pg){return ITO_BUCKET_META[bucketOfDepto(dep,saves,pg)].pill;}
-function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,itoPizarraIto,itoPizarraFlags,itoProgVisitas,itoProgNotif,onItoPatch,auth,toast}){
+function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,itoPizarraIto,itoPizarraFlags,itoProgVisitas,itoProgNotif,itoProgSeed,onItoPatch,auth,toast}){
   var pg=progress||calculateAllProgress(saves);
   var isAdmin=auth&&auth.role==='Admin';
   var[view,setView]=useState('pizarra'); // 'detalle' | 'resumen' | 'pizarra' — la Pizarra es la vista principal al entrar
@@ -3190,14 +3190,14 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
       data:itoProgVisitas,
       resp:PIZARRA_SUPERVISORES,
       boardTitle:'Programa de visitas — R1 a Acta',
-      hint:'Cuándo le toca a cada depto su revisión en el camino de R1 hacia el acta de entrega. La ficha pasa a verde con ✓ en cuanto el depto queda con acta (Entrega R1 al 100%, casilla "con Acta" o RF entregada).'
+      hint:'Paso 2 — cuándo le toca a cada depto su visita de R1 hacia el acta de entrega. Está condicionado al paso 1: si la notificación R0→R1 del depto no se cierra a tiempo, la visita se corre sola (↷) manteniendo su holgura. Se cierra con el ticket I (ITO revisó) o al quedar con acta.'
     },
     notif:{
       field:'itoProgNotif',
       data:itoProgNotif,
       resp:PIZARRA_SUPERVISORES,
       boardTitle:'Notificación a ITO — de R0 a listado R1',
-      hint:'Cuándo se notifica al ITO que un depto pasó de R0 a tener listado de observaciones R1. La ficha pasa a verde con ✓ en cuanto la Entrega R0 llega al 100% o la Entrega R1 parte (≥25%).'
+      hint:'Paso 1 — cuándo se notifica al ITO que un depto pasó de R0 a tener listado de observaciones R1. Ticket S = supervisor dejó el depto listo; ticket I = el ITO revisó y emitió el listado R1 (también se cierra solo con Entrega R1 ≥50%).'
     }
   };
   function pizarraDataOf(boardKey){
@@ -3377,8 +3377,8 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
     }else if(boardKey==='prog'){
       // Programas ITO: resp/fecha = Visita R1→Acta, resp2/fecha2 = Notificación R0→R1.
       var vis=pizarraAssignOf('visitas',dep),nt=pizarraAssignOf('notif',dep);
-      if(vis&&vis.resp){draft.resp=vis.resp;draft.fecha=vis.fecha;}
-      if(nt&&nt.resp){draft.resp2=nt.resp;draft.fecha2=nt.fecha;}
+      if(vis&&vis.resp){draft.resp=vis.resp;draft.fecha=vis.fecha;draft.okSup=vis.okSup||'';draft.okIto=vis.okIto||'';}
+      if(nt&&nt.resp){draft.resp2=nt.resp;draft.fecha2=nt.fecha;draft.okSup2=nt.okSup||'';draft.okIto2=nt.okIto||'';}
     }else if(slots[0]){draft.resp=slots[0].resp;draft.fecha=slots[0].fecha;draft.fechaFin=slots[0].fechaFin||'';}
     setAssignDraft(draft);
     setAssignBoard(boardKey);
@@ -3472,7 +3472,10 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
     return function(e){
       e.preventDefault();
       var dep=e.dataTransfer.getData('text/plain');
-      if(dep)setPizarraAssign(boardKey,dep,resp,fecha);
+      if(!dep)return;
+      // Programas ITO: setProgAssign conserva los tickets (okSup/okIto) del registro.
+      if(PIZARRA_PROG_KEYS.indexOf(boardKey)>=0)setProgAssign(boardKey,dep,resp,fecha);
+      else setPizarraAssign(boardKey,dep,resp,fecha);
     };
   }
   // Ciclo de 4 pasos para la vista Resumen: 1.Notificado → 2.Obs. levantadas → 3.RF → 4.Entrega final (RF sin observaciones)
@@ -4595,9 +4598,12 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
   // tablero de capataces hay una tarjeta por equipo (Avanzada / Terminaciones):
   // así se ve de un vistazo cuántos deptos le faltan a cada equipo por separado
   // y nada queda sin programar por descuido.
-  function renderPizarraSourceCard(boardKey,cardKey,title,pendingFn,emptyMsg,showLegend){
+  // countFn (opcional): qué cuenta como "falta" cuando no coincide con lo que se
+  // lista — en Programas ITO se listan TODOS los deptos sin acta (para poder
+  // agregarlos al segundo programa) pero solo faltan los que no tienen ninguno.
+  function renderPizarraSourceCard(boardKey,cardKey,title,pendingFn,emptyMsg,showLegend,countFn){
     var pend=0;
-    floors.forEach(function(fl){pend+=(_D.fl[fl]||[]).filter(pendingFn).length;});
+    floors.forEach(function(fl){pend+=(_D.fl[fl]||[]).filter(countFn||pendingFn).length;});
     return h('div',{key:cardKey,className:'card'},
       h('div',{className:'shdr'},
         h('div',{className:'shdr-title'},title),
@@ -4612,7 +4618,15 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
         var pisoLabel=fl.charAt(0).toUpperCase()+fl.slice(1);
         return h('div',{key:fl,style:{display:'flex',alignItems:'center',gap:8,marginBottom:8,flexWrap:'wrap'}},
           h('span',{style:{fontSize:11,fontWeight:800,color:'var(--text)',minWidth:56}},pisoLabel),
-          h('div',{style:{display:'flex',flexWrap:'wrap',gap:4}},deps.map(function(dep){return pizarraChip(boardKey,dep);}))
+          h('div',{style:{display:'flex',flexWrap:'wrap',gap:4}},deps.map(function(dep){
+            if(boardKey!=='prog')return pizarraChip(boardKey,dep);
+            // Marca en qué programas ya está: N = Notificación R0→R1, V = Visita R1→Acta.
+            var tags=[['notif','N'],['visitas','V']].filter(function(t){return pizarraAssignOf(t[0],dep);});
+            return h('span',{key:dep,style:{display:'inline-flex',alignItems:'center',gap:2,opacity:tags.length===2?.55:1}},
+              pizarraChip(boardKey,dep),
+              tags.map(function(t){return h('span',{key:t[1],title:t[0]==='notif'?'Ya tiene Notificación R0→R1 programada':'Ya tiene Visita R1→Acta programada',
+                style:{fontSize:8,fontWeight:900,fontFamily:'var(--mono)',color:'var(--text2)',border:'1px solid var(--border)',borderRadius:3,padding:'0 2px'}},t[1]);}));
+          }))
         );
       }),
       pend===0?h('div',{style:{fontSize:11,color:'var(--text3)',fontStyle:'italic'}},emptyMsg):null
@@ -4692,52 +4706,207 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
     );
   }
 
-  // ── Programas ITO: ¿ya se cumplió la etapa del depto? ──
-  // Con acta (verde en la matriz): RF entregada, Entrega R1 al 100%, casilla
-  // manual "con Acta" o 100% de partidas (bucket RF).
+  // ── Programas ITO: estado de cada programación ──
+  // Con acta (verde): RF entregada, Entrega R1 al 100% o casilla manual "con
+  // Acta". Ya NO cuenta el 100% de partidas: un depto terminado en obra pero sin
+  // acta salía verde y desaparecía de la lista sin haber pasado por el ITO.
   function pizarraConActa(dep){
-    return f4MilestoneVal(dep,F4_MILESTONE_ID.RF,saves)>=100||f4MilestoneVal(dep,F4_MILESTONE_ID.R1,saves)>=100||
-      isActaOk(dep,'R1')||bucketOfDep(dep)==='RF';
+    return f4MilestoneVal(dep,F4_MILESTONE_ID.RF,saves)>=100||f4MilestoneVal(dep,F4_MILESTONE_ID.R1,saves)>=100||isActaOk(dep,'R1');
   }
-  // Notificado R0 → listado R1: obs. R0 levantadas (100%) o ciclo R1 ya partido (≥25%).
+  // Ya existe listado R1: el ITO revisó la R1 (Entrega R1 ≥50% = "Revisado").
   function pizarraNotifR1Hecha(dep){
-    return pizarraConActa(dep)||f4MilestoneVal(dep,F4_MILESTONE_ID.R0,saves)>=100||f4MilestoneVal(dep,F4_MILESTONE_ID.R1,saves)>=25;
+    return pizarraConActa(dep)||f4MilestoneVal(dep,F4_MILESTONE_ID.R1,saves)>=50;
   }
-  function pizarraProgHecho(boardKey,dep){return boardKey==='visitas'?pizarraConActa(dep):pizarraNotifR1Hecha(dep);}
-  // Ficha de un programa ITO: color del supervisor mientras está pendiente,
-  // verde con ✓ al cumplirse, borde rojo punteado si la fecha ya pasó sin cumplirse.
-  function pizarraProgChip(boardKey,dep){
+  // Dos tickets por programación, en el mismo registro {resp,fecha,okSup,okIto}:
+  //  · okSup = fecha en que el supervisor dejó el depto terminado para el ITO.
+  //  · okIto = fecha en que el ITO efectivamente revisó (cierra la programación).
+  // Además se cierra sola con el avance real: visita → con acta; notificación →
+  // listado R1 (Entrega R1 ≥50%). El ticket del supervisor también se da por
+  // hecho en la notificación si la Entrega R0 llegó al 100% o la R1 ya partió.
+  function pizarraProgHecho(boardKey,dep){
     var a=pizarraAssignOf(boardKey,dep);
-    var sup=PIZARRA_SUP_META[a&&a.resp]||{color:'var(--text2)',bg:'var(--bg2)'};
+    if(a&&a.okIto)return true;
+    return boardKey==='visitas'?pizarraConActa(dep):pizarraNotifR1Hecha(dep);
+  }
+  function pizarraProgSupListo(boardKey,dep){
+    var a=pizarraAssignOf(boardKey,dep);
+    if(a&&a.okSup)return true;
+    return boardKey==='notif'&&(f4MilestoneVal(dep,F4_MILESTONE_ID.R0,saves)>=100||f4MilestoneVal(dep,F4_MILESTONE_ID.R1,saves)>=25);
+  }
+  // Días hábiles entre a (excluido) y b (incluido); 0 si b<=a.
+  function pizarraHabilesEntre(a,b){
+    var n=0,cur=a;
+    while(cur<b){cur=pizarraAddDays(cur,1);if(pizarraEsHabil(cur))n++;}
+    return n;
+  }
+  // Fecha EFECTIVA de la visita R1→Acta. Es condicionada: sin listado R1 no hay
+  // acta, así que mientras la Notificación R0→R1 del depto no se cierre, la
+  // visita se corre sola, conservando la holgura hábil que había entre ambas
+  // (mínimo 1 día hábil) contada desde hoy si la notificación está atrasada, o
+  // desde la fecha real de cierre (ticket ITO) si se cerró tarde. Es solo cálculo:
+  // la fecha guardada no se toca, así nunca se pierde lo programado originalmente.
+  function pizarraVisitaInfo(dep){
+    var vis=pizarraAssignOf('visitas',dep);
+    if(!vis||!vis.resp)return null;
+    var out={fecha:vis.fecha,orig:vis.fecha,corrida:false,espera:false,sinNotif:false};
+    if(pizarraProgHecho('visitas',dep))return out;
+    var nt=pizarraAssignOf('notif',dep);
+    if(!nt||!nt.resp){out.sinNotif=!pizarraNotifR1Hecha(dep);return out;}
+    var ntHecha=pizarraProgHecho('notif',dep);
+    var base=ntHecha?((nt.okIto)||nt.fecha):(nt.fecha>pizarraHoy?nt.fecha:pizarraHoy);
+    var minFecha=pizarraAddHabiles(base,Math.max(1,pizarraHabilesEntre(nt.fecha,vis.fecha)));
+    if(minFecha>vis.fecha){out.fecha=minFecha;out.corrida=true;out.espera=!ntHecha;}
+    return out;
+  }
+  // Fecha en que se dibuja una programación en su tablero.
+  function pizarraProgFechaEf(boardKey,dep){
+    if(boardKey==='visitas'){var vi=pizarraVisitaInfo(dep);return vi?vi.fecha:null;}
+    var a=pizarraAssignOf(boardKey,dep);
+    return a&&a.resp?a.fecha:null;
+  }
+  // Escritura de un registro de programa conservando sus tickets (okSup/okIto):
+  // mover una ficha de día o de supervisor ya no borra lo que se había marcado.
+  function setProgRecord(boardKey,dep,fn){
+    var patch={};
+    patch[PIZARRA_BOARDS[boardKey].field]=function(cur){
+      var next=Object.assign({},cur||{});
+      var rec=fn(next[dep]?Object.assign({},next[dep]):null);
+      if(rec&&rec.resp)next[dep]=rec;else delete next[dep];
+      return next;
+    };
+    onItoPatch(patch);
+  }
+  function setProgAssign(boardKey,dep,resp,fecha){
+    setProgRecord(boardKey,dep,function(r){
+      if(!resp)return null;
+      var n=Object.assign({},r||{},{resp:resp,fecha:fecha||pizarraHoy});
+      delete n.fechaFin;
+      return n;
+    });
+  }
+  function toggleProgTicket(boardKey,dep,key){
+    setProgRecord(boardKey,dep,function(r){
+      if(!r)return r;
+      var n=Object.assign({},r);
+      if(n[key])delete n[key];
+      else{
+        n[key]=pizarraHoy;
+        if(key==='okIto'&&!n.okSup)n.okSup=pizarraHoy; // si el ITO revisó, el supervisor ya había terminado
+      }
+      return n;
+    });
+  }
+  // Programa real 12–30 oct (informe "Cumplimiento de revisiones del ITO" del
+  // 23/10/2026): carga única desde el botón del panel de cumplimiento (Admin).
+  // Las cumplidas entran con ambos tickets en su fecha programada.
+  var PIZARRA_PROG_SEED={
+    visitas:[
+      ['Vale Elgueta','2026-10-13',['207','214','215','221'],1],['Vale Elgueta','2026-10-14',['216'],1],
+      ['Vale Elgueta','2026-10-15',['218','308'],1],['Vale Elgueta','2026-10-16',['220','217']],
+      ['Vale Elgueta','2026-10-17',['315','316']],['Vale Elgueta','2026-10-19',['314','317']],
+      ['Vale Elgueta','2026-10-20',['318','306']],['Vale Elgueta','2026-10-21',['307','312']],
+      ['Vale Elgueta','2026-10-22',['321','320']],
+      ['Angelica Farias','2026-10-20',['404','408']],['Angelica Farias','2026-10-21',['409','410']],
+      ['Angelica Farias','2026-10-22',['420','421']],['Angelica Farias','2026-10-23',['416','417','413']]
+    ],
+    notif:[
+      ['Angelica Farias','2026-10-13',['413'],1],['Angelica Farias','2026-10-14',['421'],1],['Angelica Farias','2026-10-15',['511']],
+      ['Angelica Farias','2026-10-20',['509'],1],['Angelica Farias','2026-10-21',['510'],1],['Angelica Farias','2026-10-22',['507']],
+      ['Angelica Farias','2026-10-27',['508']],['Angelica Farias','2026-10-28',['506']],['Angelica Farias','2026-10-29',['403']],
+      ['Marcelo Savando','2026-10-13',['314'],1],['Marcelo Savando','2026-10-14',['317'],1],['Marcelo Savando','2026-10-15',['318'],1],
+      ['Marcelo Savando','2026-10-19',['312'],1],['Marcelo Savando','2026-10-20',['306']],['Marcelo Savando','2026-10-21',['307']],
+      ['Marcelo Savando','2026-10-26',['321']],['Marcelo Savando','2026-10-27',['305']],['Marcelo Savando','2026-10-28',['320']]
+    ]
+  };
+  function cargarProgramaReal(){
+    if(!window.confirm('¿Cargar el programa real del 12 al 30 de octubre (visitas R1→Acta y notificaciones R0→R1)? Reemplaza la programación de esos deptos; los demás no se tocan.'))return;
+    var patch={itoProgSeed:'2026-10'};
+    PIZARRA_PROG_KEYS.forEach(function(k){
+      patch[PIZARRA_BOARDS[k].field]=function(cur){
+        var next=Object.assign({},cur||{});
+        PIZARRA_PROG_SEED[k].forEach(function(row){
+          row[2].forEach(function(dep){
+            var rec={resp:row[0],fecha:row[1]};
+            if(row[3]){rec.okSup=row[1];rec.okIto=row[1];}
+            next[dep]=rec;
+          });
+        });
+        return next;
+      };
+    });
+    onItoPatch(patch);
+    toast&&toast('✓ Programa real 12–30 oct cargado');
+  }
+  // Ficha de un programa ITO. Número + dos tickets: S = supervisor terminó,
+  // I = ITO revisó (un clic marca/desmarca con la fecha de hoy; la fecha exacta
+  // se corrige pinchando el número). Verde con ✓ = cerrada · borde rojo
+  // punteado + días = atrasada · borde ámbar ↷ = visita corrida por la notificación.
+  function pizarraProgChip(boardKey,dep){
+    var a=pizarraAssignOf(boardKey,dep)||{};
+    var sup=PIZARRA_SUP_META[a.resp]||{short:a.resp||'',color:'var(--text2)',bg:'var(--bg2)'};
     var hecho=pizarraProgHecho(boardKey,dep);
-    var atrasado=!hecho&&!!a&&a.fecha<pizarraHoy;
+    var supOk=hecho||pizarraProgSupListo(boardKey,dep);
+    var vi=boardKey==='visitas'?pizarraVisitaInfo(dep):null;
+    var corrida=!!(vi&&vi.corrida);
+    var atraso=(!hecho&&a.fecha<pizarraHoy)?pizarraDiasEntre(a.fecha,pizarraHoy):0;
     var flag=pizarraFlagOf(dep);
-    return h('span',{key:dep,draggable:true,
+    var fmt=function(f){return f.split('-').reverse().join('/');};
+    var info=['D'+dep+' · '+sup.short+' · programado '+fmt(a.fecha)];
+    if(corrida)info.push('↷ corrida al '+fmt(vi.fecha)+(vi.espera?' — espera el listado R1 (notificación R0→R1 sin cerrar)':' — la notificación R0→R1 se cerró tarde'));
+    if(vi&&vi.sinNotif)info.push('⚠ sin Notificación R0→R1 programada: no habrá listado R1 para esta visita');
+    info.push(hecho?'✓ cerrada'+(a.okIto?' (ITO '+fmt(a.okIto)+')':' (por avance real)'):
+      atraso?('ATRASADA '+atraso+' día'+(atraso>1?'s':'')+(supOk?' — supervisor listo, falta revisión ITO':' — supervisor aún no termina')):
+      (supOk?'supervisor listo, espera ITO':'pendiente'));
+    if(flag)info.push('⚠ '+flag.texto);
+    function tick(key,letra,on,txt){
+      return h('span',{title:txt+(on?' ✓ — clic para desmarcar':' — clic para marcar hoy'),
+        onClick:function(e){e.stopPropagation();toggleProgTicket(boardKey,dep,key);},
+        style:{display:'inline-flex',alignItems:'center',justifyContent:'center',width:14,height:14,borderRadius:3,fontSize:8,fontWeight:900,
+          flexShrink:0,cursor:'pointer',background:on?(hecho?'rgba(255,255,255,.25)':'var(--green2)'):'transparent',color:on?'#fff':'inherit',
+          border:'1px solid '+(on?'transparent':'currentColor'),opacity:on?1:.75}},on?'✓':letra);
+    }
+    return h('span',{key:dep,draggable:true,title:info.join('\n'),
       onDragStart:function(e){e.dataTransfer.setData('text/plain',dep);e.dataTransfer.effectAllowed='move';},
       onClick:function(){openAssignPanel('prog',dep);},
-      title:'D'+dep+' · '+(hecho?(boardKey==='visitas'?'con acta ✓':'notificado ✓'):
-        atrasado?'ATRASADO — la fecha pasó sin cumplirse, arrástralo a un nuevo día':'programado')+(flag?' · ⚠ '+flag.texto:''),
-      style:{display:'block',textAlign:'center',fontFamily:'var(--mono)',fontSize:11,fontWeight:700,borderRadius:6,padding:'3px 6px',
+      style:{display:'flex',alignItems:'center',gap:3,fontFamily:'var(--mono)',fontSize:11,fontWeight:700,borderRadius:6,padding:'2px 4px',
         cursor:'pointer',whiteSpace:'nowrap',color:hecho?'#fff':sup.color,background:hecho?'var(--green2)':sup.bg,
-        border:atrasado?'1px dashed var(--red)':('1px solid '+(hecho?'var(--green2)':'transparent'))}
-    },(hecho?'✓ ':'')+(flag?'⚠':'')+dep);
+        border:atraso?'1px dashed var(--red)':corrida?'1px dashed var(--amber)':('1px solid '+(hecho?'var(--green2)':'transparent'))}
+    },
+      h('span',{style:{flex:1,textAlign:'center'}},(hecho?'✓':corrida?'↷':'')+(flag?'⚠':'')+dep),
+      tick('okSup','S',supOk,'Supervisor terminó'),
+      tick('okIto','I',hecho,'ITO revisó'),
+      atraso?h('span',{style:{fontSize:9,fontWeight:800,color:'var(--red)'}},'+'+atraso+'d'):null
+    );
   }
-  // Tablero de un programa ITO: una fila por supervisor × semanas L-V. Se suelta
+  // Días de un programa ITO: L-V de pizarraWeeks + el sábado (se programan
+  // visitas en sábado; antes ese día no se dibujaba y la ficha "desaparecía").
+  function pizarraProgDays(w){
+    var sab=pizarraAddDays(w.mon,5);
+    return w.days.concat([{date:sab,initial:'S',isToday:sab===pizarraHoy,isPast:sab<pizarraHoy,isFeriado:!!PIZARRA_FERIADOS[sab],isSab:true}]);
+  }
+  // Tablero de un programa ITO: una fila por supervisor × semanas L-S. Se suelta
   // una ficha (desde Deptos por piso, Control de avance o el otro programa) en el
   // día exacto; arrastrarla dentro del mismo programa la cambia de día/supervisor.
   function renderPizarraPrograma(boardKey){
     var cfg=PIZARRA_BOARDS[boardKey];
     var data=pizarraDataOf(boardKey);
+    var deps=Object.keys(data).filter(function(dep){return data[dep]&&data[dep].resp;});
+    var ef={};deps.forEach(function(dep){ef[dep]=pizarraProgFechaEf(boardKey,dep);});
     function depsOn(resp,date){
-      return Object.keys(data).filter(function(dep){var a=data[dep];return a&&a.resp===resp&&a.fecha===date;})
+      return deps.filter(function(dep){return data[dep].resp===resp&&ef[dep]===date;})
         .sort(function(a,b){return parseInt(a,10)-parseInt(b,10);});
     }
-    var tot=0,hechos=0,atrasados=0;
-    Object.keys(data).forEach(function(dep){
-      var a=data[dep];if(!a||!a.resp)return;
-      tot++;
-      if(pizarraProgHecho(boardKey,dep))hechos++;else if(a.fecha<pizarraHoy)atrasados++;
+    var hechos=0,atrasados=0,corridas=0;
+    deps.forEach(function(dep){
+      if(pizarraProgHecho(boardKey,dep))hechos++;else if(data[dep].fecha<pizarraHoy)atrasados++;
+      if(boardKey==='visitas'){var vi=pizarraVisitaInfo(dep);if(vi&&vi.corrida)corridas++;}
     });
+    // Programaciones que no caen en ninguna celda visible (fuera del rango de
+    // semanas o con un supervisor que ya no está en la lista) — se listan para
+    // que nunca queden "perdidas".
+    var ini=pizarraWeeks.length?pizarraWeeks[0].mon:'',fin=pizarraWeeks.length?pizarraAddDays(pizarraWeeks[pizarraWeeks.length-1].mon,5):'';
+    var fuera=deps.filter(function(dep){return cfg.resp.indexOf(data[dep].resp)<0||ef[dep]<ini||ef[dep]>fin||!pizarraEsHabil(ef[dep])&&new Date(ef[dep]+'T00:00:00').getDay()===0;})
+      .sort(function(a,b){return parseInt(a,10)-parseInt(b,10);});
     function sw(bg,bdr,txt){
       return h('div',{style:{display:'flex',alignItems:'center',gap:5}},
         h('span',{style:{width:10,height:10,borderRadius:3,background:bg,border:bdr,display:'inline-block'}}),
@@ -4747,12 +4916,16 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
       h('div',{className:'shdr'},
         h('div',{className:'shdr-title'},cfg.boardTitle),
         h('span',{style:{fontSize:11,fontWeight:800,fontFamily:'var(--mono)',whiteSpace:'nowrap',color:'var(--text3)'}},
-          hechos+'/'+tot+' ✓'+(atrasados?' · ':''),atrasados?h('span',{style:{color:'var(--red)'}},atrasados+' atrasado'+(atrasados>1?'s':'')):null)
+          hechos+'/'+deps.length+' ✓',
+          atrasados?h('span',{style:{color:'var(--red)'}},' · '+atrasados+' atrasada'+(atrasados>1?'s':'')):null,
+          corridas?h('span',{style:{color:'var(--amber)'}},' · '+corridas+' corrida'+(corridas>1?'s':'')):null)
       ),
       h('div',{style:{fontSize:10,color:'var(--text3)',marginBottom:8}},cfg.hint),
       h('div',{style:{display:'flex',alignItems:'center',gap:14,marginBottom:8,flexWrap:'wrap'}},
-        sw('var(--green2)','1px solid var(--green2)','✓ cumplido'),
-        sw('var(--bg2)','1px dashed var(--red)','atrasado (fecha pasada sin cumplir)'),
+        sw('var(--green2)','1px solid var(--green2)','✓ cerrada (ITO revisó)'),
+        sw('transparent','1px solid var(--text3)','S = supervisor terminó · I = ITO revisó (clic para marcar)'),
+        sw('var(--bg2)','1px dashed var(--red)','atrasada (+días)'),
+        boardKey==='visitas'?sw('var(--bg2)','1px dashed var(--amber)','↷ corrida: espera el listado R1'):null,
         sw('rgba(245,158,11,.28)','1px solid var(--amber)','hoy')
       ),
       pizarraWeeks.length===0
@@ -4763,19 +4936,19 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
               h('tr',null,
                 h('th',{rowSpan:2,style:{padding:'4px 8px',position:'sticky',left:0,background:'var(--bg2)',zIndex:2,color:'var(--text3)',fontSize:10,textAlign:'left',verticalAlign:'bottom'}},'SUPERVISOR'),
                 pizarraWeeks.map(function(w){
-                  return h('th',{key:w.key,colSpan:5,'data-pizarra-current-week':w.isCurrent?'1':undefined,
+                  return h('th',{key:w.key,colSpan:6,'data-pizarra-current-week':w.isCurrent?'1':undefined,
                     style:{padding:'4px 8px',opacity:w.isPast?.55:1,color:w.isCurrent?'var(--blue)':'var(--text3)',fontSize:10,textAlign:'center',whiteSpace:'nowrap',
                       borderLeft:'2px solid var(--border)',background:w.isCurrent?'rgba(14,165,233,.14)':'transparent'}},w.label);
                 })
               ),
               h('tr',null,
                 pizarraWeeks.map(function(w){
-                  return w.days.map(function(d,di){
+                  return pizarraProgDays(w).map(function(d,di){
                     return h('th',{key:w.key+'_'+d.date,title:d.date.split('-').reverse().join('/')+(d.isFeriado?' · FERIADO':''),style:{
-                      padding:'2px 4px',opacity:d.isPast?.55:1,minWidth:44,
+                      padding:'2px 4px',opacity:d.isPast?.55:1,minWidth:d.isSab?40:58,
                       color:d.isFeriado?'var(--red)':(d.isToday?'var(--amber)':'var(--text3)'),fontSize:9,fontFamily:'var(--mono)',
                       fontWeight:(d.isToday||d.isFeriado)?800:400,textAlign:'center',
-                      background:d.isFeriado?'rgba(239,68,68,.20)':(d.isToday?'rgba(245,158,11,.28)':(w.isCurrent?'rgba(14,165,233,.08)':'transparent')),
+                      background:d.isFeriado?'rgba(239,68,68,.20)':(d.isToday?'rgba(245,158,11,.28)':(d.isSab?'rgba(255,255,255,.03)':(w.isCurrent?'rgba(14,165,233,.08)':'transparent'))),
                       borderLeft:di===0?'2px solid var(--border)':'1px solid rgba(255,255,255,.06)'}},
                       h('div',{style:{fontSize:9,fontWeight:700,lineHeight:'11px'}},String(parseInt(d.date.slice(8,10),10))),
                       h('div',{style:{lineHeight:'11px'}},d.isToday?'HOY':d.initial)
@@ -4788,8 +4961,8 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
               cfg.resp.map(function(resp,ri){
                 var sup=PIZARRA_SUP_META[resp];
                 var rowBdr=ri<cfg.resp.length-1?'2px solid var(--border)':'none';
-                var nDeps=Object.keys(data).filter(function(dep){return data[dep]&&data[dep].resp===resp;}).length;
-                var nSem=pizarraWeeks.filter(function(w){return w.days.some(function(d){return depsOn(resp,d.date).length;});}).length;
+                var nDeps=deps.filter(function(dep){return data[dep].resp===resp;}).length;
+                var nSem=pizarraWeeks.filter(function(w){return pizarraProgDays(w).some(function(d){return depsOn(resp,d.date).length;});}).length;
                 return h('tr',{key:resp},
                   h('td',{style:{padding:'6px 8px',position:'sticky',left:0,zIndex:1,background:'var(--card)',whiteSpace:'nowrap',borderBottom:rowBdr}},
                     h('div',{style:{display:'flex',alignItems:'center',gap:7}},
@@ -4802,14 +4975,13 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
                     )
                   ),
                   pizarraWeeks.map(function(w){
-                    return w.days.map(function(d,di){
-                      var deps=depsOn(resp,d.date);
+                    return pizarraProgDays(w).map(function(d,di){
                       return h('td',{key:w.key+'_'+d.date,onDragOver:allowDropPizarra,onDrop:pizarraCellDrop(boardKey,resp,d.date),
                         title:d.isFeriado?'FERIADO — '+d.date.split('-').reverse().join('/'):undefined,
-                        style:{padding:3,minWidth:44,verticalAlign:'top',borderBottom:rowBdr,opacity:w.isPast?.6:1,
-                          background:d.isFeriado?'rgba(239,68,68,.10)':(d.isToday?'rgba(245,158,11,.14)':(w.isCurrent?'rgba(14,165,233,.04)':'transparent')),
+                        style:{padding:3,minWidth:d.isSab?40:58,verticalAlign:'top',borderBottom:rowBdr,opacity:w.isPast?.6:1,
+                          background:d.isFeriado?'rgba(239,68,68,.10)':(d.isToday?'rgba(245,158,11,.14)':(d.isSab?'rgba(255,255,255,.02)':(w.isCurrent?'rgba(14,165,233,.04)':'transparent'))),
                           borderLeft:di===0?'2px solid var(--border)':'1px dashed rgba(255,255,255,.08)'}},
-                        h('div',{style:{display:'flex',flexDirection:'column',gap:3,minHeight:22}},deps.map(function(dep){return pizarraProgChip(boardKey,dep);}))
+                        h('div',{style:{display:'flex',flexDirection:'column',gap:3,minHeight:22}},depsOn(resp,d.date).map(function(dep){return pizarraProgChip(boardKey,dep);}))
                       );
                     });
                   })
@@ -4817,7 +4989,140 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
               })
             )
           )
+        ),
+      fuera.length?h('div',{style:{marginTop:8}},
+        h('div',{style:{fontSize:10,color:'var(--amber)',marginBottom:4}},'Programados fuera de las semanas visibles (o en domingo) — arrástralos a un día o pínchalos para corregir la fecha:'),
+        h('div',{style:{display:'flex',flexWrap:'wrap',gap:4}},fuera.map(function(dep){
+          return h('div',{key:dep,style:{display:'flex',alignItems:'center',gap:4}},
+            pizarraProgChip(boardKey,dep),
+            h('span',{style:{fontSize:9,color:'var(--text3)',fontFamily:'var(--mono)'}},ef[dep].split('-').reverse().join('/')));
+        }))
+      ):null
+    );
+  }
+
+  // ── Cumplimiento de revisiones del ITO (mismo contenido que el informe que se
+  // le envía al ITO): por programa, lo vencido a hoy sin revisión, con días de
+  // atraso corridos desde la fecha programada y el estado de los dos tickets.
+  function pizarraCumplimientoData(){
+    var out={};
+    PIZARRA_PROG_KEYS.forEach(function(k){
+      var data=pizarraDataOf(k);
+      var filas=[],cumplidas=[],vencidas=0;
+      Object.keys(data).forEach(function(dep){
+        var a=data[dep];if(!a||!a.resp)return;
+        var hecho=pizarraProgHecho(k,dep);
+        if(a.fecha<=pizarraHoy)vencidas++;
+        if(hecho){if(a.fecha<=pizarraHoy)cumplidas.push(dep);return;}
+        if(a.fecha>pizarraHoy)return;
+        filas.push({dep:dep,resp:a.resp,fecha:a.fecha,dias:pizarraDiasEntre(a.fecha,pizarraHoy),supOk:pizarraProgSupListo(k,dep),
+          vi:k==='visitas'?pizarraVisitaInfo(dep):null});
+      });
+      filas.sort(function(x,y){return y.dias-x.dias||parseInt(x.dep,10)-parseInt(y.dep,10);});
+      cumplidas.sort(function(x,y){return parseInt(x,10)-parseInt(y,10);});
+      out[k]={filas:filas,cumplidas:cumplidas,vencidas:vencidas};
+    });
+    return out;
+  }
+  var DIAS_SEM_CORTOS=['dom','lun','mar','mié','jue','vie','sáb'];
+  function pizarraFechaLarga(f){
+    var d=new Date(f+'T00:00:00');
+    return DIAS_SEM_CORTOS[d.getDay()]+' '+d.getDate()+' '+MESES_CORTOS[d.getMonth()];
+  }
+  function copiarCumplimiento(cd){
+    var lineas=['CUMPLIMIENTO DE REVISIONES DEL ITO — corte al '+pizarraFechaLarga(pizarraHoy),''];
+    PIZARRA_PROG_KEYS.forEach(function(k){
+      var c=cd[k];
+      lineas.push((k==='visitas'?'Programa de visitas R1 → Acta de entrega':'Notificación R0 → listado R1')+' ('+c.cumplidas.length+' de '+c.vencidas+' cumplidas)');
+      c.filas.forEach(function(f){
+        lineas.push('  D'+f.dep+' · '+(PIZARRA_SUP_META[f.resp]||{short:f.resp}).short+' · '+pizarraFechaLarga(f.fecha)+' · '+
+          (f.dias?f.dias+' día'+(f.dias>1?'s':'')+' de atraso':'en revisión hoy'));
+      });
+      if(c.cumplidas.length)lineas.push('  Cumplidas: '+c.cumplidas.join(', '));
+      lineas.push('');
+    });
+    lineas.push('Mientras estas unidades no se revisen no es posible emitir los listados R1 ni las actas de entrega. Solicitamos priorizar su revisión y confirmarnos la fecha de visita.');
+    var txt=lineas.join('\n');
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(txt).then(function(){toast&&toast('✓ Informe copiado — pégalo en el correo o WhatsApp');},
+        function(){window.prompt('Copia el informe:',txt);});
+    }else window.prompt('Copia el informe:',txt);
+  }
+  function renderPizarraCumplimiento(){
+    var cd=pizarraCumplimientoData();
+    var todas=cd.visitas.filas.concat(cd.notif.filas);
+    var atrasadas=todas.filter(function(f){return f.dias>0;});
+    var mayor=atrasadas.reduce(function(m,f){return Math.max(m,f.dias);},0);
+    var hoyN=todas.length-atrasadas.length;
+    var venc=cd.visitas.vencidas+cd.notif.vencidas,cump=cd.visitas.cumplidas.length+cd.notif.cumplidas.length;
+    function kpi(val,sub,color){
+      return h('div',{style:{flex:'1 1 120px',background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 10px'}},
+        h('div',{style:{fontFamily:'var(--mono)',fontSize:22,fontWeight:900,color:color||'var(--text)'}},val),
+        h('div',{style:{fontSize:10,color:'var(--text3)'}},sub));
+    }
+    function tabla(k,titulo){
+      var c=cd[k];
+      var pct=c.vencidas?Math.round(c.cumplidas.length*100/c.vencidas):100;
+      var nAtr=c.filas.filter(function(f){return f.dias>0;}).length;
+      return h('div',{key:k,style:{marginTop:14}},
+        h('div',{style:{display:'flex',alignItems:'baseline',justifyContent:'space-between',gap:8,flexWrap:'wrap',borderBottom:'2px solid var(--border)',paddingBottom:4,marginBottom:4}},
+          h('span',{style:{fontSize:12,fontWeight:800,color:'var(--text)'}},titulo),
+          h('span',{style:{fontSize:10,fontFamily:'var(--mono)',fontWeight:800,color:nAtr?'var(--red)':'var(--green)'}},
+            nAtr+' atrasada'+(nAtr!==1?'s':'')+' · '+c.cumplidas.length+' de '+c.vencidas+' · '+pct+'%')
+        ),
+        c.filas.length?h('div',{className:'gt-wrap'},h('table',{style:{borderCollapse:'collapse',fontSize:11,width:'100%'}},
+          h('thead',null,h('tr',null,['DEPTO','SUPERVISOR','PROGRAMADO','ATRASO','TICKETS','ESTADO'].map(function(t){
+            return h('th',{key:t,style:{textAlign:t==='ATRASO'?'right':'left',padding:'4px 8px',color:'var(--text3)',fontSize:9,letterSpacing:'.05em'}},t);
+          }))),
+          h('tbody',null,c.filas.map(function(f){
+            var sup=PIZARRA_SUP_META[f.resp]||{short:f.resp,color:'var(--text2)'};
+            var estado=f.dias?'ATRASADO':'EN REVISIÓN HOY';
+            var nota=f.vi&&f.vi.espera?'espera listado R1 → '+pizarraFechaLarga(f.vi.fecha):
+              f.supOk?'supervisor listo · falta ITO':'supervisor aún no termina';
+            return h('tr',{key:f.dep,onClick:function(){openAssignPanel('prog',f.dep);},style:{cursor:'pointer',borderTop:'1px solid var(--border)'}},
+              h('td',{style:{padding:'5px 8px',fontFamily:'var(--mono)',fontWeight:800}},f.dep),
+              h('td',{style:{padding:'5px 8px',whiteSpace:'nowrap'}},h('span',{style:{color:sup.color}},'● '),sup.short),
+              h('td',{style:{padding:'5px 8px',whiteSpace:'nowrap'}},pizarraFechaLarga(f.fecha)),
+              h('td',{style:{padding:'5px 8px',textAlign:'right',fontFamily:'var(--mono)',fontWeight:900,fontSize:14,
+                color:f.dias>=2?'var(--red)':f.dias===1?'var(--amber)':'var(--text3)'}},f.dias,h('span',{style:{fontSize:9,fontWeight:400,color:'var(--text3)'}},f.dias===1?' día':' días')),
+              h('td',{style:{padding:'5px 8px',whiteSpace:'nowrap',fontSize:10}},
+                h('span',{style:{color:f.supOk?'var(--green)':'var(--text3)'}},(f.supOk?'☑':'☐')+' Sup'),' ',
+                h('span',{style:{color:'var(--text3)'}},'☐ ITO')),
+              h('td',{style:{padding:'5px 8px'}},
+                h('span',{style:{fontSize:9,fontWeight:800,borderRadius:10,padding:'2px 8px',whiteSpace:'nowrap',
+                  background:f.dias?'rgba(239,68,68,.15)':'rgba(245,158,11,.18)',color:f.dias?'var(--red)':'var(--amber)'}},estado),
+                h('div',{style:{fontSize:9,color:'var(--text3)',marginTop:2}},nota))
+            );
+          }))
+        )):h('div',{style:{fontSize:11,color:'var(--green)',padding:'6px 0'}},'✓ Nada vencido sin revisión.'),
+        c.cumplidas.length?h('div',{style:{display:'flex',flexWrap:'wrap',gap:4,alignItems:'center',marginTop:6}},
+          h('span',{style:{fontSize:10,fontWeight:800,color:'var(--text2)'}},'Cumplidas ('+c.cumplidas.length+'):'),
+          c.cumplidas.map(function(dep){
+            return h('span',{key:dep,style:{fontFamily:'var(--mono)',fontSize:10,fontWeight:700,color:'var(--green)',border:'1px solid var(--green)',borderRadius:5,padding:'1px 6px'}},'✓ '+dep);
+          })
+        ):null
+      );
+    }
+    return h('div',{key:'ito_cumplimiento',className:'card'},
+      h('div',{className:'shdr'},
+        h('div',{className:'shdr-title'},'Cumplimiento de revisiones del ITO — corte al '+pizarraFechaLarga(pizarraHoy)),
+        h('div',{style:{display:'flex',gap:6}},
+          (isAdmin&&!itoProgSeed)?h('button',{onClick:cargarProgramaReal,
+            style:{background:'transparent',border:'1px solid var(--amber)',borderRadius:6,padding:'4px 10px',color:'var(--amber)',cursor:'pointer',fontSize:11,fontWeight:700}},'⤓ Cargar programa 12–30 oct'):null,
+          h('button',{onClick:function(){copiarCumplimiento(cd);},
+            style:{background:'transparent',border:'1px solid var(--border)',borderRadius:6,padding:'4px 10px',color:'var(--text2)',cursor:'pointer',fontSize:11,fontWeight:700}},'📋 Copiar informe')
         )
+      ),
+      h('div',{style:{fontSize:10,color:'var(--text3)',marginBottom:8}},
+        'Unidades cuya fecha programada ya llegó y aún no tienen la revisión del ITO (ticket I). Días corridos desde la fecha programada. Pincha una fila para marcar tickets o reprogramar.'),
+      h('div',{style:{display:'flex',gap:8,flexWrap:'wrap'}},
+        kpi(atrasadas.length,'unidades atrasadas',atrasadas.length?'var(--red)':'var(--green)'),
+        kpi(mayor+' días','mayor atraso',mayor?'var(--red)':'var(--text)'),
+        kpi(cump+' de '+venc,'cumplimiento a la fecha · '+(venc?Math.round(cump*100/venc):100)+'%'),
+        kpi(hoyN,'en agenda hoy')
+      ),
+      tabla('visitas','Programa de visitas R1 → Acta de entrega'),
+      tabla('notif','Notificación R0 → listado R1')
     );
   }
 
@@ -4826,7 +5131,8 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
   // cian (R1 con visita programada) · R1 azul · R0 amarillo · Bloqueo morado
   // (depto con restricción ⚠) · Fase rojo. La proyección supone que todo lo
   // programado entre hoy y la fecha elegida se cumple: visita → verde,
-  // notificación → R1. Lo atrasado (fecha ya pasada sin cumplir) NO se proyecta.
+  // notificación → R1. Lo atrasado se proyecta como que se cumple desde hoy, y
+  // la visita respeta su corrimiento por la notificación (pizarraVisitaInfo).
   var PROY_ORDEN=['R0','R1P','R1','RF','BLOQ','FASE'];
   var PROY_META={
     RF:{label:'RF · con acta',short:'RF',bg:'#16a34a',fg:'#fff'},
@@ -4836,15 +5142,17 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
     BLOQ:{label:'Bloqueo ⚠',short:'Bloq',bg:'#c084fc',fg:'#2e1065'},
     FASE:{label:'Fase',short:'Fase',bg:'#ef4444',fg:'#fff'}
   };
+  // Usa la fecha EFECTIVA (visita corrida si la notificación no se cerró) y lo
+  // atrasado se proyecta como que se cumple desde hoy en adelante.
   function pizarraEstadoProy(dep,fecha){
-    if(pizarraConActa(dep))return'RF';
-    var vis=pizarraAssignOf('visitas',dep),nt=pizarraAssignOf('notif',dep);
-    function cae(a){return!!(fecha&&a&&a.resp&&a.fecha>=pizarraHoy&&a.fecha<=fecha);}
-    if(cae(vis))return'RF';
+    if(pizarraProgHecho('visitas',dep))return'RF';
+    var vi=pizarraVisitaInfo(dep),nt=pizarraAssignOf('notif',dep);
+    function cae(f){return!!(fecha&&f&&(f<pizarraHoy?pizarraHoy:f)<=fecha);}
+    if(vi&&cae(vi.fecha))return'RF';
     if(pizarraFlagOf(dep))return'BLOQ';
-    if(vis&&vis.resp)return'R1P';
+    if(vi)return'R1P';
     var b=bucketOfDep(dep);
-    if(b==='R1'||pizarraNotifR1Hecha(dep)||cae(nt))return'R1';
+    if(b==='R1'||pizarraProgHecho('notif',dep)||(nt&&nt.resp&&cae(nt.fecha)))return'R1';
     return b==='R0'?'R0':'FASE';
   }
   function pizarraFinDeMes(offset){
@@ -4878,7 +5186,7 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
         h('div',{className:'shdr-title'},'Matriz de estado por piso — '+(fecha?'Proyección al '+fmt(fecha):'Estado actual '+fmt(pizarraHoy)))
       ),
       h('div',{style:{fontSize:10,color:'var(--text3)',marginBottom:8}},
-        'Elige una fecha para ver cómo quedaría el tablero si se cumple todo lo programado en "Programa de visitas" (→ verde con acta) y "Notificación a ITO" (→ R1) entre hoy y esa fecha. Las celdas con borde blanco cambian respecto a hoy.'),
+        'Elige una fecha para ver cómo quedaría el tablero si se cumple todo lo programado en "Programa de visitas" (→ verde con acta) y "Notificación a ITO" (→ R1) hasta esa fecha (lo atrasado se cuenta desde hoy y las visitas respetan su corrimiento por la notificación). Las celdas con borde blanco cambian respecto a hoy.'),
       h('div',{style:{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap',marginBottom:10}},
         h('div',{className:'ftabs',style:{margin:0}},
           btn('Actual',''),
@@ -4954,7 +5262,7 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
         fecha&&totAct.FASE!==tot.FASE?h('span',{style:{fontFamily:'var(--mono)',fontSize:11,color:'var(--green)'}},'+'+(totAct.FASE-tot.FASE)+' vs hoy'):null
       ),
       atrasados.length?h('div',{style:{fontSize:10,color:'var(--red)',marginTop:8}},
-        '⚠ '+atrasados.length+' depto(s) con programación atrasada que no se proyecta (reprográmalos en los tableros de arriba): '+
+        '⚠ '+atrasados.length+' depto(s) con programación atrasada — la proyección supone que se cumple desde hoy: '+
         atrasados.sort(function(a,b){return parseInt(a,10)-parseInt(b,10);}).join(', ')):null
     );
   }
@@ -4973,20 +5281,23 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
         function(dep){return!pizarraTeamHasSlot(dep,'terminaciones');},
         'Todos los deptos ya tienen responsable de Terminaciones.',false)
     ]:[
-      // Deptos aún disponibles para los programas ITO: sin acta y sin programar
-      // ni en visitas ni en notificación (al soltarlo en uno de los dos sale de aquí).
+      // Deptos para los programas ITO: TODOS los que aún no tienen acta — ya no
+      // desaparecen al programarlos en uno, así se pueden soltar también en el
+      // otro (las marquitas N/V dicen en cuál ya están). "Faltan" = sin ninguno.
       renderPizarraSourceCard('prog',boardKey+'_piso',cfg.pisoTitle,
-        function(dep){return!pizarraConActa(dep)&&!pizarraAssignOf('visitas',dep)&&!pizarraAssignOf('notif',dep);},
-        'Todos los deptos ya están programados o con acta.',true)
+        function(dep){return!pizarraConActa(dep);},
+        'Todos los deptos ya tienen acta.',true,
+        function(dep){return!pizarraConActa(dep)&&!pizarraAssignOf('visitas',dep)&&!pizarraAssignOf('notif',dep);})
     ];
-    // Orden del bloque ITO: 1) Control de avance (todos los deptos), 2) Deptos
-    // por piso — Notificación ITO, 3) Programa de visitas — R1 a Acta,
-    // 4) Notificación a ITO — de R0 a listado R1, 5) Matriz de estado por piso
-    // (actual / proyectada). Reemplaza al antiguo Plan semanal — Notificación ITO
+    // Orden del bloque ITO (en el orden del proceso): 1) Control de avance,
+    // 2) Deptos por piso — Notificación ITO, 3) Notificación a ITO — de R0 a
+    // listado R1 (paso previo), 4) Programa de visitas — R1 a Acta (condicionado
+    // al anterior), 5) Cumplimiento de revisiones del ITO, 6) Matriz de estado
+    // por piso (actual / proyectada). Reemplaza al antiguo Plan semanal — Notificación ITO
     // (Sebastián/Fabián/Humberto); sus datos (itoPizarraIto) quedan intactos en la nube.
     if(boardKey==='ito'){
       srcCards.unshift(renderPizarraFullStatusCard('prog','ito_control_avance','Control de avance — todos los deptos'));
-      return srcCards.concat([renderPizarraPrograma('visitas'),renderPizarraPrograma('notif'),renderPizarraProyeccion()]);
+      return srcCards.concat([renderPizarraPrograma('notif'),renderPizarraPrograma('visitas'),renderPizarraCumplimiento(),renderPizarraProyeccion()]);
     }
     return srcCards.concat([
       h('div',{key:boardKey+'_board',className:'card'},
@@ -5260,7 +5571,9 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
       ]:assignBoard==='prog'?[
         // Programas ITO: las dos agendas por separado — dejar "Sin programar"
         // en una la quita de ese programa sin tocar la otra.
-        [['vis','Programa de visitas — R1 a Acta','resp','fecha'],['nt','Notificación a ITO — de R0 a listado R1','resp2','fecha2']].map(function(p){
+        // Tickets: fecha en que el supervisor terminó (S) y en que el ITO revisó (I);
+        // vacío = aún no. Se pueden registrar con fecha atrasada.
+        [['nt','1 · Notificación a ITO — de R0 a listado R1','resp2','fecha2','okSup2','okIto2'],['vis','2 · Programa de visitas — R1 a Acta','resp','fecha','okSup','okIto']].map(function(p){
           return h('div',{key:p[0],style:{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 10px',marginBottom:10}},
             h('div',{style:{fontSize:11,fontWeight:800,color:'var(--text)',marginBottom:6}},p[1]),
             h('div',{className:'field'},h('label',null,'Supervisor'),
@@ -5271,9 +5584,19 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
                 PIZARRA_SUPERVISORES.map(function(r){return h('option',{key:r,value:r},PIZARRA_SUP_META[r].short);})
               )
             ),
-            assignDraft[p[2]]?h('div',{className:'field',style:{marginBottom:0}},h('label',null,'Fecha'),
+            assignDraft[p[2]]?h('div',{className:'field'},h('label',null,'Fecha programada'),
               h('input',{type:'date',className:'date-input',value:assignDraft[p[3]],
                 onChange:function(e){var d=Object.assign({},assignDraft);d[p[3]]=e.target.value||pizarraHoy;setAssignDraft(d);}
+              })
+            ):null,
+            (p[0]==='vis'&&assignDraft.resp&&pizarraVisitaInfo(assignDep)&&pizarraVisitaInfo(assignDep).corrida)?h('div',{style:{fontSize:10,color:'var(--amber)',marginBottom:6}},
+              '↷ Corrida al '+pizarraVisitaInfo(assignDep).fecha.split('-').reverse().join('/')+' por la notificación R0→R1 (sin listado R1 no hay acta).'):null,
+            assignDraft[p[2]]?h('div',{style:{display:'flex',gap:6}},
+              [[p[4],'S · Supervisor terminó'],[p[5],'I · ITO revisó']].map(function(t){
+                return h('div',{key:t[0],style:{flex:1}},
+                  h('div',{style:{fontSize:9,color:'var(--text2)',marginBottom:2}},t[1]),
+                  h('input',{type:'date',className:'date-input',value:assignDraft[t[0]]||'',max:pizarraHoy,
+                    onChange:function(e){var d=Object.assign({},assignDraft);d[t[0]]=e.target.value;setAssignDraft(d);}}));
               })
             ):null
           );
@@ -5311,8 +5634,16 @@ function ActasItoView({progress,saves,onSave,itoData,itoActaCounter,itoPizarra,i
         h('button',{
           onClick:function(){
             if(assignBoard==='prog'){
-              setPizarraAssignSlots('visitas',assignDep,assignDraft.resp?[{resp:assignDraft.resp,fecha:assignDraft.fecha||pizarraHoy}]:[]);
-              setPizarraAssignSlots('notif',assignDep,assignDraft.resp2?[{resp:assignDraft.resp2,fecha:assignDraft.fecha2||pizarraHoy}]:[]);
+              [['visitas','resp','fecha','okSup','okIto'],['notif','resp2','fecha2','okSup2','okIto2']].forEach(function(p){
+                var d=assignDraft;
+                setProgRecord(p[0],assignDep,function(){
+                  if(!d[p[1]])return null;
+                  var rec={resp:d[p[1]],fecha:d[p[2]]||pizarraHoy};
+                  if(d[p[3]])rec.okSup=d[p[3]];
+                  if(d[p[4]]){rec.okIto=d[p[4]];if(!rec.okSup)rec.okSup=d[p[4]];}
+                  return rec;
+                });
+              });
               setPizarraFlag(assignDep,assignDraft.flag);
               setAssignDep(null);toast&&toast('✓ Programación guardada');
               return;
@@ -19341,6 +19672,7 @@ function App({initialData}){
   const itoPizarraFlags=state.itoPizarraFlags||{};
   const itoProgVisitas=state.itoProgVisitas||{};
   const itoProgNotif=state.itoProgNotif||{};
+  const itoProgSeed=state.itoProgSeed||'';
   const onItoPatch=(patch)=>save(patch);
   const onMatSave=(md)=>save({matData:md});
   const muebTandas=state.muebTandas||[];
@@ -19395,7 +19727,7 @@ function App({initialData}){
   else if(effectiveTab==='sobretiempo')content=h(SobretiempoView,{asistData,stData,onStSave,auth,toast:showToast});
   else if(effectiveTab==='informe')content=h(InformeSemanalView,{ganttData,saves,onSave,onGanttSave,reportData,onReportSave,auth,progress});
   else if(effectiveTab==='planmaestro')content=h(PlanMaestroView,{});
-  else if(effectiveTab==='actasito')content=h(ActasItoView,{progress,saves,onSave,itoData,itoActaCounter,itoPizarra,itoPizarraIto,itoPizarraFlags,itoProgVisitas,itoProgNotif,onItoPatch,auth,toast:showToast});
+  else if(effectiveTab==='actasito')content=h(ActasItoView,{progress,saves,onSave,itoData,itoActaCounter,itoPizarra,itoPizarraIto,itoPizarraFlags,itoProgVisitas,itoProgNotif,itoProgSeed,onItoPatch,auth,toast:showToast});
   else if(effectiveTab==='accesorios')content=h(AccesoriosView,{progress,saves,auth,toast:showToast});
   else content=h(Dashboard,{progress,ganttData,saves,toast:showToast,execWeeks,execActiveWeek,onExecActiveWeekChange,onExecWeekSave});
   return h('div',{className:'app'},
