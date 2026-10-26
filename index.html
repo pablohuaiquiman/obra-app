@@ -18873,6 +18873,9 @@ function PisoVinilicoView({saves,onSave,auth,toast}){
   var canEdit=!auth||auth.role==='Admin'||auth.role==='Jefe Obra'||auth.role==='Supervisor';
   const[selPiso,setSelPiso]=useState(PISOVIN_PISOS[0]);
   const[selDepto,setSelDepto]=useState(null);
+  // null = cadena completa (3 puntos); 0/1/2 = filtra por esa partida de PISOVIN_STEPS
+  const[selStep,setSelStep]=useState(null);
+  var esGral=selPiso==='gral';
 
   function getStepPct(dep,step){
     var sv=saves&&saves[dep];
@@ -18901,12 +18904,63 @@ function PisoVinilicoView({saves,onSave,auth,toast}){
     if(pcts.every(function(p){return p<=0;}))return 'pendiente';
     return 'proceso';
   }
-  var pisoDeptos=pisoVinDeptos(selPiso);
+  // Estado del depto según el filtro activo: cadena completa o una sola partida
+  function deptoStatus(dep){
+    if(selStep==null)return chainStatus(dep);
+    var p=Math.round(getStepPct(dep,PISOVIN_STEPS[selStep]));
+    return p>=100?'completo':p>0?'proceso':'pendiente';
+  }
+  // Alerta ITO: nivelación terminada (100%) pero Entrega a Calidad sin iniciar (0%)
+  function needsIto(dep){
+    return Math.round(getStepPct(dep,PISOVIN_STEPS[0]))>=100&&Math.round(getStepPct(dep,PISOVIN_STEPS[1]))<=0;
+  }
+  function pisoDeDepto(dep){
+    return PISOVIN_PISOS.find(function(p){return pisoVinDeptos(p).indexOf(dep)>=0;})||'';
+  }
+  var pisoDeptos=esGral
+    ?PISOVIN_PISOS.reduce(function(acc,p){return acc.concat(pisoVinDeptos(p));},[])
+    :pisoVinDeptos(selPiso);
   var pisoComp=0,pisoProc=0,pisoPend=0;
   pisoDeptos.forEach(function(dep){
-    var st=chainStatus(dep);
+    var st=deptoStatus(dep);
     if(st==='completo')pisoComp++;else if(st==='proceso')pisoProc++;else pisoPend++;
   });
+  var stepPctProm=selStep!=null&&pisoDeptos.length
+    ?Math.round(pisoDeptos.reduce(function(s,d){return s+getStepPct(d,PISOVIN_STEPS[selStep]);},0)/pisoDeptos.length)
+    :null;
+
+  function renderDeptoBtn(dep){
+    var isSel=selDepto===dep;
+    var steps=PISOVIN_STEPS.map(function(st){return getStepPct(dep,st);});
+    var stepP=selStep!=null?Math.round(steps[selStep]):null;
+    var fBg=stepP==null?null:stepP>=100?'rgba(34,197,94,.18)':stepP>0?'rgba(234,179,8,.16)':'var(--bg2)';
+    var fBdr=stepP==null?null:stepP>=100?'rgba(34,197,94,.55)':stepP>0?'rgba(234,179,8,.5)':'var(--border)';
+    var fCol=stepP==null?null:stepP>=100?'var(--green)':stepP>0?'var(--amber)':'var(--text3)';
+    var ito=needsIto(dep);
+    return h('button',{key:dep,
+      onClick:function(){setSelDepto(isSel?null:dep);},
+      title:ito?'Nivelación al 100% — pendiente revisión ITO (Entrega a Calidad en 0%)':undefined,
+      style:{position:'relative',padding:'6px 8px',borderRadius:8,
+        border:(ito&&!isSel?'2px solid #ef4444':'1px solid '+(isSel?'var(--accent)':(fBdr||'var(--border)'))),
+        boxShadow:ito&&!isSel?'0 0 8px rgba(239,68,68,.45)':'none',
+        background:isSel?'rgba(0,200,255,.22)':(fBg||'var(--bg2)'),
+        fontFamily:'var(--mono)',fontSize:11,fontWeight:700,cursor:'pointer',
+        minWidth:56,textAlign:'center',lineHeight:'1.35',transition:'all .1s',flexShrink:0,
+        color:isSel?'var(--accent)':'var(--text2)'}
+    },
+      ito&&h('span',{style:{position:'absolute',top:-7,right:-6,background:'#ef4444',color:'#fff',
+        fontSize:8,fontWeight:800,borderRadius:6,padding:'1px 4px',lineHeight:1.3,fontFamily:'var(--mono)'}},'⚠ ITO'),
+      h('div',{style:{fontSize:12}},'D'+dep),
+      stepP!=null
+        ?h('div',{style:{fontSize:10,fontWeight:800,color:fCol,marginTop:3}},stepP+'%')
+        :h('div',{style:{display:'flex',gap:3,justifyContent:'center',marginTop:4}},
+          steps.map(function(pct,i){
+            return h('span',{key:i,style:{width:7,height:7,borderRadius:'50%',display:'inline-block',
+              background:dotColor(pct)}});
+          })
+        )
+    );
+  }
 
   function renderDeptoDetail(dep){
     return h('div',null,
@@ -18964,39 +19018,82 @@ function PisoVinilicoView({saves,onSave,auth,toast}){
           h('div',null,'Piso '+p),
           h('div',{style:{fontSize:8,color:act?'rgba(0,0,0,.5)':col,marginTop:1}},compP+'/'+deptos.length)
         );
+      }),
+      // Botón GENERAL — edificio completo (todos los pisos)
+      (function(){
+        var todos=PISOVIN_PISOS.reduce(function(acc,p){return acc.concat(pisoVinDeptos(p));},[]);
+        var compT=todos.filter(function(d){return chainStatus(d)==='completo';}).length;
+        return h('button',{key:'gral',onClick:function(){setSelPiso('gral');setSelDepto(null);},
+          style:{padding:'8px 22px',borderRadius:10,fontSize:13,fontWeight:800,cursor:'pointer',letterSpacing:'.06em',
+            border:'2px solid '+(esGral?'var(--accent)':'rgba(0,200,255,.45)'),
+            background:esGral?'var(--accent)':'rgba(0,200,255,.08)',
+            color:esGral?'var(--bg)':'var(--accent)',transition:'all .1s',minWidth:110,textAlign:'center'}
+        },
+          h('div',null,'🏢 GENERAL'),
+          h('div',{style:{fontSize:8,fontWeight:600,color:esGral?'rgba(0,0,0,.5)':'var(--text3)',marginTop:1}},compT+'/'+todos.length)
+        );
+      })()
+    ),
+    // Filtro por partida
+    h('div',{style:{display:'flex',gap:5,flexWrap:'wrap',marginBottom:8}},
+      [{k:null,l:'Cadena completa'}].concat(PISOVIN_STEPS.map(function(st,i){return{k:i,l:(i+1)+'. '+st.l};})).map(function(o){
+        var act=selStep===o.k;
+        return h('button',{key:String(o.k),onClick:function(){setSelStep(o.k);},
+          style:{padding:'6px 12px',borderRadius:8,fontSize:11,fontWeight:act?700:500,cursor:'pointer',
+            border:'1px solid '+(act?'var(--accent)':'var(--border)'),
+            background:act?'rgba(0,200,255,.18)':'var(--bg2)',
+            color:act?'var(--accent)':'var(--text2)',transition:'all .1s'}
+        },o.l);
       })
     ),
     h('div',{style:{display:'flex',gap:5,marginBottom:2,alignItems:'center',flexWrap:'wrap'}},
-      h('span',{style:{background:'rgba(34,197,94,.12)',color:'var(--green)',padding:'3px 9px',borderRadius:10,fontSize:10,fontWeight:700}},pisoComp+' cadena completa'),
-      h('span',{style:{background:'rgba(234,179,8,.12)',color:'var(--amber)',padding:'3px 9px',borderRadius:10,fontSize:10,fontWeight:700}},pisoProc+' cadena cortada / en proceso'),
-      h('span',{style:{background:'rgba(100,116,139,.1)',color:'var(--text3)',padding:'3px 9px',borderRadius:10,fontSize:10,fontWeight:700}},pisoPend+' sin iniciar')
+      h('span',{style:{background:'rgba(34,197,94,.12)',color:'var(--green)',padding:'3px 9px',borderRadius:10,fontSize:10,fontWeight:700}},pisoComp+(selStep==null?' cadena completa':' al 100%')),
+      h('span',{style:{background:'rgba(234,179,8,.12)',color:'var(--amber)',padding:'3px 9px',borderRadius:10,fontSize:10,fontWeight:700}},pisoProc+(selStep==null?' cadena cortada / en proceso':' en proceso')),
+      h('span',{style:{background:'rgba(100,116,139,.1)',color:'var(--text3)',padding:'3px 9px',borderRadius:10,fontSize:10,fontWeight:700}},pisoPend+' sin iniciar'),
+      stepPctProm!=null&&h('span',{style:{background:'rgba(0,200,255,.1)',color:'var(--accent)',padding:'3px 9px',borderRadius:10,fontSize:10,fontWeight:700}},'Avance promedio '+stepPctProm+'%')
     ),
+    // Alerta ITO — deptos nivelados al 100% con Entrega a Calidad en 0%
+    (function(){
+      var alertas=pisoDeptos.filter(needsIto);
+      if(!alertas.length)return null;
+      return h('div',{style:{background:'rgba(239,68,68,.10)',border:'1px solid rgba(239,68,68,.5)',
+        borderRadius:10,padding:'8px 10px',margin:'8px 0 4px'}},
+        h('div',{style:{fontSize:11,fontWeight:800,color:'#ef4444',marginBottom:6,letterSpacing:'.04em'}},
+          '⚠ REVISIÓN ITO PENDIENTE — '+alertas.length+' depto'+(alertas.length===1?'':'s')+' con nivelación al 100% y Entrega a Calidad en 0%'),
+        h('div',{style:{display:'flex',flexWrap:'wrap',gap:4}},
+          alertas.map(function(dep){
+            return h('button',{key:dep,onClick:function(){setSelDepto(dep);},
+              style:{padding:'3px 8px',borderRadius:6,border:'1px solid rgba(239,68,68,.6)',
+                background:selDepto===dep?'rgba(239,68,68,.3)':'rgba(239,68,68,.12)',color:'#ef4444',
+                fontFamily:'var(--mono)',fontSize:11,fontWeight:700,cursor:'pointer'}},'D'+dep);
+          })
+        )
+      );
+    })(),
     h('div',{style:{fontSize:9,color:'var(--text3)',margin:'4px 0 6px'}},
-      '● ● ● en cada depto = 1. Nivelación · 2. Entrega a Calidad · 3. Instalación piso vinílico (gris=0%, amarillo=en proceso, verde=100%)'),
-    h('div',{style:{display:'flex',flexWrap:'wrap',gap:6,paddingTop:4}},
-      pisoDeptos.map(function(dep){
-        var isSel=selDepto===dep;
-        var steps=PISOVIN_STEPS.map(function(st){return getStepPct(dep,st);});
-        return h('button',{key:dep,
-          onClick:function(){setSelDepto(isSel?null:dep);},
-          style:{padding:'6px 8px',borderRadius:8,border:'1px solid '+(isSel?'var(--accent)':'var(--border)'),
-            background:isSel?'rgba(0,200,255,.22)':'var(--bg2)',
-            fontFamily:'var(--mono)',fontSize:11,fontWeight:700,cursor:'pointer',
-            minWidth:56,textAlign:'center',lineHeight:'1.35',transition:'all .1s',flexShrink:0,
-            color:isSel?'var(--accent)':'var(--text2)'}
-        },
-          h('div',{style:{fontSize:12}},'D'+dep),
-          h('div',{style:{display:'flex',gap:3,justifyContent:'center',marginTop:4}},
-            steps.map(function(pct,i){
-              return h('span',{key:i,style:{width:7,height:7,borderRadius:'50%',display:'inline-block',
-                background:dotColor(pct)}});
-            })
-          )
-        );
-      })
-    ),
+      selStep==null
+        ?'● ● ● en cada depto = 1. Nivelación · 2. Entrega a Calidad · 3. Instalación piso vinílico (gris=0%, amarillo=en proceso, verde=100%)'
+        :'Mostrando % de "'+PISOVIN_STEPS[selStep].l+'" por depto (gris=0%, amarillo=en proceso, verde=100%)'),
+    esGral
+      ?h('div',null,
+        PISOVIN_PISOS.map(function(p){
+          var deps=pisoVinDeptos(p);
+          var compP=deps.filter(function(d){return deptoStatus(d)==='completo';}).length;
+          return h('div',{key:p,style:{marginBottom:10}},
+            h('div',{style:{display:'flex',alignItems:'center',gap:8,fontSize:11,fontWeight:700,color:'var(--text)',
+              letterSpacing:'.06em',padding:'4px 0',borderBottom:'1px solid var(--border)',marginBottom:5}},
+              h('span',null,'PISO '+p),
+              h('span',{style:{fontSize:9,color:compP===deps.length&&deps.length?'var(--green)':'var(--text3)'}},compP+'/'+deps.length+' al 100%')
+            ),
+            h('div',{style:{display:'flex',flexWrap:'wrap',gap:6}},deps.map(renderDeptoBtn))
+          );
+        })
+      )
+      :h('div',{style:{display:'flex',flexWrap:'wrap',gap:6,paddingTop:4}},
+        pisoDeptos.map(renderDeptoBtn)
+      ),
     selDepto!=null&&h('div',{style:{background:'var(--bg3)',borderRadius:10,padding:'8px 10px',marginTop:8}},
-      h('div',{style:{fontSize:10,fontWeight:700,color:'var(--accent)',marginBottom:8,letterSpacing:.5}},'D'+selDepto+' — Piso '+selPiso),
+      h('div',{style:{fontSize:10,fontWeight:700,color:'var(--accent)',marginBottom:8,letterSpacing:.5}},'D'+selDepto+' — Piso '+(esGral?pisoDeDepto(selDepto):selPiso)),
       renderDeptoDetail(selDepto)
     )
   );
